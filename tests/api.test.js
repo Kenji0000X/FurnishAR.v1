@@ -51,6 +51,12 @@ test('the Vercel function entry exports a request handler without starting a ser
   assert.equal(typeof handler, 'function');
 });
 
+test('server.js does not start a long-running listener in the Vercel runtime', async () => {
+  const child = spawn(process.execPath, ['server.js'], { cwd: path.resolve(__dirname, '..'), env: { ...process.env, VERCEL: '1' } });
+  const exitCode = await new Promise((resolve, reject) => { child.once('exit', resolve); child.once('error', reject); });
+  assert.equal(exitCode, 0);
+});
+
 test('the Vercel rewrite reaches the requested API endpoint', async () => {
   const handler = require('../api/index.js');
   const functionServer = http.createServer(handler);

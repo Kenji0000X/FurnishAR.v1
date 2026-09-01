@@ -132,7 +132,10 @@ async function requestHandler(req, res) {
   }
 }
 
-if (require.main === module) {
+// Vercel may auto-detect a root-level `server.js`. Never start a listening
+// process there: its function runtime owns the HTTP server. `api/index.js`
+// imports this handler, while this branch is strictly for local development.
+if (require.main === module && !process.env.VERCEL) {
   const server = http.createServer(requestHandler);
   server.listen(PORT, () => console.log(`FurnishAR is running at http://localhost:${PORT}`));
 }
