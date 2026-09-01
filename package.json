@@ -1,0 +1,14 @@
+{
+  "name": "furnishar",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FurnishAR - browser-native furniture planning for Mamburao retailers",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test tests/api.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
