@@ -253,6 +253,7 @@ async function loadProducts() {
 }
 
 function bindEvents() {
+  if (typeof document === 'undefined') return;  // Skip on server
   document.addEventListener('click', event => {
     const view = event.target.closest('[data-view]')?.dataset.view; if (view) { changeView(view); return; }
     const open = event.target.closest('[data-open-product]')?.dataset.openProduct; if (open) return openProduct(open);
@@ -277,4 +278,7 @@ function bindEvents() {
 }
 
 async function init() { bindEvents(); try { await loadProducts(); await checkARSupport(); } catch (error) { $('#product-grid').innerHTML = `<div class="no-results"><b>FurnishAR could not reach its local catalog.</b><br /><small>Start the app with <code>npm.cmd start</code> and refresh this page.</small></div>`; toast(error.message); } }
-init();
+// Only initialize on browser, not on server
+if (typeof document !== 'undefined') {
+  init();
+}
