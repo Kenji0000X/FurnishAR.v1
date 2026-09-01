@@ -7,7 +7,7 @@ Browser-native furniture planning for Mamburao retailers. It includes a searchab
 Use Node.js 20 or newer, then run:
 
 ```powershell
-npm.cmd start
+npm.cmd run local
 ```
 
 Open [http://localhost:4173](http://localhost:4173). `localhost` is treated as a secure context by Chrome, so it is suitable for testing camera/WebXR features. For a phone, deploy via HTTPS; WebXR will not start on a plain HTTP IP address.
