@@ -1,19 +1,12 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "mkdir -p .vercel/output/static && cp -r public/* .vercel/output/static/ 2>/dev/null || true",
-  "outputDirectory": ".vercel/output/static",
   "functions": {
     "api/index.js": {
       "includeFiles": "data/catalog.json"
     }
   },
-  "routes": [
-    { "src": "^/api/(.*)$", "dest": "/api/index.js?__furnishar_path=$1" },
-    { "src": "^/index\\.html$", "dest": "/index.html" },
-    { "src": "^/(.*\\.js)$", "dest": "/$1" },
-    { "src": "^/(.*\\.css)$", "dest": "/$1" },
-    { "src": "^/$", "dest": "/index.html" },
-    { "src": "^/(.+)$", "dest": "/index.html" }
+  "public": "public",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/index.js?__furnishar_path=:path*" }
   ],
   "headers": [
     {
