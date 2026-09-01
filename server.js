@@ -47,7 +47,16 @@ function verify(req) {
 }
 
 async function catalog() { return JSON.parse(await fsp.readFile(CATALOG_PATH, 'utf8')); }
-async function save(products) { await fsp.writeFile(CATALOG_PATH, `${JSON.stringify(products, null, 2)}\n`); }
+async function save(products) {
+  // Vercel function files are read-only. A real production deployment must use
+  // a database/KV store for catalog writes instead of trying to edit this file.
+  if (process.env.VERCEL) {
+    const error = new Error('Inventory changes need persistent database storage. Configure a database or deploy the API to a stateful host before enabling catalog edits.');
+    error.code = 'PERSISTENT_STORAGE_REQUIRED';
+    throw error;
+  }
+  await fsp.writeFile(CATALOG_PATH, `${JSON.stringify(products, null, 2)}\n`);
+}
 function safeProduct(input, owner, existing = {}) {
   const dimensions = input.dimensions || {};
   const result = {
@@ -103,9 +112,13 @@ async function api(req, res, url) {
   return send(res, 405, { error: 'Method not allowed.' });
 }
 
-const server = http.createServer(async (req, res) => {
+async function requestHandler(req, res) {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
+    // `vercel.json` sends every /api/* request to one function and preserves
+    // the requested endpoint in this query parameter.
+    const forwardedApiPath = url.searchParams.get('__furnishar_path');
+    if (forwardedApiPath !== null) url.pathname = `/api/${forwardedApiPath.replace(/^\/+/, '')}`;
     if (url.pathname.startsWith('/api/')) return await api(req, res, url);
     const relative = url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname).replace(/^\/+/, '');
     if (!PUBLIC_FILES.has(relative)) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
@@ -114,8 +127,14 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
     fs.createReadStream(file).pipe(res);
   } catch (error) {
-    console.error(error); send(res, 500, { error: error.message || 'Server error.' });
+    if (error.code !== 'PERSISTENT_STORAGE_REQUIRED') console.error(error);
+    send(res, error.code === 'PERSISTENT_STORAGE_REQUIRED' ? 503 : 500, { error: error.message || 'Server error.' });
   }
-});
+}
 
-server.listen(PORT, () => console.log(`FurnishAR is running at http://localhost:${PORT}`));
+if (require.main === module) {
+  const server = http.createServer(requestHandler);
+  server.listen(PORT, () => console.log(`FurnishAR is running at http://localhost:${PORT}`));
+}
+
+module.exports = requestHandler;
