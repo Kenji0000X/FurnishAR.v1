@@ -6,7 +6,8 @@
   "scripts": {
     "local": "node local.js",
     "dev": "node --watch local.js",
-    "test": "node --test tests/api.test.js"
+    "test": "node --test tests/api.test.js",
+    "build": "node build.js"
   },
   "engines": {
     "node": ">=20"

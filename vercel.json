@@ -1,10 +1,11 @@
 {
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
   "functions": {
     "api/index.js": {
       "includeFiles": "data/catalog.json"
     }
   },
-  "public": "public",
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api/index.js?__furnishar_path=:path*" }
   ],
