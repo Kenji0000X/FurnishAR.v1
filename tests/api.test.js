@@ -18,7 +18,7 @@ function waitForServer() {
 }
 
 test.before(async () => {
-  server = spawn(process.execPath, ['server.js'], { cwd: path.resolve(__dirname, '..'), env: { ...process.env, PORT: String(port) } });
+  server = spawn(process.execPath, ['local.js'], { cwd: path.resolve(__dirname, '..'), env: { ...process.env, PORT: String(port) } });
   await waitForServer();
 });
 
@@ -51,8 +51,8 @@ test('the Vercel function entry exports a request handler without starting a ser
   assert.equal(typeof handler, 'function');
 });
 
-test('server.js does not start a long-running listener in the Vercel runtime', async () => {
-  const child = spawn(process.execPath, ['server.js'], { cwd: path.resolve(__dirname, '..'), env: { ...process.env, VERCEL: '1' } });
+test('the local listener does not start in the Vercel runtime', async () => {
+  const child = spawn(process.execPath, ['local.js'], { cwd: path.resolve(__dirname, '..'), env: { ...process.env, VERCEL: '1' } });
   const exitCode = await new Promise((resolve, reject) => { child.once('exit', resolve); child.once('error', reject); });
   assert.equal(exitCode, 0);
 });

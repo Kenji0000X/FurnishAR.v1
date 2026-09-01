@@ -28,6 +28,6 @@ The **Place in your room** action checks for WebXR immersive AR with hit-test su
 
 ## Deploying on Vercel
 
-This project now exposes the API through `api/index.js`, a Vercel serverless-function handler. Vercel serves `index.html`, `styles.css`, and `app.js` as static assets and rewrites all `/api/*` requests to that handler. The function configuration explicitly bundles the seed catalog. Do **not** configure `node server.js` as Vercel's build or start command: `listen()` is only for local development.
+This project now exposes the API through `api/index.js`, a Vercel serverless-function handler. Vercel serves `index.html`, `styles.css`, and `app.js` as static assets and rewrites all `/api/*` requests to that handler. The function configuration explicitly bundles the seed catalog. `local.js` is excluded from deployments and only starts the local development server.
 
 In **Vercel → Project → Settings → Environment Variables**, set `FURNISHAR_JWT_SECRET` to a long random value, then redeploy. The bundled JSON catalog is read-only on Vercel, so catalog viewing and login work there, while product changes intentionally return a clear service message until the catalog is migrated to a persistent database or Vercel KV. Local development retains file-backed CRUD.
