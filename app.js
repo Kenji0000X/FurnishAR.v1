@@ -11,8 +11,8 @@ const state = {
   arPurpose: null,
   arPoints: [],
   cameraStream: null,
-  token: sessionStorage.getItem('furnishar-token') || '',
-  user: JSON.parse(sessionStorage.getItem('furnishar-user') || 'null')
+  token: (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('furnishar-token') : null) || '',
+  user: JSON.parse((typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('furnishar-user') : null) || 'null')
 };
 
 const $ = (selector, parent = document) => parent.querySelector(selector);
