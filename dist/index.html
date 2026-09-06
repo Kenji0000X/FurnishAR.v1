@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#14483e" />
+    <meta name="description" content="FurnishAR helps shoppers in Mamburao see true-to-scale furniture before they buy." />
+    <title>FurnishAR | See it. Fit it. Love it.</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#catalog">Skip to catalog</a>
+    <header class="site-header">
+      <a class="brand" href="#home" aria-label="FurnishAR home">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>Furnish<span>AR</span></span>
+      </a>
+      <nav class="main-nav" aria-label="Main navigation">
+        <button class="nav-link active" data-view="home">Discover</button>
+        <button class="nav-link" data-view="planner">Space planner</button>
+        <button class="nav-link" data-view="admin">Store portal</button>
+      </nav>
+      <button class="header-action" data-view="planner"><span aria-hidden="true">⌑</span> Measure my space</button>
+    </header>
+
+    <main>
+      <section id="home-view" class="view active" aria-labelledby="hero-title">
+        <section class="hero">
+          <div class="hero-copy">
+            <p class="eyebrow">Furniture, made certain</p>
+            <h1 id="hero-title">Find the piece that fits <em>your life.</em></h1>
+            <p class="hero-text">Explore furniture from Mamburao stores, see it at true scale, and check your room before you buy.</p>
+            <div class="hero-actions">
+              <a class="button button-primary" href="#catalog">Browse furniture <span aria-hidden="true">→</span></a>
+              <button class="text-button" data-view="planner"><span class="play-icon" aria-hidden="true">▶</span> How it works</button>
+            </div>
+            <dl class="hero-facts">
+              <div><dt>3</dt><dd>Local stores</dd></div>
+              <div><dt>1:1</dt><dd>True-scale preview</dd></div>
+              <div><dt>±5%</dt><dd>Target scan margin</dd></div>
+            </dl>
+          </div>
+          <div class="hero-room" aria-label="Illustration of an airy living room with a sofa, chair, table, and plant">
+            <span class="sun-glow"></span><span class="window window-one"></span><span class="window window-two"></span>
+            <span class="wall-art art-one"></span><span class="wall-art art-two"></span>
+            <span class="room-sofa"><i></i><b></b><b></b></span><span class="room-chair"><i></i></span><span class="room-table"></span>
+            <span class="room-plant"><i></i><i></i><i></i><b></b></span><span class="room-rug"></span>
+            <span class="measure-tag tag-sofa">210 cm</span><span class="measure-tag tag-chair">78 cm</span>
+          </div>
+        </section>
+
+        <section id="catalog" class="catalog-section" aria-labelledby="catalog-title">
+          <div class="section-heading">
+            <div><p class="eyebrow">Made nearby, chosen by you</p><h2 id="catalog-title">Explore the collection</h2></div>
+            <p id="result-count" class="result-count" aria-live="polite"></p>
+          </div>
+          <div class="catalog-layout">
+            <aside class="filters" aria-label="Catalog filters">
+              <div class="filter-heading"><h3>Refine your search</h3><button id="clear-filters" class="clear-button">Clear all</button></div>
+              <label class="search-input"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Search furniture" /></label>
+              <div class="filter-group">
+                <label for="filter-category">Category</label>
+                <select id="filter-category"><option value="">All furniture</option><option>Sofa</option><option>Table</option><option>Chair</option><option>Bed</option><option>Storage</option></select>
+              </div>
+              <div class="filter-group">
+                <label for="filter-store">Store</label>
+                <select id="filter-store"><option value="">All local stores</option><option value="sc-variety">S&C Variety Store</option><option value="tiampion">Tiampion Buildings</option><option value="sanros">Sanros General Merchandise</option></select>
+              </div>
+              <fieldset class="filter-group range-group"><legend>Maximum width <output id="width-output" for="filter-width">No limit</output></legend><input id="filter-width" type="range" min="70" max="240" value="240" /><div><span>70 cm</span><span>240 cm+</span></div></fieldset>
+              <fieldset class="filter-group color-group"><legend>Colour</legend><div id="color-options" class="color-options"></div></fieldset>
+            </aside>
+            <div id="product-grid" class="product-grid" aria-live="polite"></div>
+          </div>
+        </section>
+      </section>
+
+      <section id="planner-view" class="view planner-view" aria-labelledby="planner-title">
+        <section class="planner-intro"><p class="eyebrow">Fit before you commit</p><h1 id="planner-title">Your room, planned with confidence.</h1><p>Choose a product, scan a doorway or free floor area, and get a clear fit check in centimeters.</p></section>
+        <div class="planner-layout">
+          <section class="planner-card product-picker" aria-labelledby="picker-title">
+            <div class="card-heading"><span class="step-number">01</span><div><p>Pick a product</p><h2 id="picker-title">What are you placing?</h2></div></div>
+            <div id="planner-product" class="planner-product"></div>
+            <button class="button button-outline" data-view="home">Change product</button>
+          </section>
+          <section class="planner-card measure-card" aria-labelledby="measure-title">
+            <div class="card-heading"><span class="step-number">02</span><div><p>Measure your clearance</p><h2 id="measure-title">Two-point room scan</h2></div></div>
+            <p class="card-copy">Aim at a textured, non-reflective floor in bright light. On Android Chrome, tap to capture two real-world points. Else use the guided fallback below.</p>
+            <div class="measurement-visual" aria-hidden="true"><span class="measure-point point-a">A</span><span class="measure-line"></span><span class="measure-point point-b">B</span><span id="visual-distance">120 cm</span></div>
+            <div class="measurement-inputs"><label>Point A <input id="point-a" type="number" min="0" max="1000" value="0" /> cm</label><label>Point B <input id="point-b" type="number" min="1" max="1000" value="120" /> cm</label></div>
+            <p class="measurement-result"><span>Measured clearance</span><strong id="measured-distance">120 cm</strong></p>
+            <button id="ar-button" class="button button-primary">⌑ Scan with your camera</button>
+            <p id="ar-status" class="ar-status" aria-live="polite">Checking AR support…</p>
+          </section>
+          <section class="planner-card verdict-card" aria-labelledby="verdict-title">
+            <div class="card-heading"><span class="step-number">03</span><div><p>Check the fit</p><h2 id="verdict-title">Clearance verdict</h2></div></div>
+            <div id="fit-verdict" class="fit-verdict"></div>
+            <div class="dimension-list"><p><span>Furniture width</span><b id="check-width">—</b></p><p><span>Furniture depth</span><b id="check-depth">—</b></p><p><span>Measured clearance</span><b id="check-clearance">—</b></p></div>
+            <p class="fine-print">Leave at least 5 cm extra for comfortable passage. This is a planning guide; verify final dimensions with the store.</p>
+          </section>
+        </div>
+        <section class="conditions"><div><span class="condition-icon">☀</span><p><b>Bright room</b><br />300 lux or more helps floor tracking.</p></div><div><span class="condition-icon">▧</span><p><b>Textured floor</b><br />Avoid reflective or clear surfaces.</p></div><div><span class="condition-icon">◉</span><p><b>Steady connection</b><br />5 Mbps loads detailed 3D assets reliably.</p></div></section>
+      </section>
+
+      <section id="admin-view" class="view admin-view" aria-labelledby="portal-title">
+        <section class="admin-intro"><p class="eyebrow">For local partners</p><h1 id="portal-title">Store owner portal</h1><p>Keep the catalog current so shoppers always see available, accurate furniture.</p></section>
+        <div id="login-panel" class="login-panel">
+          <div class="login-copy"><span class="secure-mark" aria-hidden="true">⌑</span><h2>Manage your own inventory.</h2><p>Owner access is partitioned by store. Your catalog updates are saved to the local FurnishAR backend.</p><p class="demo-note"><b>Demo:</b> owner@furnishar.ph<br />Password: furnishar</p></div>
+          <form id="login-form" class="login-form"><label>Email<input name="email" type="email" required autocomplete="email" value="owner@furnishar.ph" /></label><label>Password<input name="password" type="password" required autocomplete="current-password" value="furnishar" /></label><button class="button button-primary" type="submit">Sign in securely <span aria-hidden="true">→</span></button><p id="login-error" class="form-error" aria-live="polite"></p></form>
+        </div>
+        <section id="dashboard" class="dashboard" hidden>
+          <div class="dashboard-top"><div><p id="owner-store" class="eyebrow">Store inventory</p><h2>Welcome back</h2></div><div><button id="add-product" class="button button-primary">+ Add product</button><button id="logout" class="button button-outline">Sign out</button></div></div>
+          <div id="inventory-summary" class="inventory-summary"></div>
+          <div class="inventory-table-wrap"><table><thead><tr><th>Product</th><th>Dimensions</th><th>Price</th><th>In stock</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody id="inventory-body"></tbody></table></div>
+        </section>
+      </section>
+    </main>
+
+    <footer><span class="brand footer-brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>Furnish<span>AR</span></span></span><p>Spatial planning for the homes of Mamburao.</p><p>Android Chrome + ARCore recommended for live placement.</p></footer>
+
+    <dialog id="product-dialog" class="product-dialog"><button class="dialog-close" data-close-dialog aria-label="Close product details">×</button><div id="dialog-content"></div></dialog>
+    <dialog id="product-form-dialog" class="form-dialog"><button class="dialog-close" data-close-form aria-label="Close form">×</button><h2 id="form-title">Add a product</h2><form id="product-form" class="product-form"><input type="hidden" name="id" /><div class="form-grid"><label>Product name<input name="name" required maxlength="90" /></label><label>Category<select name="category"><option>Sofa</option><option>Table</option><option>Chair</option><option>Bed</option><option>Storage</option></select></label><label>Style<input name="style" required value="Modern" /></label><label>Colour<input name="color" required value="Natural" /></label><label>Price (PHP)<input name="price" type="number" min="0" step="1" required /></label><label>In stock<input name="stock" type="number" min="0" step="1" required /></label><label>Width (cm)<input name="width" type="number" min="1" required /></label><label>Height (cm)<input name="height" type="number" min="1" required /></label><label>Depth (cm)<input name="depth" type="number" min="1" required /></label><label>Preview shape<select name="model"><option value="sofa">Sofa</option><option value="table">Table</option><option value="chair">Chair</option><option value="bed">Bed</option><option value="shelf">Shelf</option><option value="desk">Desk</option></select></label></div><label>Description<textarea name="description" rows="3" maxlength="400"></textarea></label><p id="product-form-error" class="form-error" aria-live="polite"></p><button class="button button-primary" type="submit">Save product</button></form></dialog>
+    <div id="ar-experience" class="ar-experience" hidden><video id="camera-feed" autoplay playsinline muted></video><canvas id="xr-canvas"></canvas><div id="fallback-product" class="fallback-product"></div><div class="ar-hud"><div><p class="eyebrow">FurnishAR placement</p><strong id="ar-product-name">Product</strong></div><button id="exit-ar" class="ar-exit">Exit</button></div><div class="ar-reticle"><i></i></div><div class="ar-instructions"><b id="ar-mode-label">Move your phone slowly to find the floor.</b><span>Tap the screen to place. Drag horizontally to rotate in preview mode.</span></div></div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="client.js"></script>
+  </body>
+</html>

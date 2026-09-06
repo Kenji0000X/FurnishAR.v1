@@ -1,13 +1,4 @@
 /* FurnishAR client — no build step required. It talks to the local Node API. */
-
-// Escape HTML special characters to prevent XSS
-function escapeHtml(text) {
-  if (typeof text !== 'string') return '';
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 const state = {
   products: [],
   selected: null,
@@ -60,8 +51,8 @@ function renderCatalog() {
   $('#result-count').textContent = `${found.length} ${found.length === 1 ? 'piece' : 'pieces'} to explore`;
   $('#product-grid').innerHTML = found.length ? found.map(product => `
     <article class="product-card">
-      <div class="product-image">${furniture(product)}<span class="ar-badge">⌑ AR READY</span><button class="view-button" data-open-product="${product.id}" aria-label="View ${escapeHtml(product.name)}">→</button></div>
-      <div class="product-info"><p class="product-store">${escapeHtml(product.store)}</p><h3 class="product-name">${escapeHtml(product.name)}</h3><div class="product-meta"><span class="product-price">${peso(product.price)}</span><span class="product-dimension">${product.dimensions.width} × ${product.dimensions.depth} × ${product.dimensions.height} cm</span></div></div>
+      <div class="product-image">${furniture(product)}<span class="ar-badge">⌑ AR READY</span><button class="view-button" data-open-product="${product.id}" aria-label="View ${product.name}">→</button></div>
+      <div class="product-info"><p class="product-store">${product.store}</p><h3 class="product-name">${product.name}</h3><div class="product-meta"><span class="product-price">${peso(product.price)}</span><span class="product-dimension">${product.dimensions.width} × ${product.dimensions.depth} × ${product.dimensions.height} cm</span></div></div>
     </article>`).join('') : '<div class="no-results"><b>No furniture matches these filters.</b><br /><small>Try widening your search or clearing a filter.</small></div>';
 }
 
@@ -74,7 +65,7 @@ function openProduct(id) {
   const product = state.products.find(item => item.id === id);
   if (!product) return;
   state.selected = product;
-  $('#dialog-content').innerHTML = `<div class="dialog-layout"><div class="dialog-image">${furniture(product)}</div><div class="dialog-info"><p class="product-store">${escapeHtml(product.store)} · ${escapeHtml(product.category)}</p><h2>${escapeHtml(product.name)}</h2><p class="dialog-price">${peso(product.price)}</p><p>${escapeHtml(product.description)}</p><div class="dialog-dimensions"><div><span>WIDTH</span><b>${cm(product.dimensions.width)}</b></div><div><span>DEPTH</span><b>${cm(product.dimensions.depth)}</b></div><div><span>HEIGHT</span><b>${cm(product.dimensions.height)}</b></div></div><button class="button button-primary" data-place-product="${product.id}">⌑ Place in your room</button><button class="button button-outline" data-plan-product="${product.id}">Measure the fit first</button></div></div>`;
+  $('#dialog-content').innerHTML = `<div class="dialog-layout"><div class="dialog-image">${furniture(product)}</div><div class="dialog-info"><p class="product-store">${product.store} · ${product.category}</p><h2>${product.name}</h2><p class="dialog-price">${peso(product.price)}</p><p>${product.description}</p><div class="dialog-dimensions"><div><span>WIDTH</span><b>${cm(product.dimensions.width)}</b></div><div><span>DEPTH</span><b>${cm(product.dimensions.depth)}</b></div><div><span>HEIGHT</span><b>${cm(product.dimensions.height)}</b></div></div><button class="button button-primary" data-place-product="${product.id}">⌑ Place in your room</button><button class="button button-outline" data-plan-product="${product.id}">Measure the fit first</button></div></div>`;
   $('#product-dialog').showModal();
 }
 
@@ -91,7 +82,7 @@ function renderPlanner() {
   if (!state.selected) state.selected = state.products[0] || null;
   const product = state.selected;
   if (!product) return;
-  $('#planner-product').innerHTML = `<div class="planner-product-inner">${furniture(product)}<div><h3>${escapeHtml(product.name)}</h3><p>${escapeHtml(product.store)}</p><p>${product.dimensions.width} W × ${product.dimensions.depth} D × ${product.dimensions.height} H</p></div></div>`;
+  $('#planner-product').innerHTML = `<div class="planner-product-inner">${furniture(product)}<div><h3>${product.name}</h3><p>${product.store}</p><p>${product.dimensions.width} W × ${product.dimensions.depth} D × ${product.dimensions.height} H</p></div></div>`;
   $('#check-width').textContent = cm(product.dimensions.width);
   $('#check-depth').textContent = cm(product.dimensions.depth);
   $('#ar-product-name').textContent = product.name;
@@ -234,7 +225,7 @@ function renderAdmin() {
   const own = state.products.filter(product => product.storeId === state.user.storeId);
   $('#owner-store').textContent = state.user.store;
   $('#inventory-summary').innerHTML = `<div class="inventory-stat"><span>Listed products</span><strong>${own.length}</strong></div><div class="inventory-stat"><span>Units available</span><strong>${own.reduce((sum, product) => sum + product.stock, 0)}</strong></div><div class="inventory-stat"><span>Catalog value</span><strong>${peso(own.reduce((sum, product) => sum + product.price * product.stock, 0))}</strong></div>`;
-  $('#inventory-body').innerHTML = own.length ? own.map(product => `<tr><td>${escapeHtml(product.name)}<small>${escapeHtml(product.category)} · ${escapeHtml(product.color)}</small></td><td>${product.dimensions.width} × ${product.dimensions.depth} × ${product.dimensions.height} cm</td><td>${peso(product.price)}</td><td>${product.stock}</td><td><div class="table-actions"><button class="icon-button" data-edit-product="${product.id}">Edit</button><button class="icon-button delete" data-delete-product="${product.id}">Delete</button></div></td></tr>`).join('') : '<tr><td colspan="5">No products listed yet. Add your first product above.</td></tr>';
+  $('#inventory-body').innerHTML = own.length ? own.map(product => `<tr><td>${product.name}<small>${product.category} · ${product.color}</small></td><td>${product.dimensions.width} × ${product.dimensions.depth} × ${product.dimensions.height} cm</td><td>${peso(product.price)}</td><td>${product.stock}</td><td><div class="table-actions"><button class="icon-button" data-edit-product="${product.id}">Edit</button><button class="icon-button delete" data-delete-product="${product.id}">Delete</button></div></td></tr>`).join('') : '<tr><td colspan="5">No products listed yet. Add your first product above.</td></tr>';
 }
 
 function openProductForm(product = null) {
@@ -286,7 +277,7 @@ function bindEvents() {
   $('#add-product').addEventListener('click', () => openProductForm()); $('#product-form').addEventListener('submit', saveProduct);
 }
 
-async function init() { bindEvents(); try { await loadProducts(); await checkARSupport(); } catch (error) { $('#product-grid').innerHTML = `<div class="no-results"><b>FurnishAR could not reach its local catalog.</b><br /><small>Start the app with <code>npm run local</code> and refresh this page.</small></div>`; toast(error.message); } }
+async function init() { bindEvents(); try { await loadProducts(); await checkARSupport(); } catch (error) { $('#product-grid').innerHTML = `<div class="no-results"><b>FurnishAR could not reach its local catalog.</b><br /><small>Start the app with <code>npm.cmd start</code> and refresh this page.</small></div>`; toast(error.message); } }
 // Only initialize on browser, not on server
 if (typeof document !== 'undefined') {
   init();
