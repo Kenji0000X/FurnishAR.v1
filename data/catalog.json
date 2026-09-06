@@ -126,25 +126,25 @@
     "updatedAt": "2026-01-01T00:00:00Z"
   },
   {
-    "name": "Test item",
-    "storeId": "tiampion",
-    "store": "Tiampion Buildings",
+    "id": "cabinet-glb-test",
+    "name": "Test Cabinet (3D GLB)",
+    "storeId": "sc-variety",
+    "store": "S&C Variety Store",
     "category": "Storage",
     "style": "Modern",
     "color": "Natural",
-    "price": 100,
+    "price": 9990,
     "stock": 1,
     "dimensions": {
-      "width": 10,
-      "height": 10,
-      "depth": 10
+      "width": 100,
+      "height": 180,
+      "depth": 45
     },
-    "model": "shelf",
-    "description": "",
-    "featured": false,
-    "updatedAt": "2026-09-06T08:16:53.588Z",
+    "model": "models/test-model.glb",
+    "description": "Test cabinet with 3D GLB model for AR placement validation. Uses external glTF asset.",
     "arReady": true,
-    "id": "storage-7691ffac"
+    "featured": false,
+    "updatedAt": "2026-01-01T00:00:00Z"
   },
   {
     "name": "Test item",
@@ -163,9 +163,9 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T08:16:53.594Z",
+    "updatedAt": "2026-09-06T09:18:17.947Z",
     "arReady": true,
-    "id": "storage-61824d83"
+    "id": "storage-dcfbbdc0"
   },
   {
     "name": "Test item",
@@ -184,9 +184,9 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T08:16:53.601Z",
+    "updatedAt": "2026-09-06T09:18:17.953Z",
     "arReady": true,
-    "id": "storage-7a7edf59"
+    "id": "storage-9f231960"
   },
   {
     "name": "Test item",
@@ -205,9 +205,9 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T08:16:53.606Z",
+    "updatedAt": "2026-09-06T09:18:17.957Z",
     "arReady": true,
-    "id": "storage-947ab629"
+    "id": "storage-cd94294d"
   },
   {
     "name": "Test item",
@@ -226,9 +226,9 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T08:16:53.611Z",
+    "updatedAt": "2026-09-06T09:18:17.961Z",
     "arReady": true,
-    "id": "storage-a97440fc"
+    "id": "storage-d11de5ec"
   },
   {
     "name": "Test item",
@@ -247,9 +247,30 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T08:16:53.615Z",
+    "updatedAt": "2026-09-06T09:18:17.968Z",
     "arReady": true,
-    "id": "storage-811a056a"
+    "id": "storage-917fa89b"
+  },
+  {
+    "name": "Test item",
+    "storeId": "tiampion",
+    "store": "Tiampion Buildings",
+    "category": "Storage",
+    "style": "Modern",
+    "color": "Natural",
+    "price": 100,
+    "stock": 1,
+    "dimensions": {
+      "width": 10,
+      "height": 10,
+      "depth": 10
+    },
+    "model": "shelf",
+    "description": "",
+    "featured": false,
+    "updatedAt": "2026-09-06T09:18:17.972Z",
+    "arReady": true,
+    "id": "storage-f25fb8ad"
   },
   {
     "name": "Updated Name",
@@ -268,8 +289,8 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T08:16:53.758Z",
+    "updatedAt": "2026-09-06T09:18:18.118Z",
     "arReady": true,
-    "id": "storage-faf3faa8"
+    "id": "storage-ae9457b1"
   }
 ]

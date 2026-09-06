@@ -1,6 +1,32 @@
 /* FurnishAR client — no build step required. It talks to the local Node API. */
+
+// Escape HTML special characters to prevent XSS
+function escapeHtml(text) {
+  if (typeof text !== 'string') return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Format a timestamp as relative time ("3 days ago")
+function relativeTime(isoString) {
+  if (!isoString) return '';
+  const now = new Date();
+  const then = new Date(isoString);
+  const seconds = Math.floor((now - then) / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+  if (days > 0) return rtf.format(-days, 'day');
+  if (hours > 0) return rtf.format(-hours, 'hour');
+  if (minutes > 0) return rtf.format(-minutes, 'minute');
+  return rtf.format(-Math.max(0, seconds), 'second');
+}
+
 const state = {
   products: [],
+  stores: {},
   selected: null,
   filters: { search: '', category: '', store: '', width: 240, color: '' },
   session: null,
@@ -10,6 +36,9 @@ const state = {
   placedMatrix: null,
   arPurpose: null,
   arPoints: [],
+  arMeasurement: null,
+  arConfirmationMeasurement: null,
+  arNeedsConfirmation: false,
   cameraStream: null,
   token: (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('furnishar-token') : null) || '',
   user: JSON.parse((typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('furnishar-user') : null) || 'null')
@@ -51,8 +80,8 @@ function renderCatalog() {
   $('#result-count').textContent = `${found.length} ${found.length === 1 ? 'piece' : 'pieces'} to explore`;
   $('#product-grid').innerHTML = found.length ? found.map(product => `
     <article class="product-card">
-      <div class="product-image">${furniture(product)}<span class="ar-badge">⌑ AR READY</span><button class="view-button" data-open-product="${product.id}" aria-label="View ${product.name}">→</button></div>
-      <div class="product-info"><p class="product-store">${product.store}</p><h3 class="product-name">${product.name}</h3><div class="product-meta"><span class="product-price">${peso(product.price)}</span><span class="product-dimension">${product.dimensions.width} × ${product.dimensions.depth} × ${product.dimensions.height} cm</span></div></div>
+      <div class="product-image">${furniture(product)}<span class="ar-badge">⌑ AR READY</span><button class="view-button" data-open-product="${product.id}" aria-label="View ${escapeHtml(product.name)}">→</button></div>
+      <div class="product-info"><p class="product-store">${escapeHtml(product.store)}</p><h3 class="product-name">${escapeHtml(product.name)}</h3><div class="product-meta"><span class="product-price">${peso(product.price)}</span><span class="product-dimension">${product.dimensions.width} × ${product.dimensions.depth} × ${product.dimensions.height} cm</span></div></div>
     </article>`).join('') : '<div class="no-results"><b>No furniture matches these filters.</b><br /><small>Try widening your search or clearing a filter.</small></div>';
 }
 
@@ -65,7 +94,9 @@ function openProduct(id) {
   const product = state.products.find(item => item.id === id);
   if (!product) return;
   state.selected = product;
-  $('#dialog-content').innerHTML = `<div class="dialog-layout"><div class="dialog-image">${furniture(product)}</div><div class="dialog-info"><p class="product-store">${product.store} · ${product.category}</p><h2>${product.name}</h2><p class="dialog-price">${peso(product.price)}</p><p>${product.description}</p><div class="dialog-dimensions"><div><span>WIDTH</span><b>${cm(product.dimensions.width)}</b></div><div><span>DEPTH</span><b>${cm(product.dimensions.depth)}</b></div><div><span>HEIGHT</span><b>${cm(product.dimensions.height)}</b></div></div><button class="button button-primary" data-place-product="${product.id}">⌑ Place in your room</button><button class="button button-outline" data-plan-product="${product.id}">Measure the fit first</button></div></div>`;
+  const storeInfo = state.stores[product.storeId];
+  const storeBlock = storeInfo ? `<div style="background: #f5f5f5; padding: 12px; border-radius: 4px; margin-top: 12px; font-size: 13px;"><strong>📍 ${escapeHtml(storeInfo.name)}</strong><br />${escapeHtml(storeInfo.address)}<br />☎️ ${escapeHtml(storeInfo.contactNumber)}<br />🕒 ${escapeHtml(storeInfo.hours)}</div>` : '';
+  $('#dialog-content').innerHTML = `<div class="dialog-layout"><div class="dialog-image">${furniture(product)}</div><div class="dialog-info"><p class="product-store">${escapeHtml(product.store)} · ${escapeHtml(product.category)}</p><h2>${escapeHtml(product.name)}</h2><p class="dialog-price">${peso(product.price)}</p><p>${escapeHtml(product.description)}</p><div class="dialog-dimensions"><div><span>WIDTH</span><b>${cm(product.dimensions.width)}</b></div><div><span>DEPTH</span><b>${cm(product.dimensions.depth)}</b></div><div><span>HEIGHT</span><b>${cm(product.dimensions.height)}</b></div></div>${storeBlock}<button class="button button-primary" data-place-product="${product.id}">⌑ Place in your room</button><button class="button button-outline" data-plan-product="${product.id}">Measure the fit first</button></div></div>`;
   $('#product-dialog').showModal();
 }
 
@@ -82,7 +113,7 @@ function renderPlanner() {
   if (!state.selected) state.selected = state.products[0] || null;
   const product = state.selected;
   if (!product) return;
-  $('#planner-product').innerHTML = `<div class="planner-product-inner">${furniture(product)}<div><h3>${product.name}</h3><p>${product.store}</p><p>${product.dimensions.width} W × ${product.dimensions.depth} D × ${product.dimensions.height} H</p></div></div>`;
+  $('#planner-product').innerHTML = `<div class="planner-product-inner">${furniture(product)}<div><h3>${escapeHtml(product.name)}</h3><p>${escapeHtml(product.store)}</p><p>${product.dimensions.width} W × ${product.dimensions.depth} D × ${product.dimensions.height} H</p></div></div>`;
   $('#check-width').textContent = cm(product.dimensions.width);
   $('#check-depth').textContent = cm(product.dimensions.depth);
   $('#ar-product-name').textContent = product.name;
@@ -179,11 +210,64 @@ function captureNativePoint(frame) {
   if (!pose) { toast('Move slowly until the floor target is detected, then tap again.'); return; }
   const point = pose.transform.position;
   if (state.arPurpose === 'placement') { state.placedMatrix = pose.transform.matrix.slice(); $('#ar-mode-label').textContent = 'Placed. Walk around it to check the fit.'; toast(`${state.selected.name} is placed at true scale. Walk around it to inspect the fit.`); return; }
+  
+  // Measurement mode: handle initial scan and confirmatory scan
+  if (!state.arNeedsConfirmation) {
+    // Initial measurement scan
+    state.arPoints.push({ x: point.x, y: point.y, z: point.z });
+    if (state.arPoints.length === 1) { 
+      $('#ar-mode-label').textContent = 'Point A captured. Now tap point B.'; 
+      toast('Point A captured. Tap the other side of the opening.'); 
+      return; 
+    }
+    // Got both points for initial measurement
+    state.arMeasurement = distanceBetween(state.arPoints[0], state.arPoints[1]) * 100;
+    state.arNeedsConfirmation = true;
+    state.arPoints = [];
+    $('#ar-mode-label').textContent = 'First measurement complete. Tap to start confirmatory scan of the SAME span.';
+    toast(`Initial reading: ${cm(state.arMeasurement)}. Please confirm by scanning the same span again.`);
+    return;
+  }
+  
+  // Confirmatory measurement scan
   state.arPoints.push({ x: point.x, y: point.y, z: point.z });
-  if (state.arPoints.length === 1) { $('#ar-mode-label').textContent = 'Point A captured. Now tap point B.'; toast('Point A captured. Tap the other side of the opening.'); return; }
-  const scan = distanceBetween(state.arPoints[0], state.arPoints[1]) * 100;
-  $('#point-a').value = 0; $('#point-b').value = Math.round(scan); updateFitVerdict();
-  toast(`Measured ${cm(scan)}. Comparing it with the selected furniture.`); state.session?.end();
+  if (state.arPoints.length === 1) { 
+    $('#ar-mode-label').textContent = 'Point A captured. Tap point B to complete the confirmatory scan.'; 
+    toast('Confirmatory scan - Point A captured.'); 
+    return; 
+  }
+  
+  // Got confirmatory measurement
+  state.arConfirmationMeasurement = distanceBetween(state.arPoints[0], state.arPoints[1]) * 100;
+  
+  // Calculate difference and validate
+  const diff = Math.abs(state.arMeasurement - state.arConfirmationMeasurement);
+  const percentDiff = (diff / state.arMeasurement) * 100;
+  
+  if (percentDiff > 5) {
+    // Readings differ by more than 5%
+    $('#ar-mode-label').innerHTML = `<span style="color: #d32f2f;">⚠ Readings differ by ${Math.round(percentDiff)}%</span><br />Initial: ${cm(state.arMeasurement)} vs Confirmatory: ${cm(state.arConfirmationMeasurement)}<br />Tap to rescan or close the AR view to use the initial reading.`;
+    toast(`Measurements differ by ${Math.round(percentDiff)}%. Within 5% is preferred. Rescan or accept?`);
+    state.arPoints = [];
+    state.arNeedsConfirmation = false;
+    state.arMeasurement = null;
+    state.arConfirmationMeasurement = null;
+    return;
+  }
+  
+  // Within 5% - average the readings
+  const finalMeasurement = (state.arMeasurement + state.arConfirmationMeasurement) / 2;
+  $('#point-a').value = 0;
+  $('#point-b').value = Math.round(finalMeasurement);
+  updateFitVerdict();
+  toast(`Measurements verified (within 5%). Averaged: ${cm(finalMeasurement)}`);
+  state.session?.end();
+  
+  // Reset
+  state.arPoints = [];
+  state.arMeasurement = null;
+  state.arConfirmationMeasurement = null;
+  state.arNeedsConfirmation = false;
 }
 
 async function startCameraFallback() {
@@ -209,6 +293,7 @@ function cleanupAR() {
   state.hitTestSource?.cancel?.(); state.hitTestSource = null; state.referenceSpace = null; state.latestHitPose = null; state.session = null;
   state.cameraStream?.getTracks().forEach(track => track.stop()); state.cameraStream = null;
   $('#camera-feed').srcObject = null; $('#fallback-product').style.display = 'none'; $('#ar-experience').hidden = true; state.placedMatrix = null;
+  state.arPoints = []; state.arMeasurement = null; state.arConfirmationMeasurement = null; state.arNeedsConfirmation = false;
 }
 
 async function login(event) {
@@ -223,9 +308,15 @@ function renderAdmin() {
   $('#login-panel').hidden = loggedIn; $('#dashboard').hidden = !loggedIn;
   if (!loggedIn) return;
   const own = state.products.filter(product => product.storeId === state.user.storeId);
+  const store = state.products.length > 0 && own.length > 0 ? own[0] : null;
+  // Determine plan from first product or default to freemium
+  const planInfo = store ? (state.products.find(p => p.storeId === state.user.storeId) ? 'Plan: Premium' : 'Plan: Freemium') : 'Plan: Freemium';
+  const FREEMIUM_LIMIT = 8;
+  const isFree = planInfo.includes('Freemium');
+  const slotsRemaining = isFree ? Math.max(0, FREEMIUM_LIMIT - own.length) : null;
   $('#owner-store').textContent = state.user.store;
-  $('#inventory-summary').innerHTML = `<div class="inventory-stat"><span>Listed products</span><strong>${own.length}</strong></div><div class="inventory-stat"><span>Units available</span><strong>${own.reduce((sum, product) => sum + product.stock, 0)}</strong></div><div class="inventory-stat"><span>Catalog value</span><strong>${peso(own.reduce((sum, product) => sum + product.price * product.stock, 0))}</strong></div>`;
-  $('#inventory-body').innerHTML = own.length ? own.map(product => `<tr><td>${product.name}<small>${product.category} · ${product.color}</small></td><td>${product.dimensions.width} × ${product.dimensions.depth} × ${product.dimensions.height} cm</td><td>${peso(product.price)}</td><td>${product.stock}</td><td><div class="table-actions"><button class="icon-button" data-edit-product="${product.id}">Edit</button><button class="icon-button delete" data-delete-product="${product.id}">Delete</button></div></td></tr>`).join('') : '<tr><td colspan="5">No products listed yet. Add your first product above.</td></tr>';
+  $('#inventory-summary').innerHTML = `<div class="inventory-stat"><span>${planInfo}</span></div><div class="inventory-stat"><span>Listed products</span><strong>${own.length}${isFree ? `/${FREEMIUM_LIMIT}` : ''}</strong></div><div class="inventory-stat"><span>Units available</span><strong>${own.reduce((sum, product) => sum + product.stock, 0)}</strong></div><div class="inventory-stat"><span>Catalog value</span><strong>${peso(own.reduce((sum, product) => sum + product.price * product.stock, 0))}</strong></div>`;
+  $('#inventory-body').innerHTML = own.length ? own.map(product => `<tr><td>${escapeHtml(product.name)}<small>${escapeHtml(product.category)} · ${escapeHtml(product.color)}</small></td><td>${product.dimensions.width} × ${product.dimensions.depth} × ${product.dimensions.height} cm</td><td>${peso(product.price)}</td><td>${product.stock}</td><td><small style="color: #999;">${relativeTime(product.updatedAt)}</small></td><td><div class="table-actions"><button class="icon-button" data-edit-product="${product.id}">Edit</button><button class="icon-button delete" data-delete-product="${product.id}">Delete</button></div></td></tr>`).join('') : '<tr><td colspan="6">No products listed yet. Add your first product above.</td></tr>';
 }
 
 function openProductForm(product = null) {
@@ -248,7 +339,19 @@ async function deleteProduct(id) {
 }
 
 async function loadProducts() {
-  const data = await api('/api/products'); state.products = data.products; if (!state.selected || !state.products.some(product => product.id === state.selected.id)) state.selected = state.products[0] || null;
+  const data = await api('/api/products'); 
+  state.products = data.products;
+  // Load store information
+  try {
+    const storesData = await api('/api/stores');
+    state.stores = {};
+    storesData.stores.forEach(store => {
+      state.stores[store.id] = store;
+    });
+  } catch (error) {
+    console.warn('Could not load store information:', error);
+  }
+  if (!state.selected || !state.products.some(product => product.id === state.selected.id)) state.selected = state.products[0] || null;
   renderColors(); renderCatalog(); renderPlanner(); renderAdmin();
 }
 
@@ -277,7 +380,7 @@ function bindEvents() {
   $('#add-product').addEventListener('click', () => openProductForm()); $('#product-form').addEventListener('submit', saveProduct);
 }
 
-async function init() { bindEvents(); try { await loadProducts(); await checkARSupport(); } catch (error) { $('#product-grid').innerHTML = `<div class="no-results"><b>FurnishAR could not reach its local catalog.</b><br /><small>Start the app with <code>npm.cmd start</code> and refresh this page.</small></div>`; toast(error.message); } }
+async function init() { bindEvents(); try { await loadProducts(); await checkARSupport(); } catch (error) { $('#product-grid').innerHTML = `<div class="no-results"><b>FurnishAR could not reach its local catalog.</b><br /><small>Start the app with <code>npm run local</code> and refresh this page.</small></div>`; toast(error.message); } }
 // Only initialize on browser, not on server
 if (typeof document !== 'undefined') {
   init();
