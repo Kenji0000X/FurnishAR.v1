@@ -9,10 +9,16 @@
     "color": "Sand",
     "price": 18990,
     "stock": 4,
-    "dimensions": { "width": 210, "height": 84, "depth": 91 },
+    "dimensions": {
+      "width": 210,
+      "height": 84,
+      "depth": 91
+    },
     "model": "sofa",
     "description": "A deep, comfortable sofa with a clean profile for relaxed everyday living.",
-    "arReady": true
+    "arReady": true,
+    "featured": false,
+    "updatedAt": "2026-01-01T00:00:00Z"
   },
   {
     "id": "table-harvest",
@@ -24,10 +30,16 @@
     "color": "Oak",
     "price": 12450,
     "stock": 3,
-    "dimensions": { "width": 150, "height": 75, "depth": 90 },
+    "dimensions": {
+      "width": 150,
+      "height": 75,
+      "depth": 90
+    },
     "model": "table",
     "description": "Solid-looking oak finish and an easy-to-place six-seat silhouette.",
-    "arReady": true
+    "arReady": true,
+    "featured": false,
+    "updatedAt": "2026-01-01T00:00:00Z"
   },
   {
     "id": "chair-sienna",
@@ -39,10 +51,16 @@
     "color": "Terracotta",
     "price": 6950,
     "stock": 7,
-    "dimensions": { "width": 74, "height": 80, "depth": 78 },
+    "dimensions": {
+      "width": 74,
+      "height": 80,
+      "depth": 78
+    },
     "model": "chair",
     "description": "A compact, warm-toned chair that adds personality without claiming the room.",
-    "arReady": true
+    "arReady": true,
+    "featured": false,
+    "updatedAt": "2026-01-01T00:00:00Z"
   },
   {
     "id": "bed-amihan",
@@ -54,10 +72,16 @@
     "color": "Walnut",
     "price": 15900,
     "stock": 2,
-    "dimensions": { "width": 160, "height": 108, "depth": 205 },
+    "dimensions": {
+      "width": 160,
+      "height": 108,
+      "depth": 205
+    },
     "model": "bed",
     "description": "A streamlined queen frame with a gently upholstered headboard.",
-    "arReady": true
+    "arReady": true,
+    "featured": false,
+    "updatedAt": "2026-01-01T00:00:00Z"
   },
   {
     "id": "shelf-baybay",
@@ -69,10 +93,16 @@
     "color": "Black",
     "price": 5890,
     "stock": 6,
-    "dimensions": { "width": 80, "height": 180, "depth": 35 },
+    "dimensions": {
+      "width": 80,
+      "height": 180,
+      "depth": 35
+    },
     "model": "shelf",
     "description": "Vertical storage with a slim footprint for books, baskets, and display pieces.",
-    "arReady": true
+    "arReady": true,
+    "featured": false,
+    "updatedAt": "2026-01-01T00:00:00Z"
   },
   {
     "id": "desk-calm",
@@ -84,9 +114,162 @@
     "color": "White",
     "price": 7490,
     "stock": 5,
-    "dimensions": { "width": 120, "height": 75, "depth": 60 },
+    "dimensions": {
+      "width": 120,
+      "height": 75,
+      "depth": 60
+    },
     "model": "desk",
     "description": "A practical home-study desk with generous working space and clean lines.",
-    "arReady": true
+    "arReady": true,
+    "featured": false,
+    "updatedAt": "2026-01-01T00:00:00Z"
+  },
+  {
+    "name": "Test item",
+    "storeId": "tiampion",
+    "store": "Tiampion Buildings",
+    "category": "Storage",
+    "style": "Modern",
+    "color": "Natural",
+    "price": 100,
+    "stock": 1,
+    "dimensions": {
+      "width": 10,
+      "height": 10,
+      "depth": 10
+    },
+    "model": "shelf",
+    "description": "",
+    "featured": false,
+    "updatedAt": "2026-09-06T08:16:53.588Z",
+    "arReady": true,
+    "id": "storage-7691ffac"
+  },
+  {
+    "name": "Test item",
+    "storeId": "tiampion",
+    "store": "Tiampion Buildings",
+    "category": "Storage",
+    "style": "Modern",
+    "color": "Natural",
+    "price": 100,
+    "stock": 1,
+    "dimensions": {
+      "width": 10,
+      "height": 10,
+      "depth": 10
+    },
+    "model": "shelf",
+    "description": "",
+    "featured": false,
+    "updatedAt": "2026-09-06T08:16:53.594Z",
+    "arReady": true,
+    "id": "storage-61824d83"
+  },
+  {
+    "name": "Test item",
+    "storeId": "tiampion",
+    "store": "Tiampion Buildings",
+    "category": "Storage",
+    "style": "Modern",
+    "color": "Natural",
+    "price": 100,
+    "stock": 1,
+    "dimensions": {
+      "width": 10,
+      "height": 10,
+      "depth": 10
+    },
+    "model": "shelf",
+    "description": "",
+    "featured": false,
+    "updatedAt": "2026-09-06T08:16:53.601Z",
+    "arReady": true,
+    "id": "storage-7a7edf59"
+  },
+  {
+    "name": "Test item",
+    "storeId": "tiampion",
+    "store": "Tiampion Buildings",
+    "category": "Storage",
+    "style": "Modern",
+    "color": "Natural",
+    "price": 100,
+    "stock": 1,
+    "dimensions": {
+      "width": 10,
+      "height": 10,
+      "depth": 10
+    },
+    "model": "shelf",
+    "description": "",
+    "featured": false,
+    "updatedAt": "2026-09-06T08:16:53.606Z",
+    "arReady": true,
+    "id": "storage-947ab629"
+  },
+  {
+    "name": "Test item",
+    "storeId": "tiampion",
+    "store": "Tiampion Buildings",
+    "category": "Storage",
+    "style": "Modern",
+    "color": "Natural",
+    "price": 100,
+    "stock": 1,
+    "dimensions": {
+      "width": 10,
+      "height": 10,
+      "depth": 10
+    },
+    "model": "shelf",
+    "description": "",
+    "featured": false,
+    "updatedAt": "2026-09-06T08:16:53.611Z",
+    "arReady": true,
+    "id": "storage-a97440fc"
+  },
+  {
+    "name": "Test item",
+    "storeId": "tiampion",
+    "store": "Tiampion Buildings",
+    "category": "Storage",
+    "style": "Modern",
+    "color": "Natural",
+    "price": 100,
+    "stock": 1,
+    "dimensions": {
+      "width": 10,
+      "height": 10,
+      "depth": 10
+    },
+    "model": "shelf",
+    "description": "",
+    "featured": false,
+    "updatedAt": "2026-09-06T08:16:53.615Z",
+    "arReady": true,
+    "id": "storage-811a056a"
+  },
+  {
+    "name": "Updated Name",
+    "storeId": "sc-variety",
+    "store": "S&C Variety Store",
+    "category": "Storage",
+    "style": "Modern",
+    "color": "Natural",
+    "price": 100,
+    "stock": 1,
+    "dimensions": {
+      "width": 10,
+      "height": 10,
+      "depth": 10
+    },
+    "model": "shelf",
+    "description": "",
+    "featured": false,
+    "updatedAt": "2026-09-06T08:16:53.758Z",
+    "arReady": true,
+    "id": "storage-faf3faa8"
   }
 ]
