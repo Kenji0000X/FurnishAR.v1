@@ -127,10 +127,10 @@
   },
   {
     "id": "cabinet-glb-test",
-    "name": "Test Cabinet (3D GLB)",
+    "name": "Rattan Base Marble-Top Side Table",
     "storeId": "sc-variety",
     "store": "S&C Variety Store",
-    "category": "Storage",
+    "category": "Table",
     "style": "Modern",
     "color": "Natural",
     "price": 9990,
@@ -141,7 +141,7 @@
       "depth": 45
     },
     "model": "models/test-model.glb",
-    "description": "Test cabinet with 3D GLB model for AR placement validation. Uses external glTF asset.",
+    "description": "Modern side table with woven rattan base and marble top. AR-enabled with 3D model.",
     "arReady": true,
     "featured": false,
     "updatedAt": "2026-01-01T00:00:00Z"
@@ -163,9 +163,9 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T09:18:17.947Z",
+    "updatedAt": "2026-09-06T09:36:02.783Z",
     "arReady": true,
-    "id": "storage-dcfbbdc0"
+    "id": "storage-2c9eef54"
   },
   {
     "name": "Test item",
@@ -184,9 +184,9 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T09:18:17.953Z",
+    "updatedAt": "2026-09-06T09:36:02.790Z",
     "arReady": true,
-    "id": "storage-9f231960"
+    "id": "storage-942460ea"
   },
   {
     "name": "Test item",
@@ -205,9 +205,9 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T09:18:17.957Z",
+    "updatedAt": "2026-09-06T09:36:02.794Z",
     "arReady": true,
-    "id": "storage-cd94294d"
+    "id": "storage-63f6400b"
   },
   {
     "name": "Test item",
@@ -226,9 +226,9 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T09:18:17.961Z",
+    "updatedAt": "2026-09-06T09:36:02.813Z",
     "arReady": true,
-    "id": "storage-d11de5ec"
+    "id": "storage-34a5b437"
   },
   {
     "name": "Test item",
@@ -247,9 +247,9 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T09:18:17.968Z",
+    "updatedAt": "2026-09-06T09:36:02.821Z",
     "arReady": true,
-    "id": "storage-917fa89b"
+    "id": "storage-10d7b76c"
   },
   {
     "name": "Test item",
@@ -268,9 +268,9 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T09:18:17.972Z",
+    "updatedAt": "2026-09-06T09:36:02.825Z",
     "arReady": true,
-    "id": "storage-f25fb8ad"
+    "id": "storage-588122d9"
   },
   {
     "name": "Updated Name",
@@ -289,8 +289,8 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T09:18:18.118Z",
+    "updatedAt": "2026-09-06T09:36:02.973Z",
     "arReady": true,
-    "id": "storage-ae9457b1"
+    "id": "storage-adad64ea"
   }
 ]

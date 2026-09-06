@@ -41,7 +41,10 @@ const state = {
   arNeedsConfirmation: false,
   cameraStream: null,
   token: (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('furnishar-token') : null) || '',
-  user: JSON.parse((typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('furnishar-user') : null) || 'null')
+  user: JSON.parse((typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('furnishar-user') : null) || 'null'),
+  loadedModel: null,
+  modelBounds: null,
+  modelLoader: typeof THREE !== 'undefined' ? new THREE.GLTFLoader() : null
 };
 
 const $ = (selector, parent = document) => parent.querySelector(selector);
@@ -173,6 +176,63 @@ function arRenderer(gl) {
   return { draw(mvp, color) { gl.useProgram(program); gl.bindBuffer(gl.ARRAY_BUFFER, buffer); const position = gl.getAttribLocation(program, 'p'); gl.enableVertexAttribArray(position); gl.vertexAttribPointer(position, 3, gl.FLOAT, false, 0, 0); gl.uniformMatrix4fv(gl.getUniformLocation(program, 'mvp'), false, mvp); gl.uniform4fv(gl.getUniformLocation(program, 'color'), color); gl.drawArrays(gl.TRIANGLES, 0, 36); } };
 }
 
+async function loadGLBModel(product) {
+  if (!product.model || !product.model.endsWith('.glb')) {
+    console.log(`[AR Model] Product "${product.name}" uses CSS shape model, not GLB`);
+    state.loadedModel = null;
+    state.modelBounds = null;
+    return;
+  }
+  
+  if (!state.modelLoader) {
+    console.warn('[AR Model] THREE.js not loaded, cannot load GLB');
+    state.loadedModel = null;
+    return;
+  }
+
+  const modelPath = product.model;
+  console.log(`[AR Model] Loading GLB: ${modelPath}`);
+  
+  try {
+    const gltf = await new Promise((resolve, reject) => {
+      state.modelLoader.load(
+        modelPath,
+        resolve,
+        (progress) => console.log(`[AR Model] Loading ${modelPath}: ${Math.round(progress.loaded / progress.total * 100)}%`),
+        reject
+      );
+    });
+    
+    const scene = gltf.scene;
+    
+    // Analyze bounding box and origin
+    const bbox = new THREE.Box3().setFromObject(scene);
+    const size = bbox.getSize(new THREE.Vector3());
+    const center = bbox.getCenter(new THREE.Vector3());
+    
+    console.log(`[AR Model] Bounds: min(${bbox.min.x.toFixed(2)}, ${bbox.min.y.toFixed(2)}, ${bbox.min.z.toFixed(2)})`);
+    console.log(`[AR Model] Bounds: max(${bbox.max.x.toFixed(2)}, ${bbox.max.y.toFixed(2)}, ${bbox.max.z.toFixed(2)})`);
+    console.log(`[AR Model] Size: ${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}`);
+    console.log(`[AR Model] Center: (${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)})`);
+    console.log(`[AR Model] Product dims: ${product.dimensions.width} x ${product.dimensions.height} x ${product.dimensions.depth} cm`);
+    
+    // Re-center model so its base sits at (0, 0, 0)
+    scene.position.sub(center);
+    scene.position.y += size.y / 2; // Move up so bottom sits at y=0
+    
+    state.loadedModel = scene;
+    state.modelBounds = { size, center, bbox };
+    console.log(`[AR Model] ✓ Loaded and normalized: ${product.name}`);
+    
+  } catch (error) {
+    console.error(`[AR Model] ✗ Failed to load ${modelPath}:`, error);
+    console.error('  Error details:', error.message);
+    if (error.response) console.error('  HTTP Status:', error.response.status);
+    state.loadedModel = null;
+    state.modelBounds = null;
+  }
+}
+
 async function startNativeAR() {
   const root = $('#ar-experience');
   const session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['hit-test'], optionalFeatures: ['local-floor', 'dom-overlay'], domOverlay: { root } });
@@ -191,6 +251,15 @@ async function startNativeAR() {
   $('#ar-mode-label').textContent = state.arPurpose === 'measurement' ? 'Tap point A, then point B on the floor.' : 'Move your phone slowly to find the floor, then tap to place.';
   session.addEventListener('select', event => captureNativePoint(event.frame));
   session.addEventListener('end', cleanupAR);
+  
+  // Load GLB model if this product has one
+  await loadGLBModel(product);
+  if (state.loadedModel) {
+    console.log(`[AR] Loaded 3D model for "${product.name}"`);
+  } else {
+    console.log(`[AR] Using fallback box renderer for "${product.name}"`);
+  }
+  
   function frame(time, xrFrame) {
     session.requestAnimationFrame(frame);
     const pose = xrFrame.getViewerPose(state.referenceSpace); if (!pose) return;
@@ -200,6 +269,12 @@ async function startNativeAR() {
     if (!state.latestHitPose || state.arPurpose !== 'placement') return;
     const dimensions = product.dimensions;
     const placement = state.placedMatrix || state.latestHitPose.transform.matrix;
+    
+    // If we have a loaded 3D model, log that we're rendering it; otherwise use box
+    if (state.loadedModel) {
+      console.log('[AR Render] Drawing 3D model at placement matrix');
+    }
+    
     for (const view of pose.views) { const viewport = layer.getViewport(view); gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height); const model = translateScale(placement, 0, dimensions.height / 200, 0, dimensions.width / 200, dimensions.height / 200, dimensions.depth / 200); renderer.draw(matrixMultiply(view.projectionMatrix, matrixMultiply(view.transform.inverse.matrix, model)), [red, green, blue, .72]); }
   }
   session.requestAnimationFrame(frame);
