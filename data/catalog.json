@@ -140,7 +140,8 @@
       "height": 180,
       "depth": 45
     },
-    "model": "models/test-model.glb",
+    "model": "table",
+    "arModel": "models/test-model.glb",
     "description": "Modern side table with woven rattan base and marble top. AR-enabled with 3D model.",
     "arReady": true,
     "featured": false,
@@ -163,9 +164,9 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T09:36:02.783Z",
+    "updatedAt": "2026-09-06T09:48:24.204Z",
     "arReady": true,
-    "id": "storage-2c9eef54"
+    "id": "storage-52ae1c73"
   },
   {
     "name": "Test item",
@@ -184,9 +185,9 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T09:36:02.790Z",
+    "updatedAt": "2026-09-06T09:48:24.212Z",
     "arReady": true,
-    "id": "storage-942460ea"
+    "id": "storage-b31b925f"
   },
   {
     "name": "Test item",
@@ -205,9 +206,9 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T09:36:02.794Z",
+    "updatedAt": "2026-09-06T09:48:24.219Z",
     "arReady": true,
-    "id": "storage-63f6400b"
+    "id": "storage-97ff4a3e"
   },
   {
     "name": "Test item",
@@ -226,9 +227,9 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T09:36:02.813Z",
+    "updatedAt": "2026-09-06T09:48:24.224Z",
     "arReady": true,
-    "id": "storage-34a5b437"
+    "id": "storage-1e7bc946"
   },
   {
     "name": "Test item",
@@ -247,9 +248,9 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T09:36:02.821Z",
+    "updatedAt": "2026-09-06T09:48:24.230Z",
     "arReady": true,
-    "id": "storage-10d7b76c"
+    "id": "storage-dcb37fb1"
   },
   {
     "name": "Test item",
@@ -268,9 +269,9 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T09:36:02.825Z",
+    "updatedAt": "2026-09-06T09:48:24.234Z",
     "arReady": true,
-    "id": "storage-588122d9"
+    "id": "storage-ccab0778"
   },
   {
     "name": "Updated Name",
@@ -289,8 +290,8 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T09:36:02.973Z",
+    "updatedAt": "2026-09-06T09:48:24.379Z",
     "arReady": true,
-    "id": "storage-adad64ea"
+    "id": "storage-6963f584"
   }
 ]

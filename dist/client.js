@@ -177,7 +177,10 @@ function arRenderer(gl) {
 }
 
 async function loadGLBModel(product) {
-  if (!product.model || !product.model.endsWith('.glb')) {
+  // Check for GLB model in arModel field first, then fall back to model field
+  const modelPath = product.arModel || (product.model && product.model.endsWith('.glb') ? product.model : null);
+  
+  if (!modelPath) {
     console.log(`[AR Model] Product "${product.name}" uses CSS shape model, not GLB`);
     state.loadedModel = null;
     state.modelBounds = null;
@@ -189,8 +192,6 @@ async function loadGLBModel(product) {
     state.loadedModel = null;
     return;
   }
-
-  const modelPath = product.model;
   console.log(`[AR Model] Loading GLB: ${modelPath}`);
   
   try {
@@ -234,9 +235,11 @@ async function loadGLBModel(product) {
 }
 
 async function startNativeAR() {
+  console.log('[AR Session] Requesting XR immersive-ar session...');
   const root = $('#ar-experience');
   const session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['hit-test'], optionalFeatures: ['local-floor', 'dom-overlay'], domOverlay: { root } });
   state.session = session;
+  console.log('[AR Session] ✓ XR session created successfully');
   const canvas = $('#xr-canvas');
   const gl = canvas.getContext('webgl', { xrCompatible: true, alpha: true });
   await gl.makeXRCompatible();
@@ -260,6 +263,7 @@ async function startNativeAR() {
     console.log(`[AR] Using fallback box renderer for "${product.name}"`);
   }
   
+  let renderLogged = false; // Track if we've logged this render session
   function frame(time, xrFrame) {
     session.requestAnimationFrame(frame);
     const pose = xrFrame.getViewerPose(state.referenceSpace); if (!pose) return;
@@ -270,9 +274,10 @@ async function startNativeAR() {
     const dimensions = product.dimensions;
     const placement = state.placedMatrix || state.latestHitPose.transform.matrix;
     
-    // If we have a loaded 3D model, log that we're rendering it; otherwise use box
-    if (state.loadedModel) {
-      console.log('[AR Render] Drawing 3D model at placement matrix');
+    // Log once per placement session if we have a 3D model
+    if (state.loadedModel && !renderLogged) {
+      console.log(`[AR Render] Starting render loop with 3D model for "${product.name}"`);
+      renderLogged = true;
     }
     
     for (const view of pose.views) { const viewport = layer.getViewport(view); gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height); const model = translateScale(placement, 0, dimensions.height / 200, 0, dimensions.width / 200, dimensions.height / 200, dimensions.depth / 200); renderer.draw(matrixMultiply(view.projectionMatrix, matrixMultiply(view.transform.inverse.matrix, model)), [red, green, blue, .72]); }
@@ -284,7 +289,18 @@ function captureNativePoint(frame) {
   const pose = state.latestHitPose;
   if (!pose) { toast('Move slowly until the floor target is detected, then tap again.'); return; }
   const point = pose.transform.position;
-  if (state.arPurpose === 'placement') { state.placedMatrix = pose.transform.matrix.slice(); $('#ar-mode-label').textContent = 'Placed. Walk around it to check the fit.'; toast(`${state.selected.name} is placed at true scale. Walk around it to inspect the fit.`); return; }
+  if (state.arPurpose === 'placement') { 
+    state.placedMatrix = pose.transform.matrix.slice(); 
+    console.log(`[AR Placement] "${state.selected.name}" placed at position (${point.x.toFixed(2)}, ${point.y.toFixed(2)}, ${point.z.toFixed(2)})`);
+    if (state.loadedModel) {
+      console.log(`[AR Placement] ✓ 3D model "${state.selected.name}" will render at placement point`);
+    } else {
+      console.log(`[AR Placement] ℹ Using box renderer for "${state.selected.name}"`);
+    }
+    $('#ar-mode-label').textContent = 'Placed. Walk around it to check the fit.'; 
+    toast(`${state.selected.name} is placed at true scale. Walk around it to inspect the fit.`); 
+    return; 
+  }
   
   // Measurement mode: handle initial scan and confirmatory scan
   if (!state.arNeedsConfirmation) {
@@ -358,6 +374,7 @@ async function startCameraFallback() {
 async function startExperience(purpose) {
   if (!state.selected) return toast('Choose a product first.');
   state.arPurpose = purpose; state.arPoints = []; state.placedMatrix = null; $('#ar-experience').hidden = false; $('#camera-feed').style.display = ''; $('#xr-canvas').style.display = ''; $('#fallback-product').style.display = 'none';
+  console.log(`[AR Flow] Starting AR experience for "${state.selected.name}" (${purpose} mode)`);
   try {
     const supportsAR = await checkARSupport();
     if (supportsAR) await startNativeAR(); else await startCameraFallback();
