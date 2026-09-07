@@ -1,11 +1,18 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
+const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
 const port = 43173;
+const catalogPath = path.resolve(__dirname, '../data/catalog.json');
+const originalCatalog = fs.readFileSync(catalogPath, 'utf8');
 let server;
+
+function resetCatalog() {
+  fs.writeFileSync(catalogPath, originalCatalog);
+}
 
 function waitForServer() {
   return new Promise((resolve, reject) => {
@@ -18,11 +25,13 @@ function waitForServer() {
 }
 
 test.before(async () => {
+  resetCatalog();
   server = spawn(process.execPath, ['local.js'], { cwd: path.resolve(__dirname, '..'), env: { ...process.env, PORT: String(port) } });
   await waitForServer();
 });
 
-test.after(() => server?.kill());
+test.beforeEach(() => resetCatalog());
+test.after(() => { resetCatalog(); server?.kill(); });
 
 test('catalog and health endpoints serve the expected data', async () => {
   const health = await fetch(`http://127.0.0.1:${port}/api/health`).then(response => response.json());

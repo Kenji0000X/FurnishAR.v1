@@ -178,18 +178,32 @@ function toast(message) {
 
 async function checkARSupport() {
   const status = $('#ar-status');
-  if (!window.isSecureContext) { status.textContent = 'Use HTTPS (or localhost) to enable camera and WebXR. Guided measurement is still available.'; return false; }
+  if (!window.isSecureContext) {
+    console.info('[AR Support] Branch: insecure-context -> camera/WebXR unavailable');
+    status.textContent = 'Use HTTPS (or localhost) to enable camera and WebXR. Guided measurement is still available.';
+    return false;
+  }
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   if (isIOS && state.selected?.modelUsdz) {
+    console.info('[AR Support] Branch: iOS Quick Look path selected for USDZ product');
     status.textContent = 'iPhone Safari detected. AR Quick Look will open the native USDZ viewer for this product.';
     return false;
   }
-  if (!navigator.xr) { status.textContent = 'WebXR is unavailable in this browser. The camera preview and guided measurement will still work.'; return false; }
+  if (!navigator.xr) {
+    console.info('[AR Support] Branch: navigator.xr missing');
+    status.textContent = 'WebXR is unavailable in this browser. The camera preview and guided measurement will still work.';
+    return false;
+  }
   try {
     const supported = await navigator.xr.isSessionSupported('immersive-ar');
+    console.info(`[AR Support] Branch: isSessionSupported('immersive-ar') -> ${supported}`);
     status.textContent = supported ? 'AR-ready device detected. Use a bright, textured floor for best tracking.' : 'This device does not expose immersive AR. A camera preview will be used instead.';
     return supported;
-  } catch { status.textContent = 'AR availability could not be checked. Guided measurement is available.'; return false; }
+  } catch (error) {
+    console.warn('[AR Support] Branch: session support probe threw:', error?.name, error?.message);
+    status.textContent = 'AR availability could not be checked. Guided measurement is available.';
+    return false;
+  }
 }
 
 function distanceBetween(a, b) { return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z); }
@@ -205,26 +219,18 @@ function arRenderer(gl) {
   return { draw(mvp, color) { gl.useProgram(program); gl.bindBuffer(gl.ARRAY_BUFFER, buffer); const position = gl.getAttribLocation(program, 'p'); gl.enableVertexAttribArray(position); gl.vertexAttribPointer(position, 3, gl.FLOAT, false, 0, 0); gl.uniformMatrix4fv(gl.getUniformLocation(program, 'mvp'), false, mvp); gl.uniform4fv(gl.getUniformLocation(program, 'color'), color); gl.drawArrays(gl.TRIANGLES, 0, 36); } };
 }
 
-async function loadGLBModel(product) {
-  // Load THREE if not already loaded
+async function loadScaledModel(product) {
   if (!THREE) await loadThreeJS();
   if (!THREE || !GLTFLoader) {
     console.log(`[AR Model] THREE.js unavailable, using fallback cube for "${product.name}"`);
-    state.loadedModel = null;
-    state.modelBounds = null;
-    return;
+    return null;
   }
 
-  // Check for GLB model in modelGlb field
   const modelPath = product.modelGlb;
   if (!modelPath) {
-    console.log(`[AR Model] Product "${product.name}" has no 3D model, will use fallback cube`);
-    state.loadedModel = null;
-    state.modelBounds = null;
-    return;
+    console.log(`[AR Model] Product "${product.name}" has no 3D model, using fallback cube`);
+    return null;
   }
-
-  console.log(`[AR Model] Loading GLB: ${modelPath}`);
 
   try {
     const loader = new GLTFLoader();
@@ -232,50 +238,38 @@ async function loadGLBModel(product) {
       loader.load(
         modelPath,
         resolve,
-        (progress) => console.log(`[AR Model] Loading ${modelPath}: ${Math.round(progress.loaded / progress.total * 100)}%`),
+        (progress) => console.log(`[AR Model] Loading ${modelPath}: ${Math.round((progress.loaded / progress.total) * 100)}%`),
         reject
       );
     });
 
     const model = gltf.scene;
-
-    // Compute bounding box to determine exact dimensions
     const bbox = new THREE.Box3().setFromObject(model);
     const size = bbox.getSize(new THREE.Vector3());
-
-    console.log(`[AR Model] Loaded bounds: ${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)} meters`);
-
-    // The modelBounds in catalog is in cm, we're working in meters (÷100)
-    // Scale the model so its bounding box matches the catalog modelBounds exactly
     const targetBounds = product.modelBounds || product.dimensions;
-    const scaleX = (targetBounds.width / 100) / size.x;
-    const scaleY = (targetBounds.height / 100) / size.y;
-    const scaleZ = (targetBounds.depth / 100) / size.z;
-    
-    console.log(`[AR Model] Scaling: x=${scaleX.toFixed(3)}, y=${scaleY.toFixed(3)}, z=${scaleZ.toFixed(3)}`);
-    
+    const scaleX = (targetBounds.width / 100) / Math.max(size.x, 0.0001);
+    const scaleY = (targetBounds.height / 100) / Math.max(size.y, 0.0001);
+    const scaleZ = (targetBounds.depth / 100) / Math.max(size.z, 0.0001);
+
     model.scale.set(scaleX, scaleY, scaleZ);
 
-    // Re-center and position so base sits at origin
     const scaledBbox = new THREE.Box3().setFromObject(model);
     const center = scaledBbox.getCenter(new THREE.Vector3());
-    const scaledSize = scaledBbox.getSize(new THREE.Vector3());
-
-    // Position model so bottom-center is at (0, 0, 0)
     model.position.x = -center.x;
-    model.position.y = -scaledBbox.min.y;  // Move up so base is at y=0
+    model.position.y = -scaledBbox.min.y;
     model.position.z = -center.z;
 
     console.log(`[AR Model] ✓ Loaded and scaled "${product.name}" to ${targetBounds.width}×${targetBounds.height}×${targetBounds.depth} cm`);
-
-    state.loadedModel = model;
-    state.modelBounds = { size: scaledSize, bbox: scaledBbox, product: product.id };
-
+    return model;
   } catch (error) {
-    console.error(`[AR Model] ✗ Failed to load ${modelPath}:`, error.message);
-    state.loadedModel = null;
-    state.modelBounds = null;
+    console.error(`[AR Model] ✗ Failed to load ${modelPath}:`, error?.name, error?.message);
+    return null;
   }
+}
+
+async function loadGLBModel(product) {
+  state.loadedModel = await loadScaledModel(product);
+  state.modelBounds = state.loadedModel ? { product: product.id } : null;
 }
 
 async function startNativeAR() {
@@ -491,10 +485,131 @@ function captureNativePoint(frame) {
 }
 
 async function startCameraFallback() {
-  $('#ar-mode-label').textContent = state.arPurpose === 'measurement' ? 'Camera preview active — use the two fields after closing to enter your tape measure reading.' : 'Camera preview active — drag your phone to judge the scale and placement.';
+  const product = state.selected;
+  const isPlacement = state.arPurpose === 'placement';
+  $('#ar-mode-label').textContent = isPlacement
+    ? 'Camera preview — drag to rotate, pinch to check scale. This device can\'t track the room, so use this to judge fit, not exact placement.'
+    : 'Camera preview active — use the two fields after closing to enter your tape measure reading.';
+
   $('#xr-canvas').style.display = 'none';
-  $('#fallback-product').style.display = state.arPurpose === 'placement' ? 'block' : 'none';
-  if (state.arPurpose === 'placement') $('#fallback-product').innerHTML = furniture(state.selected);
+  $('#fallback-product').style.display = isPlacement ? 'block' : 'none';
+
+  if (isPlacement) {
+    // This is an unanchored, device-side approximation for fit checking only.
+    // It is not tracked AR; the real room placement still comes from native WebXR.
+    const fallbackCanvas = document.createElement('canvas');
+    const fallbackHost = $('#fallback-product');
+    fallbackHost.innerHTML = '';
+    fallbackHost.appendChild(fallbackCanvas);
+
+    const model = await loadScaledModel(product);
+    if (!model || !THREE || !fallbackCanvas) {
+      fallbackHost.innerHTML = furniture(product);
+      return;
+    }
+
+    const context = fallbackCanvas.getContext('webgl', { alpha: true, antialias: true });
+    if (!context) {
+      fallbackHost.innerHTML = furniture(product);
+      return;
+    }
+
+    const renderer = new THREE.WebGLRenderer({ canvas: fallbackCanvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 1000);
+    camera.position.set(0, 0.9, 2.8);
+
+    const ambient = new THREE.HemisphereLight(0xffffff, 0x000000, 1.2);
+    const key = new THREE.DirectionalLight(0xffffff, 1);
+    key.position.set(2, 3, 2.5);
+    scene.add(ambient, key);
+
+    const modelRoot = model.clone();
+    modelRoot.rotation.y = 0.6;
+    scene.add(modelRoot);
+
+    const trueScale = 1;
+    const baseScale = 1.5;
+    const clipRadius = 0.75;
+    let currentScale = trueScale;
+    let dragX = 0;
+    let pinchDistance = null;
+
+    const updateScaleLabel = () => {
+      const percent = Math.round((currentScale / trueScale) * 100);
+      $('#ar-mode-label').textContent = `Camera preview — drag to rotate, pinch to check scale. This device can't track the room, so use this to judge fit, not exact placement. Current size: ${percent}% of true scale.`;
+    };
+
+    const syncSize = () => {
+      const distance = 1.5;
+      const target = (distance / baseScale) * currentScale;
+      modelRoot.scale.setScalar(target);
+      updateScaleLabel();
+    };
+
+    const resize = () => {
+      const bounds = fallbackHost.getBoundingClientRect();
+      const width = Math.max(bounds.width, 200);
+      const height = Math.max(bounds.height, 160);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(width, height, false);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    };
+
+    resize();
+    syncSize();
+
+    fallbackHost.addEventListener('pointerdown', event => {
+      fallbackHost.setPointerCapture(event.pointerId);
+      fallbackHost.dataset.dragX = String(event.clientX);
+    });
+
+    fallbackHost.addEventListener('pointermove', event => {
+      if (!fallbackHost.hasPointerCapture(event.pointerId)) return;
+      const previousX = Number(fallbackHost.dataset.dragX || event.clientX);
+      const delta = event.clientX - previousX;
+      if (Math.abs(delta) > 1) {
+        dragX += delta * 0.01;
+        modelRoot.rotation.y = dragX;
+        fallbackHost.dataset.dragX = String(event.clientX);
+      }
+    });
+
+    fallbackHost.addEventListener('wheel', event => {
+      event.preventDefault();
+      currentScale = Math.min(3, Math.max(0.3, currentScale + (event.deltaY > 0 ? -0.1 : 0.1)));
+      syncSize();
+    }, { passive: false });
+
+    fallbackHost.addEventListener('touchstart', event => {
+      if (event.touches.length === 2) {
+        const [a, b] = [event.touches[0], event.touches[1]];
+        pinchDistance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      }
+    }, { passive: true });
+
+    fallbackHost.addEventListener('touchmove', event => {
+      if (event.touches.length === 2 && pinchDistance) {
+        const [a, b] = [event.touches[0], event.touches[1]];
+        const nextDistance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+        const ratio = nextDistance / (pinchDistance || 1);
+        currentScale = Math.min(3, Math.max(0.3, currentScale * ratio));
+        pinchDistance = nextDistance;
+        syncSize();
+      }
+    }, { passive: true });
+
+    const tick = () => {
+      renderer.render(scene, camera);
+      requestAnimationFrame(tick);
+    };
+    tick();
+    window.addEventListener('resize', resize, { passive: true });
+    state.fallbackRender = { renderer, scene, camera, modelRoot, tick, resize };
+    updateScaleLabel();
+  }
+
   if (!navigator.mediaDevices?.getUserMedia) { $('#camera-feed').style.display = 'none'; $('#ar-mode-label').textContent = 'Camera access is not available. Use the guided measurement fields.'; return; }
   try { state.cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false }); $('#camera-feed').srcObject = state.cameraStream; }
   catch { $('#camera-feed').style.display = 'none'; $('#ar-mode-label').textContent = 'Camera permission was not granted. Use the guided measurement fields.'; }
@@ -520,7 +635,16 @@ async function startExperience(purpose) {
   try {
     const supportsAR = await checkARSupport();
     if (supportsAR) await startNativeAR(); else await startCameraFallback();
-  } catch (error) { console.warn(error); await startCameraFallback(); toast('Live AR could not start; switched to the camera preview.'); }
+  } catch (error) {
+    console.warn('[AR Flow] Native AR start failed:', error?.name, error?.message);
+    const messageMap = {
+      NotAllowedError: 'Camera permission was denied. Enable camera access for this site and try again.',
+      NotSupportedError: 'This device reports AR support but couldn\'t start a session — hit-test or the AR overlay isn\'t available here.',
+      SecurityError: 'AR requires a secure, top-level browsing context — this won\'t work inside an embedded/in-app browser.'
+    };
+    await startCameraFallback();
+    toast(messageMap[error?.name] || 'Live AR could not start; switched to the camera preview.');
+  }
 }
 
 function cleanupAR() {
