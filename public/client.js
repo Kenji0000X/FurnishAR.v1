@@ -102,6 +102,22 @@ function hideLiveMeasurement() {
   $('#live-measurement').hidden = true;
 }
 
+function layoutControlRing() {
+  const ring = document.querySelectorAll('.model-controls button:not(#reset-model)');
+  const radius = 80;
+  const center = 110;
+  const halfButton = 26;
+  ring.forEach((button, index) => {
+    const angle = (index / ring.length) * 2 * Math.PI - Math.PI / 2;
+    button.style.left = `${center + radius * Math.cos(angle) - halfButton}px`;
+    button.style.top = `${center + radius * Math.sin(angle) - halfButton}px`;
+  });
+}
+
+window.addEventListener('resize', layoutControlRing, { passive: true });
+window.addEventListener('orientationchange', layoutControlRing, { passive: true });
+layoutControlRing();
+
 let modelControlState = { initialScale: 1, initialRotation: 0, initialPosition: { x: 0, y: 0, z: 0 } };
 
 function setupModelControls(modelRoot, syncSizeFunc) {
@@ -903,15 +919,25 @@ async function startCameraFallback() {
     // Gyroscope-based tilt detection for camera-preview fallback (D5)
     // Best-effort approximation: warn if device is tilted too far to judge flatness reliably
     if (window.DeviceOrientationEvent) {
-      let lastBeta = 0; // Tilt front-to-back
-      window.addEventListener('deviceorientation', (e) => {
-        const tiltAngle = Math.abs(e.beta || 0);
-        if (tiltAngle > 45) {
-          // Device tilted significantly; flatness judgment unreliable
-          if ($('#ar-mode-label').textContent.indexOf('Hold steady') === -1) {
-            $('#ar-mode-label').textContent += ' (Hold the phone more level for better surface detection in preview mode.)';
-          }
-        }
+      let lastCheck = 0;
+      let latestBeta = 0;
+      const statusEl = $('#ar-mode-label');
+      const warning = 'Hold the phone more level for better surface detection in preview mode.';
+      const normalMessage = statusEl.textContent;
+      const updateOrientationWarning = (message) => {
+        const nextMessage = message || normalMessage;
+        if (statusEl.dataset.lastMsg === nextMessage) return;
+        statusEl.dataset.lastMsg = nextMessage;
+        statusEl.textContent = nextMessage;
+      };
+      const onOrientationTick = (timestamp) => {
+        if (timestamp - lastCheck < 400) return;
+        lastCheck = timestamp;
+        updateOrientationWarning(Math.abs(latestBeta) > 45 ? warning : '');
+      };
+      window.addEventListener('deviceorientation', (event) => {
+        latestBeta = event.beta || 0;
+        onOrientationTick(performance.now());
       }, { passive: true });
     }
   }
