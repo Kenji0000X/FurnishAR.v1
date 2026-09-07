@@ -8,13 +8,16 @@ let GLTFLoader = null;
 async function loadThreeJS() {
   if (THREE) return;
   try {
-    THREE = await import('https://cdn.jsdelivr.net/npm/three@r170/build/three.module.js').then(m => m.default || m);
-    const loader = await import('https://cdn.jsdelivr.net/npm/three@r170/examples/jsm/loaders/GLTFLoader.js');
+    THREE = await import('https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js').then(m => m.default || m);
+    const loader = await import('https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/loaders/GLTFLoader.js');
     GLTFLoader = loader.GLTFLoader;
     console.log('[THREE.js] ✓ Loaded successfully from CDN');
+    return true;
   } catch (error) {
-    console.warn('[THREE.js] ⚠ Failed to load from CDN:', error.message);
-    console.warn('[THREE.js] 3D model rendering will not be available');
+    console.error('[THREE.js] Failed to load:', error?.message, '— app will degrade to CSS illustrations and camera fallback only');
+    THREE = null;
+    GLTFLoader = null;
+    return false;
   }
 }
 
@@ -65,7 +68,8 @@ const state = {
   xrRenderer: null,
   xrScene: null,
   xrCamera: null,
-  xrLight: null
+  xrLight: null,
+  arMode: null
 };
 
 const $ = (selector, parent = document) => parent.querySelector(selector);
@@ -73,6 +77,19 @@ const $$ = (selector, parent = document) => [...parent.querySelectorAll(selector
 const peso = value => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', maximumFractionDigits: 0 }).format(value);
 const cm = value => `${Math.round(value)} cm`;
 const colorStyles = { Sand: '#d4b18b', Oak: '#aa7953', Terracotta: '#c46e50', Walnut: '#725343', Black: '#474b47', White: '#d9d4ca', Natural: '#b58d62' };
+
+function setARMode(mode) {
+  state.arMode = mode;
+  const indicator = $('#ar-mode-indicator');
+  if (!indicator) return;
+  const modes = {
+    'native-ar': '📡 Live AR',
+    'camera-preview': '📷 Camera preview',
+    'illustration-only': '🎨 Illustration'
+  };
+  indicator.textContent = modes[mode] || '';
+  console.log(`[AR Mode] Switched to: ${mode}`);
+}
 
 function colorFor(product) { return colorStyles[product.color] || '#8c9d88'; }
 function furniture(product, extra = '') {
@@ -289,6 +306,7 @@ async function loadGLBModel(product) {
 
 async function startNativeAR() {
   console.log('[AR Session] Requesting XR immersive-ar session...');
+  setARMode('native-ar');
   const root = $('#ar-experience');
   
   let session;
@@ -549,6 +567,8 @@ async function startCameraFallback() {
   const fallbackHost = $('#fallback-product');
   const cameraVideo = $('#camera-feed');
 
+  setARMode('camera-preview');
+
   $('#ar-mode-label').textContent = isPlacement
     ? 'Camera preview — drag to rotate, pinch to check scale. This device can\'t track the room, so use this to judge fit, not exact placement.'
     : 'Camera preview active — use the two fields after closing to enter your tape measure reading.';
@@ -569,13 +589,15 @@ async function startCameraFallback() {
 
     const model = await loadScaledModel(product);
     if (!model || !THREE || !fallbackCanvas) {
-      fallbackHost.innerHTML = `<div class="fallback-message">3D preview not available for this product yet</div>`;
+      setARMode('illustration-only');
+      fallbackHost.innerHTML = `<div class="fallback-message">3D preview unavailable. Use guided measurement to check fit.</div>`;
       return;
     }
 
     const context = fallbackCanvas.getContext('webgl2', { alpha: true, antialias: true, premultipliedAlpha: false });
     if (!context) {
-      fallbackHost.innerHTML = `<div class="fallback-message">3D preview not available for this product yet</div>`;
+      setARMode('illustration-only');
+      fallbackHost.innerHTML = `<div class="fallback-message">3D preview unavailable. Use guided measurement to check fit.</div>`;
       return;
     }
 
@@ -676,6 +698,7 @@ async function startCameraFallback() {
 
   if (!navigator.mediaDevices?.getUserMedia) {
     $('#camera-feed').style.display = 'none';
+    setARMode('illustration-only');
     $('#ar-mode-label').textContent = 'Camera access is not available. Use the guided measurement fields.';
     return;
   }
@@ -685,6 +708,7 @@ async function startCameraFallback() {
     $('#camera-feed').srcObject = state.cameraStream;
   } catch {
     $('#camera-feed').style.display = 'none';
+    setARMode('illustration-only');
     $('#ar-mode-label').textContent = 'Camera permission was not granted. Use the guided measurement fields.';
   }
 }
