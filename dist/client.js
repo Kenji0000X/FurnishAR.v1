@@ -70,7 +70,8 @@ const state = {
   xrScene: null,
   xrCamera: null,
   xrLight: null,
-  arMode: null
+  arMode: null,
+  placementConfirmed: false
 };
 
 const $ = (selector, parent = document) => parent.querySelector(selector);
@@ -79,7 +80,7 @@ const peso = value => new Intl.NumberFormat('en-PH', { style: 'currency', curren
 const cm = value => `${Math.round(value)} cm`;
 const colorStyles = { Sand: '#d4b18b', Oak: '#aa7953', Terracotta: '#c46e50', Walnut: '#725343', Black: '#474b47', White: '#d9d4ca', Natural: '#b58d62' };
 
-const AR_EXPERIENCE_HTML = `<div id="ar-experience" class="ar-experience"><video id="camera-feed" autoplay playsinline muted></video><canvas id="xr-canvas"></canvas><div id="fallback-product" class="fallback-product"></div><div class="ar-hud"><div><p class="eyebrow">FurnishAR placement</p><strong id="ar-product-name">Product</strong><span id="ar-mode-indicator" class="ar-mode-indicator" aria-label="AR mode"></span></div><button id="exit-ar" class="ar-exit">Exit</button></div><div class="ar-reticle"><i></i></div><div id="live-measurement" class="live-measurement" hidden><span id="live-cm">0 cm</span><span id="live-mm">0 mm</span><span id="live-m">0.00 m</span></div><div class="ar-instructions"><b id="ar-mode-label">Move your phone slowly to find the floor.</b><span>Tap the screen to place. Drag horizontally to rotate in preview mode.</span></div><div id="model-controls" class="model-controls" hidden><div class="control-group rotate-group"><button id="rotate-left" class="control-btn" aria-label="Rotate left" title="Rotate left">⟲</button><button id="rotate-right" class="control-btn" aria-label="Rotate right" title="Rotate right">⟳</button></div><div class="control-group move-group"><button id="move-up" class="control-btn" aria-label="Move away">↑</button><button id="move-down" class="control-btn" aria-label="Move closer">↓</button><button id="move-left" class="control-btn" aria-label="Move left">←</button><button id="move-right" class="control-btn" aria-label="Move right">→</button></div><div class="control-group zoom-group"><button id="zoom-in" class="control-btn" aria-label="Zoom in">+</button><button id="zoom-out" class="control-btn" aria-label="Zoom out">−</button></div><button id="reset-model" class="control-btn reset-btn" aria-label="Reset position" title="Reset to default position">⟲ Reset</button></div></div>`;
+const AR_EXPERIENCE_HTML = `<div id="ar-experience" class="ar-experience"><video id="camera-feed" autoplay playsinline muted></video><canvas id="xr-canvas"></canvas><div id="fallback-product" class="fallback-product"></div><div class="ar-hud"><div><p class="eyebrow">FurnishAR placement</p><strong id="ar-product-name">Product</strong><span id="ar-mode-indicator" class="ar-mode-indicator" aria-label="AR mode"></span></div><button id="reset-model" class="ar-reset" aria-label="Reset model" title="Reset model">↻</button><button id="exit-ar" class="ar-exit">Exit</button></div><div class="ar-reticle"><i></i></div><div id="live-measurement" class="live-measurement" hidden><span id="live-cm">0 cm</span><span id="live-mm">0 mm</span><span id="live-m">0.00 m</span></div><div class="ar-instructions"><b id="ar-mode-label">Move your phone slowly to find the floor.</b><span>Drag to move, twist with two fingers to rotate, pinch to resize. Tap the button to confirm placement.</span></div><button id="place-button" class="place-button" aria-label="Confirm placement" disabled>●</button></div>`;
 
 function mountARExperience() {
   let experience = $('#ar-experience');
@@ -88,13 +89,8 @@ function mountARExperience() {
     experience = $('#ar-experience');
   }
   experience.hidden = false;
-  layoutControlRing();
   state.arLayoutObserver?.disconnect();
   const banner = $('.ar-instructions');
-  if (banner && typeof ResizeObserver !== 'undefined') {
-    state.arLayoutObserver = new ResizeObserver(layoutControlRing);
-    state.arLayoutObserver.observe(banner);
-  }
   $('#exit-ar').addEventListener('click', () => state.session ? state.session.end() : cleanupAR(), { once: true });
   return experience;
 }
@@ -129,87 +125,27 @@ function hideLiveMeasurement() {
   $('#live-measurement').hidden = true;
 }
 
-function layoutControlRing() {
-  const tray = $('.model-controls');
-  if (!tray) return;
-  const ring = tray.querySelectorAll('button:not(#reset-model)');
-  const traySize = tray.clientWidth;
-  const center = traySize / 2;
-  const halfButton = (ring[0]?.getBoundingClientRect().width || 40) / 2;
-  const radius = Math.max(0, center - halfButton - 8);
-  const banner = $('.ar-instructions');
-  if (banner) tray.style.bottom = `${banner.offsetHeight + 12}px`;
-  ring.forEach((button, index) => {
-    const angle = (index / ring.length) * 2 * Math.PI - Math.PI / 2;
-    button.style.left = `${center + radius * Math.cos(angle) - halfButton}px`;
-    button.style.top = `${center + radius * Math.sin(angle) - halfButton}px`;
+function setModelSurfaceState(modelRoot, blocked) {
+  if (!modelRoot || !THREE) return;
+  modelRoot.traverse(child => {
+    if (!(child instanceof THREE.Mesh) || !child.material) return;
+    if (!child.userData.normalMaterial) child.userData.normalMaterial = child.material;
+    if (blocked) {
+      child.userData.warningMaterial ||= new THREE.MeshBasicMaterial({ color: 0xff3333, transparent: true, opacity: 0.72 });
+      child.material = child.userData.warningMaterial;
+    } else {
+      child.material = child.userData.normalMaterial;
+    }
   });
 }
 
-window.addEventListener('resize', layoutControlRing, { passive: true });
-window.addEventListener('orientationchange', layoutControlRing, { passive: true });
-layoutControlRing();
-
-let modelControlState = { initialScale: 1, initialRotation: 0, initialPosition: { x: 0, y: 0, z: 0 } };
-
-function setupModelControls(modelRoot, syncSizeFunc) {
-  if (!modelRoot) return;
-
-  // Store initial state for reset
-  modelControlState.initialScale = modelRoot.scale.x;
-  modelControlState.initialRotation = modelRoot.rotation.y;
-  modelControlState.initialPosition = { x: modelRoot.position.x, y: modelRoot.position.y, z: modelRoot.position.z };
-
-  const step = { rotation: 0.15, movement: 0.05, scale: 0.1 };
-  
-  // Rotate left/right
-  $('#rotate-left')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    modelRoot.rotation.y -= step.rotation;
-  });
-  $('#rotate-right')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    modelRoot.rotation.y += step.rotation;
-  });
-
-  // Move up/down/left/right
-  $('#move-up')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    modelRoot.position.z += step.movement;
-  });
-  $('#move-down')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    modelRoot.position.z -= step.movement;
-  });
-  $('#move-left')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    modelRoot.position.x -= step.movement;
-  });
-  $('#move-right')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    modelRoot.position.x += step.movement;
-  });
-
-  // Zoom in/out
-  $('#zoom-in')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    modelRoot.scale.multiplyScalar(1 + step.scale / modelRoot.scale.x);
-    if (syncSizeFunc) syncSizeFunc();
-  });
-  $('#zoom-out')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    modelRoot.scale.multiplyScalar(1 - step.scale / modelRoot.scale.x);
-    if (syncSizeFunc) syncSizeFunc();
-  });
-
-  // Reset
-  $('#reset-model')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    modelRoot.scale.setScalar(modelControlState.initialScale);
-    modelRoot.rotation.y = modelControlState.initialRotation;
-    modelRoot.position.set(modelControlState.initialPosition.x, modelControlState.initialPosition.y, modelControlState.initialPosition.z);
-    if (syncSizeFunc) syncSizeFunc();
-  });
+function setPlacementButtonState(blocked, confirmed = false) {
+  const button = $('#place-button');
+  if (!button) return;
+  button.disabled = blocked || confirmed;
+  button.classList.toggle('is-blocked', blocked);
+  button.classList.toggle('is-confirmed', confirmed);
+  button.textContent = confirmed ? '✓' : '●';
 }
 
 function colorFor(product) { return colorStyles[product.color] || '#8c9d88'; }
@@ -448,7 +384,6 @@ async function startNativeAR() {
   let isSurfaceFlat = false;
   let recentHitHeights = []; // Rolling buffer of Y-position samples (last 10 frames)
   const flatnessThreshold = 0.015; // ~1.5 cm variance threshold
-  let placedModelRedOverlay = null; // Red material overlay for not-flat state
   
   let session;
   try {
@@ -516,7 +451,9 @@ async function startNativeAR() {
   }
 
   const product = state.selected;
-  $('#ar-mode-label').textContent = state.arPurpose === 'measurement' ? 'Tap point A, then point B on the floor.' : 'Move your phone slowly to find the floor, then tap to place.';
+  $('#ar-mode-label').textContent = state.arPurpose === 'measurement'
+    ? 'Tap point A, then point B on the floor.'
+    : 'Drag to move, twist with two fingers to rotate, pinch to resize. Tap the button to confirm placement.';
   session.addEventListener('select', event => captureNativePoint(event.frame));
   session.addEventListener('end', cleanupAR);
 
@@ -562,13 +499,21 @@ async function startNativeAR() {
       placedModel = state.loadedModel.clone();
       scene.add(placedModel);
 
-      // Setup model controls (buttons work in native AR too)
-      const nativeARSyncSize = () => {
-        // In native AR, model position is controlled by hit-test placement
-        // but we can still scale/rotate for preview before final placement
-      };
-      setupModelControls(placedModel, nativeARSyncSize);
-      $('#model-controls').hidden = false;
+      $('#place-button').disabled = false;
+      $('#place-button').addEventListener('click', event => {
+        event.stopPropagation();
+        captureNativePoint(null);
+      }, { once: false });
+      const nativeInitialScale = placedModel.scale.clone();
+      const nativeInitialPosition = placedModel.position.clone();
+      $('#reset-model').addEventListener('click', event => {
+        event.stopPropagation();
+        placedModel.scale.copy(nativeInitialScale);
+        placedModel.position.copy(nativeInitialPosition);
+        placedModel.rotation.set(0, 0, 0);
+        state.placedMatrix = null;
+        setPlacementButtonState(false);
+      }, { once: true });
 
       console.log('[AR Render] ✓ THREE.js scene initialized with 3D model');
     } catch (error) {
@@ -587,7 +532,7 @@ async function startNativeAR() {
     state.latestHitPose = hits[0]?.getPose(state.referenceSpace) || null;
 
     // ===== FLAT-SURFACE DETECTION =====
-    if (state.arPurpose === 'placement' && state.latestHitPose) {
+    if (state.arPurpose === 'placement' && state.latestHitPose && !state.placementConfirmed) {
       // Method 1: Check XRPlaneSet if plane-detection is supported
       const planes = xrFrame.detectedPlanes;
       if (planes && planes.size > 0) {
@@ -619,29 +564,15 @@ async function startNativeAR() {
       // Apply visual feedback based on flatness
       if (placedModel) {
         if (!isSurfaceFlat) {
-          // Not flat: tint model red, disable placement
-          if (!placedModelRedOverlay) {
-            placedModelRedOverlay = new THREE.MeshBasicMaterial({ color: 0xff4444, transparent: true, opacity: 0.4 });
-          }
-          placedModel.traverse(child => {
-            if (child instanceof THREE.Mesh) {
-              child.material = placedModelRedOverlay;
-            }
-          });
+              setModelSurfaceState(placedModel, true);
           $('#ar-mode-label').textContent = 'Surface looks uneven — find a flatter spot to place this item.';
           state.placementBlocked = true;
+              setPlacementButtonState(true);
         } else {
-          // Flat: restore original material, enable placement
-          if (placedModelRedOverlay) {
-            // Restore original materials by reloading if needed
-            placedModel.traverse(child => {
-              if (child instanceof THREE.Mesh && child.userData?.originalMaterial) {
-                child.material = child.userData.originalMaterial;
-              }
-            });
-          }
+              setModelSurfaceState(placedModel, false);
           $('#ar-mode-label').textContent = 'Flat surface detected. Tap to place.';
           state.placementBlocked = false;
+              setPlacementButtonState(false);
         }
       }
     }
@@ -713,10 +644,11 @@ async function startNativeAR() {
 function captureNativePoint(frame) {
   const pose = state.latestHitPose;
   if (!pose) { toast('Move slowly until the floor target is detected, then tap again.'); return; }
-  if (state.placementBlocked) { toast('Surface is uneven. Find a flatter spot to place this item.'); return; }
   const point = pose.transform.position;
   if (state.arPurpose === 'placement') { 
-    state.placedMatrix = pose.transform.matrix.slice(); 
+    if (state.placementBlocked || state.placementConfirmed) { toast('Surface is uneven. Find a flatter spot to place this item.'); return; }
+    state.placedMatrix = pose.transform.matrix.slice();
+    state.placementConfirmed = true;
     console.log(`[AR Placement] "${state.selected.name}" placed at position (${point.x.toFixed(2)}, ${point.y.toFixed(2)}, ${point.z.toFixed(2)})`);
     if (state.loadedModel) {
       console.log(`[AR Placement] ✓ 3D model "${state.selected.name}" will render at placement point`);
@@ -724,6 +656,7 @@ function captureNativePoint(frame) {
       console.log(`[AR Placement] ℹ Using box renderer for "${state.selected.name}"`);
     }
     $('#ar-mode-label').textContent = 'Placed. Walk around it to check the fit.'; 
+    setPlacementButtonState(false, true);
     toast(`${state.selected.name} is placed at true scale. Walk around it to inspect the fit.`); 
     return; 
   }
@@ -796,7 +729,7 @@ async function startCameraFallback() {
   setARMode('camera-preview');
 
   $('#ar-mode-label').textContent = isPlacement
-    ? 'Camera preview — drag to rotate, pinch to check scale. This device can\'t track the room, so use this to judge fit, not exact placement.'
+    ? 'Camera preview — drag to rotate, pinch to check scale. This device can\'t track the room, so use this to judge fit, not exact placement. Tap the button to confirm placement.'
     : 'Camera preview active — use the two fields after closing to enter your tape measure reading.';
 
   $('#xr-canvas').style.display = 'none';
@@ -833,7 +766,7 @@ async function startCameraFallback() {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 1000);
+    const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 1000);
     camera.position.set(0, 0.9, 2.8);
 
     const ambient = new THREE.HemisphereLight(0xffffff, 0x000000, 1.2);
@@ -849,21 +782,21 @@ async function startCameraFallback() {
     let dragX = 0;
     let pinchDistance = null;
     let pinchStableFrames = 0; // Track stable pinch detection
+    let pinchConfirmed = false;
+    let lastTouchCenter = null;
+    let lastTouchAngle = null;
+    let surfaceBlocked = false;
+    let placementConfirmed = false;
+    const initialPosition = modelRoot.position.clone();
 
     const updateScaleLabel = () => {
       const smoothScale = Math.round(currentScale * 20) / 20; // Round to nearest 5%
       const percent = Math.round((smoothScale / 1) * 100);
-      $('#ar-mode-label').textContent = `Camera preview — drag to rotate, pinch to check scale. This device can't track the room, so use this to judge fit, not exact placement. Current size: ${percent}% of true scale.`;
+      $('#ar-mode-label').textContent = `Drag to move, twist with two fingers to rotate, pinch to resize. Current: ${percent}% of true scale. Tap the button to confirm placement.`;
     };
 
     const syncSize = () => {
       modelRoot.scale.setScalar(currentScale);
-      // Re-center model on every scale change to keep it grounded at the same visual spot
-      const scaledBbox = new THREE.Box3().setFromObject(modelRoot);
-      const center = scaledBbox.getCenter(new THREE.Vector3());
-      modelRoot.position.x = -center.x;
-      modelRoot.position.y = -scaledBbox.min.y;
-      modelRoot.position.z = -center.z;
       updateScaleLabel();
     };
 
@@ -878,42 +811,80 @@ async function startCameraFallback() {
 
     resize();
     syncSize();
+    setPlacementButtonState(false);
 
-    // Setup model controls (rotate, move, zoom, reset buttons)
-    setupModelControls(modelRoot, syncSize);
-    $('#model-controls').hidden = false;
+    const resetModel = event => {
+      event?.stopPropagation();
+      currentScale = 1;
+      dragX = 0.6;
+      modelRoot.scale.setScalar(currentScale);
+      modelRoot.rotation.y = dragX;
+      modelRoot.position.copy(initialPosition);
+      placementConfirmed = false;
+      setPlacementButtonState(surfaceBlocked);
+      updateScaleLabel();
+    };
+
+    $('#reset-model')?.addEventListener('click', resetModel);
+    $('#place-button')?.addEventListener('click', event => {
+      event.stopPropagation();
+      if (surfaceBlocked) return;
+      placementConfirmed = true;
+      setPlacementButtonState(false, true);
+      $('#ar-mode-label').textContent = 'Placed. Walk around it to check the fit.';
+    });
 
     fallbackHost.addEventListener('pointerdown', event => {
+      if (placementConfirmed || event.pointerType === 'touch') return;
       fallbackHost.setPointerCapture(event.pointerId);
-      fallbackHost.dataset.dragX = String(event.clientX);
+      fallbackHost.dataset.lastX = String(event.clientX);
+      fallbackHost.dataset.lastY = String(event.clientY);
     });
 
     fallbackHost.addEventListener('pointermove', event => {
-      if (!fallbackHost.hasPointerCapture(event.pointerId)) return;
-      const previousX = Number(fallbackHost.dataset.dragX || event.clientX);
-      const delta = event.clientX - previousX;
-      if (Math.abs(delta) > 1) {
-        dragX += delta * 0.01;
-        modelRoot.rotation.y = dragX;
-        fallbackHost.dataset.dragX = String(event.clientX);
-      }
+      if (placementConfirmed || event.pointerType === 'touch' || !fallbackHost.hasPointerCapture(event.pointerId)) return;
+      const previousX = Number(fallbackHost.dataset.lastX || event.clientX);
+      const previousY = Number(fallbackHost.dataset.lastY || event.clientY);
+      modelRoot.position.x += (event.clientX - previousX) * 0.002;
+      modelRoot.position.z += (event.clientY - previousY) * 0.002;
+      fallbackHost.dataset.lastX = String(event.clientX);
+      fallbackHost.dataset.lastY = String(event.clientY);
     });
 
     fallbackHost.addEventListener('wheel', event => {
+      if (placementConfirmed) return;
       event.preventDefault();
       currentScale = Math.min(3, Math.max(0.3, currentScale + (event.deltaY > 0 ? -0.1 : 0.1)));
       syncSize();
     }, { passive: false });
 
     fallbackHost.addEventListener('touchstart', event => {
-      if (event.touches.length === 2) {
+      if (!placementConfirmed && event.touches.length === 1) {
+        fallbackHost.dataset.lastTouchX = String(event.touches[0].clientX);
+        fallbackHost.dataset.lastTouchY = String(event.touches[0].clientY);
+      }
+      if (!placementConfirmed && event.touches.length === 2) {
         const [a, b] = [event.touches[0], event.touches[1]];
         pinchDistance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
         pinchStableFrames = 0; // Reset stability counter on new pinch start
+        pinchConfirmed = false;
+        lastTouchCenter = { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
+        lastTouchAngle = Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX);
       }
     }, { passive: true });
 
     fallbackHost.addEventListener('touchmove', event => {
+      if (placementConfirmed) return;
+      if (event.touches.length === 1 && !pinchDistance) {
+        const touch = event.touches[0];
+        const previousX = Number(fallbackHost.dataset.lastTouchX || touch.clientX);
+        const previousY = Number(fallbackHost.dataset.lastTouchY || touch.clientY);
+        modelRoot.position.x += (touch.clientX - previousX) * 0.002;
+        modelRoot.position.z += (touch.clientY - previousY) * 0.002;
+        fallbackHost.dataset.lastTouchX = String(touch.clientX);
+        fallbackHost.dataset.lastTouchY = String(touch.clientY);
+        return;
+      }
       if (event.touches.length === 2 && pinchDistance) {
         const [a, b] = [event.touches[0], event.touches[1]];
         const nextDistance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
@@ -924,26 +895,64 @@ async function startCameraFallback() {
           pinchStableFrames++;
           // Only apply scale after two consecutive stable frames confirm intentional pinch
           if (pinchStableFrames > 1) {
+            pinchConfirmed = true;
             const ratio = nextDistance / (pinchDistance || 1);
             currentScale = Math.min(2.0, Math.max(0.5, currentScale * ratio));
             syncSize();
           }
         }
+        const center = { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
+        const angle = Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX);
+        if (pinchConfirmed && lastTouchAngle !== null) modelRoot.rotation.y += angle - lastTouchAngle;
+        lastTouchAngle = angle;
+        if (lastTouchCenter) {
+          modelRoot.position.x += (center.x - lastTouchCenter.x) * 0.002;
+          modelRoot.position.z += (center.y - lastTouchCenter.y) * 0.002;
+        }
+        lastTouchCenter = center;
         pinchDistance = nextDistance;
       }
     }, { passive: true });
 
     fallbackHost.addEventListener('touchend', event => {
-      if (event.touches.length < 2) pinchDistance = null;
+      if (event.touches.length < 2) {
+        pinchDistance = null;
+        pinchConfirmed = false;
+        lastTouchCenter = null;
+        lastTouchAngle = null;
+      }
       pinchStableFrames = 0;
+      fallbackHost.dataset.lastTouchX = '';
+      fallbackHost.dataset.lastTouchY = '';
     }, { passive: true });
 
     fallbackHost.addEventListener('touchcancel', () => {
       pinchDistance = null;
       pinchStableFrames = 0;
+      pinchConfirmed = false;
+      lastTouchCenter = null;
+      lastTouchAngle = null;
     }, { passive: true });
 
-    const tick = () => {
+    let previewTilt = 0;
+    let lastDebugLog = 0;
+    const tick = timestamp => {
+      const nextSurfaceBlocked = Math.abs(previewTilt) > 45;
+      if (nextSurfaceBlocked !== surfaceBlocked) {
+        surfaceBlocked = nextSurfaceBlocked;
+        setModelSurfaceState(modelRoot, surfaceBlocked);
+        setPlacementButtonState(surfaceBlocked, placementConfirmed);
+        if (surfaceBlocked) $('#ar-mode-label').textContent = 'Surface looks uneven — hold the phone level before placing.';
+        else updateScaleLabel();
+      }
+      if (timestamp - lastDebugLog > 1000) {
+        lastDebugLog = timestamp;
+        console.debug('[AR Preview] camera/model transform', {
+          camera: camera.position.toArray(),
+          model: modelRoot.position.toArray(),
+          distance: camera.position.distanceTo(modelRoot.position)
+        });
+      }
       renderer.setClearColor(0x000000, 0);
       renderer.render(scene, camera);
       requestAnimationFrame(tick);
@@ -974,6 +983,7 @@ async function startCameraFallback() {
       };
       window.addEventListener('deviceorientation', (event) => {
         latestBeta = event.beta || 0;
+        previewTilt = latestBeta;
         onOrientationTick(performance.now());
       }, { passive: true });
     }
@@ -1023,7 +1033,9 @@ async function startExperience(purpose) {
   }
 
   mountARExperience();
-  state.arPurpose = purpose; state.arPoints = []; state.placedMatrix = null; $('#camera-feed').style.display = ''; $('#xr-canvas').style.display = ''; $('#fallback-product').style.display = 'none';
+  state.arPurpose = purpose; state.arPoints = []; state.placedMatrix = null; state.placementBlocked = false; state.placementConfirmed = false; $('#camera-feed').style.display = ''; $('#xr-canvas').style.display = ''; $('#fallback-product').style.display = 'none';
+  $('#place-button').hidden = purpose !== 'placement';
+  $('#reset-model').hidden = purpose !== 'placement';
   console.log(`[AR Flow] Starting AR experience for "${state.selected.name}" (${purpose} mode)`);
   try {
     const supportsAR = await checkARSupport();
@@ -1055,7 +1067,6 @@ function cleanupAR() {
   state.latestHitPose = null;
   state.session = null;
   hideLiveMeasurement();
-  $('#model-controls').hidden = true;
 
   // Clean up THREE.js resources
   if (state.xrRenderer) {
