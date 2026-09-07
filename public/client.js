@@ -1,5 +1,23 @@
 /* FurnishAR client — no build step required. It talks to the local Node API. */
 
+// Load THREE.js and GLTFLoader from CDN (ES module)
+// These are loaded via dynamic import when needed
+let THREE = null;
+let GLTFLoader = null;
+
+async function loadThreeJS() {
+  if (THREE) return;
+  try {
+    THREE = await import('https://cdn.jsdelivr.net/npm/three@r170/build/three.module.js').then(m => m.default || m);
+    const loader = await import('https://cdn.jsdelivr.net/npm/three@r170/examples/jsm/loaders/GLTFLoader.js');
+    GLTFLoader = loader.GLTFLoader;
+    console.log('[THREE.js] ✓ Loaded successfully from CDN');
+  } catch (error) {
+    console.warn('[THREE.js] ⚠ Failed to load from CDN:', error.message);
+    console.warn('[THREE.js] 3D model rendering will not be available');
+  }
+}
+
 // Escape HTML special characters to prevent XSS
 function escapeHtml(text) {
   if (typeof text !== 'string') return '';
@@ -44,7 +62,10 @@ const state = {
   user: JSON.parse((typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('furnishar-user') : null) || 'null'),
   loadedModel: null,
   modelBounds: null,
-  modelLoader: typeof THREE !== 'undefined' ? new THREE.GLTFLoader() : null
+  xrRenderer: null,
+  xrScene: null,
+  xrCamera: null,
+  xrLight: null
 };
 
 const $ = (selector, parent = document) => parent.querySelector(selector);
@@ -99,7 +120,10 @@ function openProduct(id) {
   state.selected = product;
   const storeInfo = state.stores[product.storeId];
   const storeBlock = storeInfo ? `<div style="background: #f5f5f5; padding: 12px; border-radius: 4px; margin-top: 12px; font-size: 13px;"><strong>📍 ${escapeHtml(storeInfo.name)}</strong><br />${escapeHtml(storeInfo.address)}<br />☎️ ${escapeHtml(storeInfo.contactNumber)}<br />🕒 ${escapeHtml(storeInfo.hours)}</div>` : '';
-  $('#dialog-content').innerHTML = `<div class="dialog-layout"><div class="dialog-image">${furniture(product)}</div><div class="dialog-info"><p class="product-store">${escapeHtml(product.store)} · ${escapeHtml(product.category)}</p><h2>${escapeHtml(product.name)}</h2><p class="dialog-price">${peso(product.price)}</p><p>${escapeHtml(product.description)}</p><div class="dialog-dimensions"><div><span>WIDTH</span><b>${cm(product.dimensions.width)}</b></div><div><span>DEPTH</span><b>${cm(product.dimensions.depth)}</b></div><div><span>HEIGHT</span><b>${cm(product.dimensions.height)}</b></div></div>${storeBlock}<button class="button button-primary" data-place-product="${product.id}">⌑ Place in your room</button><button class="button button-outline" data-plan-product="${product.id}">Measure the fit first</button></div></div>`;
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const quickLookLink = (isIOS && product.modelUsdz) ? `<a class="button button-primary" rel="ar" href="${product.modelUsdz}"><img src="${product.modelUsdz.replace(/\.(usdz|glb)$/i, '.png')}" alt="${escapeHtml(product.name)} preview" style="display:block;width:100%;max-width:180px;border-radius:12px;margin:0 auto 12px;" onerror="this.style.display='none'" />Open in AR</a>` : '';
+  const arAction = (navigator.xr && !isIOS) ? `<button class="button button-primary" data-place-product="${product.id}">⌑ Place in your room</button>` : (product.modelUsdz && isIOS ? quickLookLink : `<button class="button button-primary" data-place-product="${product.id}">⌑ Place in your room</button>`);
+  $('#dialog-content').innerHTML = `<div class="dialog-layout"><div class="dialog-image">${furniture(product)}</div><div class="dialog-info"><p class="product-store">${escapeHtml(product.store)} · ${escapeHtml(product.category)}</p><h2>${escapeHtml(product.name)}</h2><p class="dialog-price">${peso(product.price)}</p><p>${escapeHtml(product.description)}</p><div class="dialog-dimensions"><div><span>WIDTH</span><b>${cm(product.dimensions.width)}</b></div><div><span>DEPTH</span><b>${cm(product.dimensions.depth)}</b></div><div><span>HEIGHT</span><b>${cm(product.dimensions.height)}</b></div></div>${storeBlock}${arAction}<button class="button button-outline" data-plan-product="${product.id}">Measure the fit first</button></div></div>`;
   $('#product-dialog').showModal();
 }
 
@@ -155,6 +179,11 @@ function toast(message) {
 async function checkARSupport() {
   const status = $('#ar-status');
   if (!window.isSecureContext) { status.textContent = 'Use HTTPS (or localhost) to enable camera and WebXR. Guided measurement is still available.'; return false; }
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIOS && state.selected?.modelUsdz) {
+    status.textContent = 'iPhone Safari detected. AR Quick Look will open the native USDZ viewer for this product.';
+    return false;
+  }
   if (!navigator.xr) { status.textContent = 'WebXR is unavailable in this browser. The camera preview and guided measurement will still work.'; return false; }
   try {
     const supported = await navigator.xr.isSessionSupported('immersive-ar');
@@ -177,58 +206,73 @@ function arRenderer(gl) {
 }
 
 async function loadGLBModel(product) {
-  // Check for GLB model in arModel field first, then fall back to model field
-  const modelPath = product.arModel || (product.model && product.model.endsWith('.glb') ? product.model : null);
-  
-  if (!modelPath) {
-    console.log(`[AR Model] Product "${product.name}" uses CSS shape model, not GLB`);
+  // Load THREE if not already loaded
+  if (!THREE) await loadThreeJS();
+  if (!THREE || !GLTFLoader) {
+    console.log(`[AR Model] THREE.js unavailable, using fallback cube for "${product.name}"`);
     state.loadedModel = null;
     state.modelBounds = null;
     return;
   }
-  
-  if (!state.modelLoader) {
-    console.warn('[AR Model] THREE.js not loaded, cannot load GLB');
+
+  // Check for GLB model in modelGlb field
+  const modelPath = product.modelGlb;
+  if (!modelPath) {
+    console.log(`[AR Model] Product "${product.name}" has no 3D model, will use fallback cube`);
     state.loadedModel = null;
+    state.modelBounds = null;
     return;
   }
+
   console.log(`[AR Model] Loading GLB: ${modelPath}`);
-  
+
   try {
+    const loader = new GLTFLoader();
     const gltf = await new Promise((resolve, reject) => {
-      state.modelLoader.load(
+      loader.load(
         modelPath,
         resolve,
         (progress) => console.log(`[AR Model] Loading ${modelPath}: ${Math.round(progress.loaded / progress.total * 100)}%`),
         reject
       );
     });
-    
-    const scene = gltf.scene;
-    
-    // Analyze bounding box and origin
-    const bbox = new THREE.Box3().setFromObject(scene);
+
+    const model = gltf.scene;
+
+    // Compute bounding box to determine exact dimensions
+    const bbox = new THREE.Box3().setFromObject(model);
     const size = bbox.getSize(new THREE.Vector3());
-    const center = bbox.getCenter(new THREE.Vector3());
+
+    console.log(`[AR Model] Loaded bounds: ${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)} meters`);
+
+    // The modelBounds in catalog is in cm, we're working in meters (÷100)
+    // Scale the model so its bounding box matches the catalog modelBounds exactly
+    const targetBounds = product.modelBounds || product.dimensions;
+    const scaleX = (targetBounds.width / 100) / size.x;
+    const scaleY = (targetBounds.height / 100) / size.y;
+    const scaleZ = (targetBounds.depth / 100) / size.z;
     
-    console.log(`[AR Model] Bounds: min(${bbox.min.x.toFixed(2)}, ${bbox.min.y.toFixed(2)}, ${bbox.min.z.toFixed(2)})`);
-    console.log(`[AR Model] Bounds: max(${bbox.max.x.toFixed(2)}, ${bbox.max.y.toFixed(2)}, ${bbox.max.z.toFixed(2)})`);
-    console.log(`[AR Model] Size: ${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}`);
-    console.log(`[AR Model] Center: (${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)})`);
-    console.log(`[AR Model] Product dims: ${product.dimensions.width} x ${product.dimensions.height} x ${product.dimensions.depth} cm`);
+    console.log(`[AR Model] Scaling: x=${scaleX.toFixed(3)}, y=${scaleY.toFixed(3)}, z=${scaleZ.toFixed(3)}`);
     
-    // Re-center model so its base sits at (0, 0, 0)
-    scene.position.sub(center);
-    scene.position.y += size.y / 2; // Move up so bottom sits at y=0
-    
-    state.loadedModel = scene;
-    state.modelBounds = { size, center, bbox };
-    console.log(`[AR Model] ✓ Loaded and normalized: ${product.name}`);
-    
+    model.scale.set(scaleX, scaleY, scaleZ);
+
+    // Re-center and position so base sits at origin
+    const scaledBbox = new THREE.Box3().setFromObject(model);
+    const center = scaledBbox.getCenter(new THREE.Vector3());
+    const scaledSize = scaledBbox.getSize(new THREE.Vector3());
+
+    // Position model so bottom-center is at (0, 0, 0)
+    model.position.x = -center.x;
+    model.position.y = -scaledBbox.min.y;  // Move up so base is at y=0
+    model.position.z = -center.z;
+
+    console.log(`[AR Model] ✓ Loaded and scaled "${product.name}" to ${targetBounds.width}×${targetBounds.height}×${targetBounds.depth} cm`);
+
+    state.loadedModel = model;
+    state.modelBounds = { size: scaledSize, bbox: scaledBbox, product: product.id };
+
   } catch (error) {
-    console.error(`[AR Model] ✗ Failed to load ${modelPath}:`, error);
-    console.error('  Error details:', error.message);
-    if (error.response) console.error('  HTTP Status:', error.response.status);
+    console.error(`[AR Model] ✗ Failed to load ${modelPath}:`, error.message);
     state.loadedModel = null;
     state.modelBounds = null;
   }
@@ -240,48 +284,133 @@ async function startNativeAR() {
   const session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['hit-test'], optionalFeatures: ['local-floor', 'dom-overlay'], domOverlay: { root } });
   state.session = session;
   console.log('[AR Session] ✓ XR session created successfully');
+
+  // Load THREE.js if needed
+  if (!THREE) await loadThreeJS();
+
   const canvas = $('#xr-canvas');
-  const gl = canvas.getContext('webgl', { xrCompatible: true, alpha: true });
-  await gl.makeXRCompatible();
+  const gl = canvas.getContext('webgl2', { xrCompatible: true, alpha: true });
+  if (!gl) {
+    console.warn('[AR Session] WebGL2 not available, falling back to WebGL');
+    const glFallback = canvas.getContext('webgl', { xrCompatible: true, alpha: true });
+    if (glFallback) await glFallback.makeXRCompatible();
+  } else {
+    await gl.makeXRCompatible();
+  }
+
   const layer = new XRWebGLLayer(session, gl);
   session.updateRenderState({ baseLayer: layer });
   const viewerSpace = await session.requestReferenceSpace('viewer');
   state.referenceSpace = await session.requestReferenceSpace('local');
   state.hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
-  const renderer = arRenderer(gl);
+
   const product = state.selected;
-  const [red, green, blue] = (colorFor(product).match(/[a-f\d]{2}/gi) || ['8c','9d','88']).map(value => parseInt(value, 16) / 255);
   $('#ar-mode-label').textContent = state.arPurpose === 'measurement' ? 'Tap point A, then point B on the floor.' : 'Move your phone slowly to find the floor, then tap to place.';
   session.addEventListener('select', event => captureNativePoint(event.frame));
   session.addEventListener('end', cleanupAR);
-  
+
   // Load GLB model if this product has one
   await loadGLBModel(product);
-  if (state.loadedModel) {
-    console.log(`[AR] Loaded 3D model for "${product.name}"`);
-  } else {
-    console.log(`[AR] Using fallback box renderer for "${product.name}"`);
+
+  // Set up THREE.js rendering if model is available
+  let renderer = null, scene = null, camera = null;
+  const fallbackRenderer = arRenderer(gl);
+  const [red, green, blue] = (colorFor(product).match(/[a-f\d]{2}/gi) || ['8c','9d','88']).map(value => parseInt(value, 16) / 255);
+
+  let light = null;
+  let dirLight = null;
+  let placedModel = null;
+
+  if (THREE && state.loadedModel) {
+    console.log('[AR Render] Setting up THREE.js renderer for real 3D model');
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas, context: gl, antialias: true, alpha: true });
+      renderer.xr.enabled = true;
+      renderer.setPixelRatio(1);
+      renderer.setClearColor(0x000000, 0);
+
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(75, gl.canvas.width / gl.canvas.height, 0.01, 100);
+
+      // Add lighting - hemisphere light for soft ambient illumination
+      light = new THREE.HemisphereLight(0xffffff, 0x404040, 1.5);
+      scene.add(light);
+
+      // Add directional light for PBR materials
+      dirLight = new THREE.DirectionalLight(0xffffff, 1);
+      dirLight.position.set(5, 10, 5);
+      scene.add(dirLight);
+
+      state.xrRenderer = renderer;
+      state.xrScene = scene;
+      state.xrCamera = camera;
+      state.xrLight = light;
+
+      // Clone the loaded model for this session
+      placedModel = state.loadedModel.clone();
+      scene.add(placedModel);
+
+      console.log('[AR Render] ✓ THREE.js scene initialized with 3D model');
+    } catch (error) {
+      console.error('[AR Render] Failed to initialize THREE.js:', error.message);
+      renderer = null;
+    }
   }
-  
-  let renderLogged = false; // Track if we've logged this render session
+
+  let renderLogged = false;
   function frame(time, xrFrame) {
     session.requestAnimationFrame(frame);
-    const pose = xrFrame.getViewerPose(state.referenceSpace); if (!pose) return;
+    const pose = xrFrame.getViewerPose(state.referenceSpace);
+    if (!pose) return;
+
     const hits = xrFrame.getHitTestResults(state.hitTestSource);
     state.latestHitPose = hits[0]?.getPose(state.referenceSpace) || null;
-    gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.enable(gl.DEPTH_TEST);
+
     if (!state.latestHitPose || state.arPurpose !== 'placement') return;
-    const dimensions = product.dimensions;
-    const placement = state.placedMatrix || state.latestHitPose.transform.matrix;
-    
-    // Log once per placement session if we have a 3D model
-    if (state.loadedModel && !renderLogged) {
-      console.log(`[AR Render] Starting render loop with 3D model for "${product.name}"`);
+
+    // Use THREE.js renderer if available and model is loaded
+    if (renderer && scene && placedModel && !renderLogged) {
+      console.log(`[AR Render] Starting 3D model render loop for "${product.name}"`);
       renderLogged = true;
     }
-    
-    for (const view of pose.views) { const viewport = layer.getViewport(view); gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height); const model = translateScale(placement, 0, dimensions.height / 200, 0, dimensions.width / 200, dimensions.height / 200, dimensions.depth / 200); renderer.draw(matrixMultiply(view.projectionMatrix, matrixMultiply(view.transform.inverse.matrix, model)), [red, green, blue, .72]); }
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);
+
+    if (renderer && scene && placedModel) {
+      // THREE.js rendering path
+      for (const view of pose.views) {
+        const viewport = layer.getViewport(view);
+        gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
+
+        // Update camera with XR view
+        camera.projectionMatrix.fromArray(view.projectionMatrix);
+        camera.matrix.fromArray(view.transform.matrix);
+        camera.matrixAutoUpdate = false;
+
+        const placement = state.placedMatrix || state.latestHitPose.transform.matrix;
+        const placementMatrix = new THREE.Matrix4().fromArray(placement);
+        placedModel.position.set(placementMatrix.elements[12], placementMatrix.elements[13], placementMatrix.elements[14]);
+        const quaternion = new THREE.Quaternion().setFromRotationMatrix(placementMatrix);
+        placedModel.quaternion.copy(quaternion);
+
+        renderer.render(scene, camera);
+      }
+    } else {
+      // Fallback to cube rendering
+      const dimensions = product.dimensions;
+      const placement = state.placedMatrix || state.latestHitPose.transform.matrix;
+      for (const view of pose.views) {
+        const viewport = layer.getViewport(view);
+        gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
+        const model = translateScale(placement, 0, dimensions.height / 200, 0, dimensions.width / 200, dimensions.height / 200, dimensions.depth / 200);
+        fallbackRenderer.draw(matrixMultiply(view.projectionMatrix, matrixMultiply(view.transform.inverse.matrix, model)), [red, green, blue, .72]);
+      }
+    }
   }
+
   session.requestAnimationFrame(frame);
 }
 
@@ -373,6 +502,19 @@ async function startCameraFallback() {
 
 async function startExperience(purpose) {
   if (!state.selected) return toast('Choose a product first.');
+  const product = state.selected;
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+  if (isIOS && product.modelUsdz) {
+    const quickLookLink = document.createElement('a');
+    quickLookLink.rel = 'ar';
+    quickLookLink.href = product.modelUsdz;
+    quickLookLink.target = '_blank';
+    quickLookLink.click();
+    toast('Opening the native AR Quick Look viewer on iPhone Safari.');
+    return;
+  }
+
   state.arPurpose = purpose; state.arPoints = []; state.placedMatrix = null; $('#ar-experience').hidden = false; $('#camera-feed').style.display = ''; $('#xr-canvas').style.display = ''; $('#fallback-product').style.display = 'none';
   console.log(`[AR Flow] Starting AR experience for "${state.selected.name}" (${purpose} mode)`);
   try {
@@ -382,10 +524,44 @@ async function startExperience(purpose) {
 }
 
 function cleanupAR() {
-  state.hitTestSource?.cancel?.(); state.hitTestSource = null; state.referenceSpace = null; state.latestHitPose = null; state.session = null;
-  state.cameraStream?.getTracks().forEach(track => track.stop()); state.cameraStream = null;
-  $('#camera-feed').srcObject = null; $('#fallback-product').style.display = 'none'; $('#ar-experience').hidden = true; state.placedMatrix = null;
-  state.arPoints = []; state.arMeasurement = null; state.arConfirmationMeasurement = null; state.arNeedsConfirmation = false;
+  state.hitTestSource?.cancel?.();
+  state.hitTestSource = null;
+  state.referenceSpace = null;
+  state.latestHitPose = null;
+  state.session = null;
+
+  // Clean up THREE.js resources
+  if (state.xrRenderer) {
+    state.xrRenderer.dispose();
+    state.xrRenderer = null;
+  }
+  if (state.xrScene) {
+    state.xrScene.traverse(child => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        if (Array.isArray(child.material)) {
+          child.material.forEach(mat => mat.dispose());
+        } else {
+          child.material.dispose();
+        }
+      }
+    });
+    state.xrScene = null;
+  }
+  state.xrCamera = null;
+  state.xrLight = null;
+
+  state.cameraStream?.getTracks().forEach(track => track.stop());
+  state.cameraStream = null;
+  $('#camera-feed').srcObject = null;
+  $('#fallback-product').style.display = 'none';
+  $('#ar-experience').hidden = true;
+  state.placedMatrix = null;
+
+  state.arPoints = [];
+  state.arMeasurement = null;
+  state.arConfirmationMeasurement = null;
+  state.arNeedsConfirmation = false;
 }
 
 async function login(event) {
@@ -413,13 +589,34 @@ function renderAdmin() {
 
 function openProductForm(product = null) {
   const form = $('#product-form'); form.reset(); $('#product-form-error').textContent = ''; $('#form-title').textContent = product ? 'Edit product' : 'Add a product';
-  if (product) { form.elements.id.value = product.id; for (const key of ['name', 'category', 'style', 'color', 'price', 'stock', 'model', 'description']) form.elements[key].value = product[key]; form.elements.width.value = product.dimensions.width; form.elements.height.value = product.dimensions.height; form.elements.depth.value = product.dimensions.depth; }
+  if (product) {
+    form.elements.id.value = product.id;
+    for (const key of ['name', 'category', 'style', 'color', 'price', 'stock', 'model', 'description', 'modelGlb', 'modelUsdz']) form.elements[key].value = product[key] || '';
+    form.elements.width.value = product.dimensions.width;
+    form.elements.height.value = product.dimensions.height;
+    form.elements.depth.value = product.dimensions.depth;
+    form.elements.modelWidth.value = product.modelBounds?.width ?? product.dimensions.width;
+    form.elements.modelHeight.value = product.modelBounds?.height ?? product.dimensions.height;
+    form.elements.modelDepth.value = product.modelBounds?.depth ?? product.dimensions.depth;
+  }
   $('#product-form-dialog').showModal();
 }
 
 async function saveProduct(event) {
   event.preventDefault(); const form = event.currentTarget; const values = Object.fromEntries(new FormData(form)); $('#product-form-error').textContent = '';
-  const product = { ...values, price: Number(values.price), stock: Number(values.stock), dimensions: { width: Number(values.width), height: Number(values.height), depth: Number(values.depth) } };
+  const product = {
+    ...values,
+    price: Number(values.price),
+    stock: Number(values.stock),
+    dimensions: { width: Number(values.width), height: Number(values.height), depth: Number(values.depth) },
+    modelGlb: values.modelGlb ? String(values.modelGlb).trim() : undefined,
+    modelUsdz: values.modelUsdz ? String(values.modelUsdz).trim() : undefined,
+    modelBounds: {
+      width: Number(values.modelWidth || values.width),
+      height: Number(values.modelHeight || values.height),
+      depth: Number(values.modelDepth || values.depth)
+    }
+  };
   try { await api(values.id ? `/api/products/${values.id}` : '/api/products', { method: values.id ? 'PUT' : 'POST', body: JSON.stringify(product) }); await loadProducts(); $('#product-form-dialog').close(); toast(values.id ? 'Product updated.' : 'Product added to the catalog.'); }
   catch (error) { $('#product-form-error').textContent = error.message; }
 }
@@ -472,7 +669,20 @@ function bindEvents() {
   $('#add-product').addEventListener('click', () => openProductForm()); $('#product-form').addEventListener('submit', saveProduct);
 }
 
-async function init() { bindEvents(); try { await loadProducts(); await checkARSupport(); } catch (error) { $('#product-grid').innerHTML = `<div class="no-results"><b>FurnishAR could not reach its local catalog.</b><br /><small>Start the app with <code>npm run local</code> and refresh this page.</small></div>`; toast(error.message); } }
+async function init() {
+  bindEvents();
+  try {
+    // Pre-load THREE.js in parallel with products
+    await Promise.all([
+      loadProducts(),
+      loadThreeJS(),
+      checkARSupport()
+    ]);
+  } catch (error) {
+    $('#product-grid').innerHTML = `<div class="no-results"><b>FurnishAR could not reach its local catalog.</b><br /><small>Start the app with <code>npm run local</code> and refresh this page.</small></div>`;
+    toast(error.message);
+  }
+}
 // Only initialize on browser, not on server
 if (typeof document !== 'undefined') {
   init();

@@ -36,6 +36,19 @@ test('catalog and health endpoints serve the expected data', async () => {
   assert.equal(privateSource.status, 404);
 });
 
+test('products without modelGlb/modelUsdz fields remain optional and backward-compatible', async () => {
+  const catalog = await fetch(`http://127.0.0.1:${port}/api/products`).then(response => response.json());
+  // Verify some products don't have 3D models
+  const noModel = catalog.products.find(p => !p.modelGlb && !p.modelUsdz);
+  assert.ok(noModel, 'Should have at least one product without 3D model fields');
+  // Verify some products DO have 3D models with proper bounds
+  const withModel = catalog.products.find(p => p.modelGlb && p.modelUsdz && p.modelBounds);
+  assert.ok(withModel, 'Should have at least one product with complete 3D model info');
+  assert.ok(withModel.modelBounds.width > 0);
+  assert.ok(withModel.modelBounds.height > 0);
+  assert.ok(withModel.modelBounds.depth > 0);
+});
+
 test('owner login is scoped and protected API routes reject anonymous changes', async () => {
   const login = await fetch(`http://127.0.0.1:${port}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'owner@furnishar.ph', password: 'furnishar' }) });
   const session = await login.json();

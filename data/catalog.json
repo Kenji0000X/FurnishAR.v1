@@ -126,26 +126,88 @@
     "updatedAt": "2026-01-01T00:00:00Z"
   },
   {
-    "id": "cabinet-glb-test",
-    "name": "Rattan Base Marble-Top Side Table",
+    "id": "cabinet-base-multidrawer",
+    "name": "Base Cabinet Multidrawer",
     "storeId": "sc-variety",
     "store": "S&C Variety Store",
-    "category": "Table",
+    "category": "Storage",
     "style": "Modern",
     "color": "Natural",
-    "price": 9990,
-    "stock": 1,
+    "price": 22500,
+    "stock": 2,
     "dimensions": {
-      "width": 100,
-      "height": 180,
-      "depth": 45
+      "width": 61,
+      "height": 88,
+      "depth": 61
     },
-    "model": "table",
-    "arModel": "models/test-model.glb",
-    "description": "Modern side table with woven rattan base and marble top. AR-enabled with 3D model.",
+    "model": "shelf",
+    "modelGlb": "models/base-cabinet-multidrawer.glb",
+    "modelUsdz": "models/base-cabinet-multidrawer.usdz",
+    "modelBounds": {
+      "width": 61,
+      "height": 88,
+      "depth": 61
+    },
+    "description": "Professional multi-drawer base cabinet with real 3D model for AR preview.",
     "arReady": true,
-    "featured": false,
-    "updatedAt": "2026-01-01T00:00:00Z"
+    "featured": true,
+    "updatedAt": "2026-09-07T00:00:00Z"
+  },
+  {
+    "id": "cabinet-outdoor-kitchen",
+    "name": "Outdoor Kitchen Cabinet",
+    "storeId": "sanros",
+    "store": "Sanros General Merchandise",
+    "category": "Storage",
+    "style": "Contemporary",
+    "color": "Terracotta",
+    "price": 18900,
+    "stock": 3,
+    "dimensions": {
+      "width": 91,
+      "height": 88,
+      "depth": 71
+    },
+    "model": "shelf",
+    "modelGlb": "models/outdoor-kitchen-cabinet.glb",
+    "modelUsdz": "models/outdoor-kitchen-cabinet.usdz",
+    "modelBounds": {
+      "width": 91,
+      "height": 88,
+      "depth": 71
+    },
+    "description": "Rugged outdoor-rated storage cabinet with real 3D model for AR placement.",
+    "arReady": true,
+    "featured": true,
+    "updatedAt": "2026-09-07T00:00:00Z"
+  },
+  {
+    "id": "vanity-vessel",
+    "name": "Vanity Vessel Sink Cabinet",
+    "storeId": "sc-variety",
+    "store": "S&C Variety Store",
+    "category": "Bathroom",
+    "style": "Contemporary",
+    "color": "White",
+    "price": 16800,
+    "stock": 4,
+    "dimensions": {
+      "width": 76,
+      "height": 91,
+      "depth": 53
+    },
+    "model": "shelf",
+    "modelGlb": "models/vanity-vessel.glb",
+    "modelUsdz": "models/vanity-vessel.usdz",
+    "modelBounds": {
+      "width": 76,
+      "height": 91,
+      "depth": 53
+    },
+    "description": "Elegant vanity sink cabinet with real 3D model for accurate bathroom planning.",
+    "arReady": true,
+    "featured": true,
+    "updatedAt": "2026-09-07T00:00:00Z"
   },
   {
     "name": "Test item",
@@ -164,9 +226,9 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T09:48:24.204Z",
+    "updatedAt": "2026-09-07T00:10:59.575Z",
     "arReady": true,
-    "id": "storage-52ae1c73"
+    "id": "storage-4bcb31cf"
   },
   {
     "name": "Test item",
@@ -185,9 +247,9 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T09:48:24.212Z",
+    "updatedAt": "2026-09-07T00:10:59.581Z",
     "arReady": true,
-    "id": "storage-b31b925f"
+    "id": "storage-1c4a64c6"
   },
   {
     "name": "Test item",
@@ -206,9 +268,9 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T09:48:24.219Z",
+    "updatedAt": "2026-09-07T00:10:59.589Z",
     "arReady": true,
-    "id": "storage-97ff4a3e"
+    "id": "storage-af7b1bb0"
   },
   {
     "name": "Test item",
@@ -227,9 +289,9 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T09:48:24.224Z",
+    "updatedAt": "2026-09-07T00:10:59.595Z",
     "arReady": true,
-    "id": "storage-1e7bc946"
+    "id": "storage-d65dccce"
   },
   {
     "name": "Test item",
@@ -248,9 +310,9 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T09:48:24.230Z",
+    "updatedAt": "2026-09-07T00:10:59.599Z",
     "arReady": true,
-    "id": "storage-dcb37fb1"
+    "id": "storage-5508923e"
   },
   {
     "name": "Test item",
@@ -269,9 +331,9 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T09:48:24.234Z",
+    "updatedAt": "2026-09-07T00:10:59.605Z",
     "arReady": true,
-    "id": "storage-ccab0778"
+    "id": "storage-f1125588"
   },
   {
     "name": "Updated Name",
@@ -290,8 +352,8 @@
     "model": "shelf",
     "description": "",
     "featured": false,
-    "updatedAt": "2026-09-06T09:48:24.379Z",
+    "updatedAt": "2026-09-07T00:10:59.760Z",
     "arReady": true,
-    "id": "storage-6963f584"
+    "id": "storage-a915d454"
   }
 ]
