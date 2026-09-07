@@ -1,5 +1,23 @@
 /* FurnishAR client — no build step required. It talks to the local Node API. */
 
+// Load THREE.js and GLTFLoader from CDN (ES module)
+// These are loaded via dynamic import when needed
+let THREE = null;
+let GLTFLoader = null;
+
+async function loadThreeJS() {
+  if (THREE) return;
+  try {
+    THREE = await import('https://cdn.jsdelivr.net/npm/three@r170/build/three.module.js').then(m => m.default || m);
+    const loader = await import('https://cdn.jsdelivr.net/npm/three@r170/examples/jsm/loaders/GLTFLoader.js');
+    GLTFLoader = loader.GLTFLoader;
+    console.log('[THREE.js] ✓ Loaded successfully from CDN');
+  } catch (error) {
+    console.warn('[THREE.js] ⚠ Failed to load from CDN:', error.message);
+    console.warn('[THREE.js] 3D model rendering will not be available');
+  }
+}
+
 // Escape HTML special characters to prevent XSS
 function escapeHtml(text) {
   if (typeof text !== 'string') return '';
@@ -44,7 +62,10 @@ const state = {
   user: JSON.parse((typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('furnishar-user') : null) || 'null'),
   loadedModel: null,
   modelBounds: null,
-  modelLoader: typeof THREE !== 'undefined' ? new THREE.GLTFLoader() : null
+  xrRenderer: null,
+  xrScene: null,
+  xrCamera: null,
+  xrLight: null
 };
 
 const $ = (selector, parent = document) => parent.querySelector(selector);
@@ -99,7 +120,10 @@ function openProduct(id) {
   state.selected = product;
   const storeInfo = state.stores[product.storeId];
   const storeBlock = storeInfo ? `<div style="background: #f5f5f5; padding: 12px; border-radius: 4px; margin-top: 12px; font-size: 13px;"><strong>📍 ${escapeHtml(storeInfo.name)}</strong><br />${escapeHtml(storeInfo.address)}<br />☎️ ${escapeHtml(storeInfo.contactNumber)}<br />🕒 ${escapeHtml(storeInfo.hours)}</div>` : '';
-  $('#dialog-content').innerHTML = `<div class="dialog-layout"><div class="dialog-image">${furniture(product)}</div><div class="dialog-info"><p class="product-store">${escapeHtml(product.store)} · ${escapeHtml(product.category)}</p><h2>${escapeHtml(product.name)}</h2><p class="dialog-price">${peso(product.price)}</p><p>${escapeHtml(product.description)}</p><div class="dialog-dimensions"><div><span>WIDTH</span><b>${cm(product.dimensions.width)}</b></div><div><span>DEPTH</span><b>${cm(product.dimensions.depth)}</b></div><div><span>HEIGHT</span><b>${cm(product.dimensions.height)}</b></div></div>${storeBlock}<button class="button button-primary" data-place-product="${product.id}">⌑ Place in your room</button><button class="button button-outline" data-plan-product="${product.id}">Measure the fit first</button></div></div>`;
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const quickLookLink = (isIOS && product.modelUsdz) ? `<a class="button button-primary" rel="ar" href="${product.modelUsdz}"><img src="${product.modelUsdz.replace(/\.(usdz|glb)$/i, '.png')}" alt="${escapeHtml(product.name)} preview" style="display:block;width:100%;max-width:180px;border-radius:12px;margin:0 auto 12px;" onerror="this.style.display='none'" />Open in AR</a>` : '';
+  const arAction = (navigator.xr && !isIOS) ? `<button class="button button-primary" data-place-product="${product.id}">⌑ Place in your room</button>` : (product.modelUsdz && isIOS ? quickLookLink : `<button class="button button-primary" data-place-product="${product.id}">⌑ Place in your room</button>`);
+  $('#dialog-content').innerHTML = `<div class="dialog-layout"><div class="dialog-image">${furniture(product)}</div><div class="dialog-info"><p class="product-store">${escapeHtml(product.store)} · ${escapeHtml(product.category)}</p><h2>${escapeHtml(product.name)}</h2><p class="dialog-price">${peso(product.price)}</p><p>${escapeHtml(product.description)}</p><div class="dialog-dimensions"><div><span>WIDTH</span><b>${cm(product.dimensions.width)}</b></div><div><span>DEPTH</span><b>${cm(product.dimensions.depth)}</b></div><div><span>HEIGHT</span><b>${cm(product.dimensions.height)}</b></div></div>${storeBlock}${arAction}<button class="button button-outline" data-plan-product="${product.id}">Measure the fit first</button></div></div>`;
   $('#product-dialog').showModal();
 }
 
@@ -154,13 +178,32 @@ function toast(message) {
 
 async function checkARSupport() {
   const status = $('#ar-status');
-  if (!window.isSecureContext) { status.textContent = 'Use HTTPS (or localhost) to enable camera and WebXR. Guided measurement is still available.'; return false; }
-  if (!navigator.xr) { status.textContent = 'WebXR is unavailable in this browser. The camera preview and guided measurement will still work.'; return false; }
+  if (!window.isSecureContext) {
+    console.info('[AR Support] Branch: insecure-context -> camera/WebXR unavailable');
+    status.textContent = 'Use HTTPS (or localhost) to enable camera and WebXR. Guided measurement is still available.';
+    return false;
+  }
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIOS && state.selected?.modelUsdz) {
+    console.info('[AR Support] Branch: iOS Quick Look path selected for USDZ product');
+    status.textContent = 'iPhone Safari detected. AR Quick Look will open the native USDZ viewer for this product.';
+    return false;
+  }
+  if (!navigator.xr) {
+    console.info('[AR Support] Branch: navigator.xr missing');
+    status.textContent = 'WebXR is unavailable in this browser. The camera preview and guided measurement will still work.';
+    return false;
+  }
   try {
     const supported = await navigator.xr.isSessionSupported('immersive-ar');
+    console.info(`[AR Support] Branch: isSessionSupported('immersive-ar') -> ${supported}`);
     status.textContent = supported ? 'AR-ready device detected. Use a bright, textured floor for best tracking.' : 'This device does not expose immersive AR. A camera preview will be used instead.';
     return supported;
-  } catch { status.textContent = 'AR availability could not be checked. Guided measurement is available.'; return false; }
+  } catch (error) {
+    console.warn('[AR Support] Branch: session support probe threw:', error?.name, error?.message);
+    status.textContent = 'AR availability could not be checked. Guided measurement is available.';
+    return false;
+  }
 }
 
 function distanceBetween(a, b) { return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z); }
@@ -176,112 +219,251 @@ function arRenderer(gl) {
   return { draw(mvp, color) { gl.useProgram(program); gl.bindBuffer(gl.ARRAY_BUFFER, buffer); const position = gl.getAttribLocation(program, 'p'); gl.enableVertexAttribArray(position); gl.vertexAttribPointer(position, 3, gl.FLOAT, false, 0, 0); gl.uniformMatrix4fv(gl.getUniformLocation(program, 'mvp'), false, mvp); gl.uniform4fv(gl.getUniformLocation(program, 'color'), color); gl.drawArrays(gl.TRIANGLES, 0, 36); } };
 }
 
-async function loadGLBModel(product) {
-  // Check for GLB model in arModel field first, then fall back to model field
-  const modelPath = product.arModel || (product.model && product.model.endsWith('.glb') ? product.model : null);
-  
+async function loadScaledModel(product) {
+  if (!THREE) await loadThreeJS();
+  if (!THREE || !GLTFLoader) {
+    console.log(`[AR Model] THREE.js unavailable, using fallback cube for "${product.name}"`);
+    return null;
+  }
+
+  const modelPath = product.modelGlb;
   if (!modelPath) {
-    console.log(`[AR Model] Product "${product.name}" uses CSS shape model, not GLB`);
-    state.loadedModel = null;
-    state.modelBounds = null;
-    return;
+    console.log(`[AR Model] Product "${product.name}" has no 3D model, using fallback cube`);
+    return null;
   }
-  
-  if (!state.modelLoader) {
-    console.warn('[AR Model] THREE.js not loaded, cannot load GLB');
-    state.loadedModel = null;
-    return;
-  }
-  console.log(`[AR Model] Loading GLB: ${modelPath}`);
-  
+
   try {
+    const loader = new GLTFLoader();
     const gltf = await new Promise((resolve, reject) => {
-      state.modelLoader.load(
+      loader.load(
         modelPath,
         resolve,
-        (progress) => console.log(`[AR Model] Loading ${modelPath}: ${Math.round(progress.loaded / progress.total * 100)}%`),
+        (progress) => console.log(`[AR Model] Loading ${modelPath}: ${Math.round((progress.loaded / progress.total) * 100)}%`),
         reject
       );
     });
+
+    const model = gltf.scene;
     
-    const scene = gltf.scene;
-    
-    // Analyze bounding box and origin
-    const bbox = new THREE.Box3().setFromObject(scene);
+    // Ensure vertex colors are preserved for models without image textures
+    // Models like the cabinets use COLOR_0 vertex attributes instead of textures
+    model.traverse(node => {
+      if (node.isMesh && node.material) {
+        if (Array.isArray(node.material)) {
+          node.material.forEach(mat => {
+            mat.vertexColors = true;
+          });
+        } else {
+          node.material.vertexColors = true;
+        }
+      }
+    });
+
+    const bbox = new THREE.Box3().setFromObject(model);
     const size = bbox.getSize(new THREE.Vector3());
-    const center = bbox.getCenter(new THREE.Vector3());
-    
-    console.log(`[AR Model] Bounds: min(${bbox.min.x.toFixed(2)}, ${bbox.min.y.toFixed(2)}, ${bbox.min.z.toFixed(2)})`);
-    console.log(`[AR Model] Bounds: max(${bbox.max.x.toFixed(2)}, ${bbox.max.y.toFixed(2)}, ${bbox.max.z.toFixed(2)})`);
-    console.log(`[AR Model] Size: ${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}`);
-    console.log(`[AR Model] Center: (${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)})`);
-    console.log(`[AR Model] Product dims: ${product.dimensions.width} x ${product.dimensions.height} x ${product.dimensions.depth} cm`);
-    
-    // Re-center model so its base sits at (0, 0, 0)
-    scene.position.sub(center);
-    scene.position.y += size.y / 2; // Move up so bottom sits at y=0
-    
-    state.loadedModel = scene;
-    state.modelBounds = { size, center, bbox };
-    console.log(`[AR Model] ✓ Loaded and normalized: ${product.name}`);
-    
+    const targetBounds = product.modelBounds || product.dimensions;
+    const scaleX = (targetBounds.width / 100) / Math.max(size.x, 0.0001);
+    const scaleY = (targetBounds.height / 100) / Math.max(size.y, 0.0001);
+    const scaleZ = (targetBounds.depth / 100) / Math.max(size.z, 0.0001);
+
+    model.scale.set(scaleX, scaleY, scaleZ);
+
+    const scaledBbox = new THREE.Box3().setFromObject(model);
+    const center = scaledBbox.getCenter(new THREE.Vector3());
+    model.position.x = -center.x;
+    model.position.y = -scaledBbox.min.y;
+    model.position.z = -center.z;
+
+    console.log(`[AR Model] ✓ Loaded and scaled "${product.name}" to ${targetBounds.width}×${targetBounds.height}×${targetBounds.depth} cm`);
+    return model;
   } catch (error) {
-    console.error(`[AR Model] ✗ Failed to load ${modelPath}:`, error);
-    console.error('  Error details:', error.message);
-    if (error.response) console.error('  HTTP Status:', error.response.status);
-    state.loadedModel = null;
-    state.modelBounds = null;
+    console.error(`[AR Model] ✗ Failed to load ${modelPath}:`, error?.name, error?.message);
+    return null;
   }
+}
+
+async function loadGLBModel(product) {
+  state.loadedModel = await loadScaledModel(product);
+  state.modelBounds = state.loadedModel ? { product: product.id } : null;
 }
 
 async function startNativeAR() {
   console.log('[AR Session] Requesting XR immersive-ar session...');
   const root = $('#ar-experience');
-  const session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['hit-test'], optionalFeatures: ['local-floor', 'dom-overlay'], domOverlay: { root } });
+  
+  let session;
+  try {
+    // Try with hit-test as required
+    session = await navigator.xr.requestSession('immersive-ar', {
+      requiredFeatures: ['hit-test'],
+      optionalFeatures: ['local-floor', 'dom-overlay'],
+      domOverlay: { root }
+    });
+    state.hitTestRequired = true;
+  } catch (error) {
+    console.warn('[AR Session] hit-test required failed:', error?.name, error?.message, '— retrying without hit-test...');
+    try {
+      // Fallback: try without hit-test as required
+      session = await navigator.xr.requestSession('immersive-ar', {
+        optionalFeatures: ['hit-test', 'local-floor', 'dom-overlay'],
+        domOverlay: { root }
+      });
+      state.hitTestRequired = false;
+      console.log('[AR Session] ✓ Session created without hit-test requirement');
+    } catch (finalError) {
+      // Log detailed diagnostics
+      console.error('[AR Session] XR session request failed:', {
+        errorName: finalError?.name,
+        errorMessage: finalError?.message,
+        errorCode: finalError?.code,
+        isSecureContext: window.isSecureContext,
+        xrAvailable: !!navigator.xr,
+        timestamp: new Date().toISOString()
+      });
+      throw finalError;
+    }
+  }
+  
   state.session = session;
   console.log('[AR Session] ✓ XR session created successfully');
+
+  // Load THREE.js if needed
+  if (!THREE) await loadThreeJS();
+
   const canvas = $('#xr-canvas');
-  const gl = canvas.getContext('webgl', { xrCompatible: true, alpha: true });
-  await gl.makeXRCompatible();
+  const gl = canvas.getContext('webgl2', { xrCompatible: true, alpha: true });
+  if (!gl) {
+    console.warn('[AR Session] WebGL2 not available, falling back to WebGL');
+    const glFallback = canvas.getContext('webgl', { xrCompatible: true, alpha: true });
+    if (glFallback) await glFallback.makeXRCompatible();
+  } else {
+    await gl.makeXRCompatible();
+  }
+
   const layer = new XRWebGLLayer(session, gl);
   session.updateRenderState({ baseLayer: layer });
   const viewerSpace = await session.requestReferenceSpace('viewer');
   state.referenceSpace = await session.requestReferenceSpace('local');
-  state.hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
-  const renderer = arRenderer(gl);
+  
+  // Request hit-test if the session supports it
+  if (state.hitTestRequired !== false) {
+    try {
+      state.hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
+      console.log('[AR Session] ✓ Hit-test source initialized');
+    } catch (err) {
+      console.warn('[AR Session] Hit-test source unavailable:', err?.name, err?.message);
+      state.hitTestSource = null;
+    }
+  }
+
   const product = state.selected;
-  const [red, green, blue] = (colorFor(product).match(/[a-f\d]{2}/gi) || ['8c','9d','88']).map(value => parseInt(value, 16) / 255);
   $('#ar-mode-label').textContent = state.arPurpose === 'measurement' ? 'Tap point A, then point B on the floor.' : 'Move your phone slowly to find the floor, then tap to place.';
   session.addEventListener('select', event => captureNativePoint(event.frame));
   session.addEventListener('end', cleanupAR);
-  
+
   // Load GLB model if this product has one
   await loadGLBModel(product);
-  if (state.loadedModel) {
-    console.log(`[AR] Loaded 3D model for "${product.name}"`);
-  } else {
-    console.log(`[AR] Using fallback box renderer for "${product.name}"`);
+
+  // Set up THREE.js rendering if model is available
+  let renderer = null, scene = null, camera = null;
+  const fallbackRenderer = arRenderer(gl);
+  const [red, green, blue] = (colorFor(product).match(/[a-f\d]{2}/gi) || ['8c','9d','88']).map(value => parseInt(value, 16) / 255);
+
+  let light = null;
+  let dirLight = null;
+  let placedModel = null;
+
+  if (THREE && state.loadedModel) {
+    console.log('[AR Render] Setting up THREE.js renderer for real 3D model');
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas, context: gl, antialias: true, alpha: true });
+      renderer.xr.enabled = true;
+      renderer.xr.setSession(session);
+      renderer.setPixelRatio(1);
+      renderer.setClearColor(0x000000, 0);
+
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(75, gl.canvas.width / gl.canvas.height, 0.01, 100);
+
+      // Add lighting - hemisphere light for soft ambient illumination
+      light = new THREE.HemisphereLight(0xffffff, 0x404040, 1.5);
+      scene.add(light);
+
+      // Add directional light for PBR materials
+      dirLight = new THREE.DirectionalLight(0xffffff, 1);
+      dirLight.position.set(5, 10, 5);
+      scene.add(dirLight);
+
+      state.xrRenderer = renderer;
+      state.xrScene = scene;
+      state.xrCamera = camera;
+      state.xrLight = light;
+
+      // Clone the loaded model for this session
+      placedModel = state.loadedModel.clone();
+      scene.add(placedModel);
+
+      console.log('[AR Render] ✓ THREE.js scene initialized with 3D model');
+    } catch (error) {
+      console.error('[AR Render] Failed to initialize THREE.js:', error.message);
+      renderer = null;
+    }
   }
-  
-  let renderLogged = false; // Track if we've logged this render session
+
+  let renderLogged = false;
   function frame(time, xrFrame) {
     session.requestAnimationFrame(frame);
-    const pose = xrFrame.getViewerPose(state.referenceSpace); if (!pose) return;
-    const hits = xrFrame.getHitTestResults(state.hitTestSource);
+    const pose = xrFrame.getViewerPose(state.referenceSpace);
+    if (!pose) return;
+
+    const hits = state.hitTestSource ? xrFrame.getHitTestResults(state.hitTestSource) : [];
     state.latestHitPose = hits[0]?.getPose(state.referenceSpace) || null;
-    gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.enable(gl.DEPTH_TEST);
+
     if (!state.latestHitPose || state.arPurpose !== 'placement') return;
-    const dimensions = product.dimensions;
-    const placement = state.placedMatrix || state.latestHitPose.transform.matrix;
-    
-    // Log once per placement session if we have a 3D model
-    if (state.loadedModel && !renderLogged) {
-      console.log(`[AR Render] Starting render loop with 3D model for "${product.name}"`);
+
+    // Use THREE.js renderer if available and model is loaded
+    if (renderer && scene && placedModel && !renderLogged) {
+      console.log(`[AR Render] Starting 3D model render loop for "${product.name}"`);
       renderLogged = true;
     }
-    
-    for (const view of pose.views) { const viewport = layer.getViewport(view); gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height); const model = translateScale(placement, 0, dimensions.height / 200, 0, dimensions.width / 200, dimensions.height / 200, dimensions.depth / 200); renderer.draw(matrixMultiply(view.projectionMatrix, matrixMultiply(view.transform.inverse.matrix, model)), [red, green, blue, .72]); }
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);
+
+    if (renderer && scene && placedModel) {
+      // THREE.js rendering path
+      for (const view of pose.views) {
+        const viewport = layer.getViewport(view);
+        gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
+
+        // Update camera with XR view
+        camera.projectionMatrix.fromArray(view.projectionMatrix);
+        camera.matrix.fromArray(view.transform.matrix);
+        camera.matrixAutoUpdate = false;
+        camera.updateMatrix();
+
+        const placement = state.placedMatrix || state.latestHitPose.transform.matrix;
+        const placementMatrix = new THREE.Matrix4().fromArray(placement);
+        placedModel.position.setFromMatrixPosition(placementMatrix);
+        placedModel.quaternion.setFromRotationMatrix(placementMatrix);
+
+        renderer.render(scene, camera);
+      }
+    } else {
+      // Fallback to cube rendering
+      const dimensions = product.dimensions;
+      const placement = state.placedMatrix || state.latestHitPose.transform.matrix;
+      for (const view of pose.views) {
+        const viewport = layer.getViewport(view);
+        gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
+        const model = translateScale(placement, 0, dimensions.height / 200, 0, dimensions.width / 200, dimensions.height / 200, dimensions.depth / 200);
+        fallbackRenderer.draw(matrixMultiply(view.projectionMatrix, matrixMultiply(view.transform.inverse.matrix, model)), [red, green, blue, .72]);
+      }
+    }
   }
+
   session.requestAnimationFrame(frame);
 }
 
@@ -362,30 +544,241 @@ function captureNativePoint(frame) {
 }
 
 async function startCameraFallback() {
-  $('#ar-mode-label').textContent = state.arPurpose === 'measurement' ? 'Camera preview active — use the two fields after closing to enter your tape measure reading.' : 'Camera preview active — drag your phone to judge the scale and placement.';
+  const product = state.selected;
+  const isPlacement = state.arPurpose === 'placement';
+  const fallbackHost = $('#fallback-product');
+  const cameraVideo = $('#camera-feed');
+
+  $('#ar-mode-label').textContent = isPlacement
+    ? 'Camera preview — drag to rotate, pinch to check scale. This device can\'t track the room, so use this to judge fit, not exact placement.'
+    : 'Camera preview active — use the two fields after closing to enter your tape measure reading.';
+
   $('#xr-canvas').style.display = 'none';
-  $('#fallback-product').style.display = state.arPurpose === 'placement' ? 'block' : 'none';
-  if (state.arPurpose === 'placement') $('#fallback-product').innerHTML = furniture(state.selected);
-  if (!navigator.mediaDevices?.getUserMedia) { $('#camera-feed').style.display = 'none'; $('#ar-mode-label').textContent = 'Camera access is not available. Use the guided measurement fields.'; return; }
-  try { state.cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false }); $('#camera-feed').srcObject = state.cameraStream; }
-  catch { $('#camera-feed').style.display = 'none'; $('#ar-mode-label').textContent = 'Camera permission was not granted. Use the guided measurement fields.'; }
+  $('#fallback-product').style.display = isPlacement ? 'block' : 'none';
+  cameraVideo.style.display = 'block';
+  cameraVideo.style.opacity = '1';
+  cameraVideo.style.zIndex = '1';
+  fallbackHost.style.zIndex = '2';
+
+  if (isPlacement) {
+    // This is an unanchored, device-side approximation for fit checking only.
+    // It is not tracked AR; the real room placement still comes from native WebXR.
+    const fallbackCanvas = document.createElement('canvas');
+    fallbackHost.innerHTML = '';
+    fallbackHost.appendChild(fallbackCanvas);
+
+    const model = await loadScaledModel(product);
+    if (!model || !THREE || !fallbackCanvas) {
+      fallbackHost.innerHTML = `<div class="fallback-message">3D preview not available for this product yet</div>`;
+      return;
+    }
+
+    const context = fallbackCanvas.getContext('webgl2', { alpha: true, antialias: true, premultipliedAlpha: false });
+    if (!context) {
+      fallbackHost.innerHTML = `<div class="fallback-message">3D preview not available for this product yet</div>`;
+      return;
+    }
+
+    const renderer = new THREE.WebGLRenderer({ canvas: fallbackCanvas, antialias: true, alpha: true, powerPreference: 'high-performance', premultipliedAlpha: false });
+    renderer.setClearColor(0x000000, 0);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 1000);
+    camera.position.set(0, 0.9, 2.8);
+
+    const ambient = new THREE.HemisphereLight(0xffffff, 0x000000, 1.2);
+    const key = new THREE.DirectionalLight(0xffffff, 1);
+    key.position.set(2, 3, 2.5);
+    scene.add(ambient, key);
+
+    const modelRoot = model.clone();
+    modelRoot.rotation.y = 0.6;
+    scene.add(modelRoot);
+
+    let currentScale = 1;
+    let dragX = 0;
+    let pinchDistance = null;
+
+    const updateScaleLabel = () => {
+      const percent = Math.round((currentScale / 1) * 100);
+      $('#ar-mode-label').textContent = `Camera preview — drag to rotate, pinch to check scale. This device can't track the room, so use this to judge fit, not exact placement. Current size: ${percent}% of true scale.`;
+    };
+
+    const syncSize = () => {
+      modelRoot.scale.setScalar(currentScale);
+      updateScaleLabel();
+    };
+
+    const resize = () => {
+      const bounds = fallbackHost.getBoundingClientRect();
+      const width = Math.max(bounds.width, 200);
+      const height = Math.max(bounds.height, 160);
+      renderer.setSize(width, height, false);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    };
+
+    resize();
+    syncSize();
+
+    fallbackHost.addEventListener('pointerdown', event => {
+      fallbackHost.setPointerCapture(event.pointerId);
+      fallbackHost.dataset.dragX = String(event.clientX);
+    });
+
+    fallbackHost.addEventListener('pointermove', event => {
+      if (!fallbackHost.hasPointerCapture(event.pointerId)) return;
+      const previousX = Number(fallbackHost.dataset.dragX || event.clientX);
+      const delta = event.clientX - previousX;
+      if (Math.abs(delta) > 1) {
+        dragX += delta * 0.01;
+        modelRoot.rotation.y = dragX;
+        fallbackHost.dataset.dragX = String(event.clientX);
+      }
+    });
+
+    fallbackHost.addEventListener('wheel', event => {
+      event.preventDefault();
+      currentScale = Math.min(3, Math.max(0.3, currentScale + (event.deltaY > 0 ? -0.1 : 0.1)));
+      syncSize();
+    }, { passive: false });
+
+    fallbackHost.addEventListener('touchstart', event => {
+      if (event.touches.length === 2) {
+        const [a, b] = [event.touches[0], event.touches[1]];
+        pinchDistance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      }
+    }, { passive: true });
+
+    fallbackHost.addEventListener('touchmove', event => {
+      if (event.touches.length === 2 && pinchDistance) {
+        const [a, b] = [event.touches[0], event.touches[1]];
+        const nextDistance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+        const ratio = nextDistance / (pinchDistance || 1);
+        currentScale = Math.min(3, Math.max(0.3, currentScale * ratio));
+        pinchDistance = nextDistance;
+        syncSize();
+      }
+    }, { passive: true });
+
+    const tick = () => {
+      renderer.setClearColor(0x000000, 0);
+      renderer.render(scene, camera);
+      requestAnimationFrame(tick);
+    };
+    tick();
+    window.addEventListener('resize', resize, { passive: true });
+    state.fallbackRender = { renderer, scene, camera, modelRoot, tick, resize };
+    updateScaleLabel();
+  }
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    $('#camera-feed').style.display = 'none';
+    $('#ar-mode-label').textContent = 'Camera access is not available. Use the guided measurement fields.';
+    return;
+  }
+
+  try {
+    state.cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+    $('#camera-feed').srcObject = state.cameraStream;
+  } catch {
+    $('#camera-feed').style.display = 'none';
+    $('#ar-mode-label').textContent = 'Camera permission was not granted. Use the guided measurement fields.';
+  }
 }
 
 async function startExperience(purpose) {
   if (!state.selected) return toast('Choose a product first.');
+  const product = state.selected;
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+  // Try iOS Quick Look if on iOS and USDZ is available and accessible
+  if (isIOS && product.modelUsdz) {
+    try {
+      const response = await fetch(product.modelUsdz, { method: 'HEAD' });
+      if (response.ok) {
+        const quickLookLink = document.createElement('a');
+        quickLookLink.rel = 'ar';
+        quickLookLink.href = product.modelUsdz;
+        quickLookLink.target = '_blank';
+        quickLookLink.click();
+        console.log(`[AR Flow] iOS Quick Look opened for ${product.modelUsdz}`);
+        toast('Opening the native AR Quick Look viewer on iPhone Safari.');
+        return;
+      } else {
+        console.warn(`[AR Flow] USDZ file returned ${response.status} at ${product.modelUsdz}`, { url: product.modelUsdz });
+      }
+    } catch (err) {
+      console.warn(`[AR Flow] Could not verify USDZ availability (${err?.message}), falling back to WebXR/camera`, { url: product.modelUsdz, error: err?.message });
+    }
+  }
+
   state.arPurpose = purpose; state.arPoints = []; state.placedMatrix = null; $('#ar-experience').hidden = false; $('#camera-feed').style.display = ''; $('#xr-canvas').style.display = ''; $('#fallback-product').style.display = 'none';
   console.log(`[AR Flow] Starting AR experience for "${state.selected.name}" (${purpose} mode)`);
   try {
     const supportsAR = await checkARSupport();
     if (supportsAR) await startNativeAR(); else await startCameraFallback();
-  } catch (error) { console.warn(error); await startCameraFallback(); toast('Live AR could not start; switched to the camera preview.'); }
+  } catch (error) {
+    console.error('[AR Flow] Native AR start failed:', {
+      errorName: error?.name,
+      errorMessage: error?.message,
+      errorCode: error?.code,
+      stack: error?.stack?.split('\n').slice(0, 3).join('\n'),
+      timestamp: new Date().toISOString()
+    });
+    const messageMap = {
+      NotAllowedError: 'Camera permission was denied. Enable camera access for this site and try again.',
+      NotSupportedError: 'This device reports AR support but couldn\'t start a session — hit-test or the AR overlay isn\'t available here.',
+      SecurityError: 'AR requires a secure, top-level browsing context — this won\'t work inside an embedded/in-app browser.',
+      ReferenceError: 'XR capabilities not available on this browser.',
+      TypeError: 'XR session initialization error — check console for details.'
+    };
+    await startCameraFallback();
+    toast(messageMap[error?.name] || `Live AR could not start (${error?.name}); switched to camera preview.`);
+  }
 }
 
 function cleanupAR() {
-  state.hitTestSource?.cancel?.(); state.hitTestSource = null; state.referenceSpace = null; state.latestHitPose = null; state.session = null;
-  state.cameraStream?.getTracks().forEach(track => track.stop()); state.cameraStream = null;
-  $('#camera-feed').srcObject = null; $('#fallback-product').style.display = 'none'; $('#ar-experience').hidden = true; state.placedMatrix = null;
-  state.arPoints = []; state.arMeasurement = null; state.arConfirmationMeasurement = null; state.arNeedsConfirmation = false;
+  state.hitTestSource?.cancel?.();
+  state.hitTestSource = null;
+  state.referenceSpace = null;
+  state.latestHitPose = null;
+  state.session = null;
+
+  // Clean up THREE.js resources
+  if (state.xrRenderer) {
+    state.xrRenderer.dispose();
+    state.xrRenderer = null;
+  }
+  if (state.xrScene) {
+    state.xrScene.traverse(child => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        if (Array.isArray(child.material)) {
+          child.material.forEach(mat => mat.dispose());
+        } else {
+          child.material.dispose();
+        }
+      }
+    });
+    state.xrScene = null;
+  }
+  state.xrCamera = null;
+  state.xrLight = null;
+
+  state.cameraStream?.getTracks().forEach(track => track.stop());
+  state.cameraStream = null;
+  $('#camera-feed').srcObject = null;
+  $('#fallback-product').style.display = 'none';
+  $('#ar-experience').hidden = true;
+  state.placedMatrix = null;
+
+  state.arPoints = [];
+  state.arMeasurement = null;
+  state.arConfirmationMeasurement = null;
+  state.arNeedsConfirmation = false;
 }
 
 async function login(event) {
@@ -413,13 +806,34 @@ function renderAdmin() {
 
 function openProductForm(product = null) {
   const form = $('#product-form'); form.reset(); $('#product-form-error').textContent = ''; $('#form-title').textContent = product ? 'Edit product' : 'Add a product';
-  if (product) { form.elements.id.value = product.id; for (const key of ['name', 'category', 'style', 'color', 'price', 'stock', 'model', 'description']) form.elements[key].value = product[key]; form.elements.width.value = product.dimensions.width; form.elements.height.value = product.dimensions.height; form.elements.depth.value = product.dimensions.depth; }
+  if (product) {
+    form.elements.id.value = product.id;
+    for (const key of ['name', 'category', 'style', 'color', 'price', 'stock', 'model', 'description', 'modelGlb', 'modelUsdz']) form.elements[key].value = product[key] || '';
+    form.elements.width.value = product.dimensions.width;
+    form.elements.height.value = product.dimensions.height;
+    form.elements.depth.value = product.dimensions.depth;
+    form.elements.modelWidth.value = product.modelBounds?.width ?? product.dimensions.width;
+    form.elements.modelHeight.value = product.modelBounds?.height ?? product.dimensions.height;
+    form.elements.modelDepth.value = product.modelBounds?.depth ?? product.dimensions.depth;
+  }
   $('#product-form-dialog').showModal();
 }
 
 async function saveProduct(event) {
   event.preventDefault(); const form = event.currentTarget; const values = Object.fromEntries(new FormData(form)); $('#product-form-error').textContent = '';
-  const product = { ...values, price: Number(values.price), stock: Number(values.stock), dimensions: { width: Number(values.width), height: Number(values.height), depth: Number(values.depth) } };
+  const product = {
+    ...values,
+    price: Number(values.price),
+    stock: Number(values.stock),
+    dimensions: { width: Number(values.width), height: Number(values.height), depth: Number(values.depth) },
+    modelGlb: values.modelGlb ? String(values.modelGlb).trim() : undefined,
+    modelUsdz: values.modelUsdz ? String(values.modelUsdz).trim() : undefined,
+    modelBounds: {
+      width: Number(values.modelWidth || values.width),
+      height: Number(values.modelHeight || values.height),
+      depth: Number(values.modelDepth || values.depth)
+    }
+  };
   try { await api(values.id ? `/api/products/${values.id}` : '/api/products', { method: values.id ? 'PUT' : 'POST', body: JSON.stringify(product) }); await loadProducts(); $('#product-form-dialog').close(); toast(values.id ? 'Product updated.' : 'Product added to the catalog.'); }
   catch (error) { $('#product-form-error').textContent = error.message; }
 }
@@ -472,7 +886,20 @@ function bindEvents() {
   $('#add-product').addEventListener('click', () => openProductForm()); $('#product-form').addEventListener('submit', saveProduct);
 }
 
-async function init() { bindEvents(); try { await loadProducts(); await checkARSupport(); } catch (error) { $('#product-grid').innerHTML = `<div class="no-results"><b>FurnishAR could not reach its local catalog.</b><br /><small>Start the app with <code>npm run local</code> and refresh this page.</small></div>`; toast(error.message); } }
+async function init() {
+  bindEvents();
+  try {
+    // Pre-load THREE.js in parallel with products
+    await Promise.all([
+      loadProducts(),
+      loadThreeJS(),
+      checkARSupport()
+    ]);
+  } catch (error) {
+    $('#product-grid').innerHTML = `<div class="no-results"><b>FurnishAR could not reach its local catalog.</b><br /><small>Start the app with <code>npm run local</code> and refresh this page.</small></div>`;
+    toast(error.message);
+  }
+}
 // Only initialize on browser, not on server
 if (typeof document !== 'undefined') {
   init();
