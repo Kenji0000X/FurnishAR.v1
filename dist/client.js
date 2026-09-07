@@ -8,9 +8,9 @@ let GLTFLoader = null;
 async function loadThreeJS() {
   if (THREE) return;
   try {
-    THREE = await import('https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js').then(m => m.default || m);
-    const loader = await import('https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/loaders/GLTFLoader.js');
-    GLTFLoader = loader.GLTFLoader;
+    THREE = await import('three');
+    const { GLTFLoader: Loader } = await import('three/addons/loaders/GLTFLoader.js');
+    GLTFLoader = Loader;
     console.log('[THREE.js] ✓ Loaded successfully from CDN');
     return true;
   } catch (error) {
