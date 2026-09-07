@@ -244,6 +244,21 @@ async function loadScaledModel(product) {
     });
 
     const model = gltf.scene;
+    
+    // Ensure vertex colors are preserved for models without image textures
+    // Models like the cabinets use COLOR_0 vertex attributes instead of textures
+    model.traverse(node => {
+      if (node.isMesh && node.material) {
+        if (Array.isArray(node.material)) {
+          node.material.forEach(mat => {
+            mat.vertexColors = true;
+          });
+        } else {
+          node.material.vertexColors = true;
+        }
+      }
+    });
+
     const bbox = new THREE.Box3().setFromObject(model);
     const size = bbox.getSize(new THREE.Vector3());
     const targetBounds = product.modelBounds || product.dimensions;
