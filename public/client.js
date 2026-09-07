@@ -290,7 +290,40 @@ async function loadGLBModel(product) {
 async function startNativeAR() {
   console.log('[AR Session] Requesting XR immersive-ar session...');
   const root = $('#ar-experience');
-  const session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['hit-test'], optionalFeatures: ['local-floor', 'dom-overlay'], domOverlay: { root } });
+  
+  let session;
+  try {
+    // Try with hit-test as required
+    session = await navigator.xr.requestSession('immersive-ar', {
+      requiredFeatures: ['hit-test'],
+      optionalFeatures: ['local-floor', 'dom-overlay'],
+      domOverlay: { root }
+    });
+    state.hitTestRequired = true;
+  } catch (error) {
+    console.warn('[AR Session] hit-test required failed:', error?.name, error?.message, '— retrying without hit-test...');
+    try {
+      // Fallback: try without hit-test as required
+      session = await navigator.xr.requestSession('immersive-ar', {
+        optionalFeatures: ['hit-test', 'local-floor', 'dom-overlay'],
+        domOverlay: { root }
+      });
+      state.hitTestRequired = false;
+      console.log('[AR Session] ✓ Session created without hit-test requirement');
+    } catch (finalError) {
+      // Log detailed diagnostics
+      console.error('[AR Session] XR session request failed:', {
+        errorName: finalError?.name,
+        errorMessage: finalError?.message,
+        errorCode: finalError?.code,
+        isSecureContext: window.isSecureContext,
+        xrAvailable: !!navigator.xr,
+        timestamp: new Date().toISOString()
+      });
+      throw finalError;
+    }
+  }
+  
   state.session = session;
   console.log('[AR Session] ✓ XR session created successfully');
 
@@ -311,7 +344,17 @@ async function startNativeAR() {
   session.updateRenderState({ baseLayer: layer });
   const viewerSpace = await session.requestReferenceSpace('viewer');
   state.referenceSpace = await session.requestReferenceSpace('local');
-  state.hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
+  
+  // Request hit-test if the session supports it
+  if (state.hitTestRequired !== false) {
+    try {
+      state.hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
+      console.log('[AR Session] ✓ Hit-test source initialized');
+    } catch (err) {
+      console.warn('[AR Session] Hit-test source unavailable:', err?.name, err?.message);
+      state.hitTestSource = null;
+    }
+  }
 
   const product = state.selected;
   $('#ar-mode-label').textContent = state.arPurpose === 'measurement' ? 'Tap point A, then point B on the floor.' : 'Move your phone slowly to find the floor, then tap to place.';
@@ -372,7 +415,7 @@ async function startNativeAR() {
     const pose = xrFrame.getViewerPose(state.referenceSpace);
     if (!pose) return;
 
-    const hits = xrFrame.getHitTestResults(state.hitTestSource);
+    const hits = state.hitTestSource ? xrFrame.getHitTestResults(state.hitTestSource) : [];
     state.latestHitPose = hits[0]?.getPose(state.referenceSpace) || null;
 
     if (!state.latestHitPose || state.arPurpose !== 'placement') return;
@@ -650,14 +693,25 @@ async function startExperience(purpose) {
   const product = state.selected;
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
+  // Try iOS Quick Look if on iOS and USDZ is available and accessible
   if (isIOS && product.modelUsdz) {
-    const quickLookLink = document.createElement('a');
-    quickLookLink.rel = 'ar';
-    quickLookLink.href = product.modelUsdz;
-    quickLookLink.target = '_blank';
-    quickLookLink.click();
-    toast('Opening the native AR Quick Look viewer on iPhone Safari.');
-    return;
+    try {
+      const response = await fetch(product.modelUsdz, { method: 'HEAD' });
+      if (response.ok) {
+        const quickLookLink = document.createElement('a');
+        quickLookLink.rel = 'ar';
+        quickLookLink.href = product.modelUsdz;
+        quickLookLink.target = '_blank';
+        quickLookLink.click();
+        console.log(`[AR Flow] iOS Quick Look opened for ${product.modelUsdz}`);
+        toast('Opening the native AR Quick Look viewer on iPhone Safari.');
+        return;
+      } else {
+        console.warn(`[AR Flow] USDZ file returned ${response.status} at ${product.modelUsdz}`, { url: product.modelUsdz });
+      }
+    } catch (err) {
+      console.warn(`[AR Flow] Could not verify USDZ availability (${err?.message}), falling back to WebXR/camera`, { url: product.modelUsdz, error: err?.message });
+    }
   }
 
   state.arPurpose = purpose; state.arPoints = []; state.placedMatrix = null; $('#ar-experience').hidden = false; $('#camera-feed').style.display = ''; $('#xr-canvas').style.display = ''; $('#fallback-product').style.display = 'none';
@@ -666,14 +720,22 @@ async function startExperience(purpose) {
     const supportsAR = await checkARSupport();
     if (supportsAR) await startNativeAR(); else await startCameraFallback();
   } catch (error) {
-    console.warn('[AR Flow] Native AR start failed:', error?.name, error?.message);
+    console.error('[AR Flow] Native AR start failed:', {
+      errorName: error?.name,
+      errorMessage: error?.message,
+      errorCode: error?.code,
+      stack: error?.stack?.split('\n').slice(0, 3).join('\n'),
+      timestamp: new Date().toISOString()
+    });
     const messageMap = {
       NotAllowedError: 'Camera permission was denied. Enable camera access for this site and try again.',
       NotSupportedError: 'This device reports AR support but couldn\'t start a session — hit-test or the AR overlay isn\'t available here.',
-      SecurityError: 'AR requires a secure, top-level browsing context — this won\'t work inside an embedded/in-app browser.'
+      SecurityError: 'AR requires a secure, top-level browsing context — this won\'t work inside an embedded/in-app browser.',
+      ReferenceError: 'XR capabilities not available on this browser.',
+      TypeError: 'XR session initialization error — check console for details.'
     };
     await startCameraFallback();
-    toast(messageMap[error?.name] || 'Live AR could not start; switched to the camera preview.');
+    toast(messageMap[error?.name] || `Live AR could not start (${error?.name}); switched to camera preview.`);
   }
 }
 
