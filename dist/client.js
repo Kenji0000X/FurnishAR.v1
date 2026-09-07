@@ -102,6 +102,68 @@ function hideLiveMeasurement() {
   $('#live-measurement').hidden = true;
 }
 
+let modelControlState = { initialScale: 1, initialRotation: 0, initialPosition: { x: 0, y: 0, z: 0 } };
+
+function setupModelControls(modelRoot, syncSizeFunc) {
+  if (!modelRoot) return;
+
+  // Store initial state for reset
+  modelControlState.initialScale = modelRoot.scale.x;
+  modelControlState.initialRotation = modelRoot.rotation.y;
+  modelControlState.initialPosition = { x: modelRoot.position.x, y: modelRoot.position.y, z: modelRoot.position.z };
+
+  const step = { rotation: 0.15, movement: 0.05, scale: 0.1 };
+  
+  // Rotate left/right
+  $('#rotate-left')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    modelRoot.rotation.y -= step.rotation;
+  });
+  $('#rotate-right')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    modelRoot.rotation.y += step.rotation;
+  });
+
+  // Move up/down/left/right
+  $('#move-up')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    modelRoot.position.z += step.movement;
+  });
+  $('#move-down')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    modelRoot.position.z -= step.movement;
+  });
+  $('#move-left')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    modelRoot.position.x -= step.movement;
+  });
+  $('#move-right')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    modelRoot.position.x += step.movement;
+  });
+
+  // Zoom in/out
+  $('#zoom-in')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    modelRoot.scale.multiplyScalar(1 + step.scale / modelRoot.scale.x);
+    if (syncSizeFunc) syncSizeFunc();
+  });
+  $('#zoom-out')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    modelRoot.scale.multiplyScalar(1 - step.scale / modelRoot.scale.x);
+    if (syncSizeFunc) syncSizeFunc();
+  });
+
+  // Reset
+  $('#reset-model')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    modelRoot.scale.setScalar(modelControlState.initialScale);
+    modelRoot.rotation.y = modelControlState.initialRotation;
+    modelRoot.position.set(modelControlState.initialPosition.x, modelControlState.initialPosition.y, modelControlState.initialPosition.z);
+    if (syncSizeFunc) syncSizeFunc();
+  });
+}
+
 function colorFor(product) { return colorStyles[product.color] || '#8c9d88'; }
 function furniture(product, extra = '') {
   const model = ['sofa', 'table', 'chair', 'bed', 'shelf', 'desk'].includes(product.model) ? product.model : 'shelf';
@@ -302,6 +364,15 @@ async function loadScaledModel(product) {
     model.position.y = -scaledBbox.min.y;
     model.position.z = -center.z;
 
+    // Store original materials for later restoration during flat-surface detection
+    model.traverse(child => {
+      if (child instanceof THREE.Mesh && child.material) {
+        child.userData.originalMaterial = Array.isArray(child.material) 
+          ? child.material.slice() 
+          : child.material;
+      }
+    });
+
     console.log(`[AR Model] ✓ Loaded and scaled "${product.name}" to ${targetBounds.width}×${targetBounds.height}×${targetBounds.depth} cm`);
     return model;
   } catch (error) {
@@ -320,12 +391,18 @@ async function startNativeAR() {
   setARMode('native-ar');
   const root = $('#ar-experience');
   
+  // Flat-surface detection state
+  let isSurfaceFlat = false;
+  let recentHitHeights = []; // Rolling buffer of Y-position samples (last 10 frames)
+  const flatnessThreshold = 0.015; // ~1.5 cm variance threshold
+  let placedModelRedOverlay = null; // Red material overlay for not-flat state
+  
   let session;
   try {
     // Try with hit-test as required
     session = await navigator.xr.requestSession('immersive-ar', {
       requiredFeatures: ['hit-test'],
-      optionalFeatures: ['local-floor', 'dom-overlay'],
+      optionalFeatures: ['local-floor', 'dom-overlay', 'plane-detection'],
       domOverlay: { root }
     });
     state.hitTestRequired = true;
@@ -334,7 +411,7 @@ async function startNativeAR() {
     try {
       // Fallback: try without hit-test as required
       session = await navigator.xr.requestSession('immersive-ar', {
-        optionalFeatures: ['hit-test', 'local-floor', 'dom-overlay'],
+        optionalFeatures: ['hit-test', 'local-floor', 'dom-overlay', 'plane-detection'],
         domOverlay: { root }
       });
       state.hitTestRequired = false;
@@ -432,6 +509,14 @@ async function startNativeAR() {
       placedModel = state.loadedModel.clone();
       scene.add(placedModel);
 
+      // Setup model controls (buttons work in native AR too)
+      const nativeARSyncSize = () => {
+        // In native AR, model position is controlled by hit-test placement
+        // but we can still scale/rotate for preview before final placement
+      };
+      setupModelControls(placedModel, nativeARSyncSize);
+      $('#model-controls').hidden = false;
+
       console.log('[AR Render] ✓ THREE.js scene initialized with 3D model');
     } catch (error) {
       console.error('[AR Render] Failed to initialize THREE.js:', error.message);
@@ -448,7 +533,69 @@ async function startNativeAR() {
     const hits = state.hitTestSource ? xrFrame.getHitTestResults(state.hitTestSource) : [];
     state.latestHitPose = hits[0]?.getPose(state.referenceSpace) || null;
 
+    // ===== FLAT-SURFACE DETECTION =====
+    if (state.arPurpose === 'placement' && state.latestHitPose) {
+      // Method 1: Check XRPlaneSet if plane-detection is supported
+      const planes = xrFrame.detectedPlanes;
+      if (planes && planes.size > 0) {
+        // Check if any detected plane at this hit position is horizontal (floor-like)
+        const hitPos = state.latestHitPose.transform.position;
+        isSurfaceFlat = false;
+        
+        for (const plane of planes) {
+          if (plane.orientation === 'horizontal') {
+            // Simple check: if a horizontal plane exists, assume current surface is flat
+            isSurfaceFlat = true;
+            break;
+          }
+        }
+      } else {
+        // Method 2: Fallback — sample Y-position variance over time
+        const hitY = state.latestHitPose.transform.position.y;
+        recentHitHeights.push(hitY);
+        if (recentHitHeights.length > 10) recentHitHeights.shift(); // Keep last 10 samples
+        
+        if (recentHitHeights.length > 2) {
+          const minY = Math.min(...recentHitHeights);
+          const maxY = Math.max(...recentHitHeights);
+          const yRange = maxY - minY;
+          isSurfaceFlat = yRange < flatnessThreshold; // < 1.5 cm range = flat
+        }
+      }
+
+      // Apply visual feedback based on flatness
+      if (placedModel) {
+        if (!isSurfaceFlat) {
+          // Not flat: tint model red, disable placement
+          if (!placedModelRedOverlay) {
+            placedModelRedOverlay = new THREE.MeshBasicMaterial({ color: 0xff4444, transparent: true, opacity: 0.4 });
+          }
+          placedModel.traverse(child => {
+            if (child instanceof THREE.Mesh) {
+              child.material = placedModelRedOverlay;
+            }
+          });
+          $('#ar-mode-label').textContent = 'Surface looks uneven — find a flatter spot to place this item.';
+          state.placementBlocked = true;
+        } else {
+          // Flat: restore original material, enable placement
+          if (placedModelRedOverlay) {
+            // Restore original materials by reloading if needed
+            placedModel.traverse(child => {
+              if (child instanceof THREE.Mesh && child.userData?.originalMaterial) {
+                child.material = child.userData.originalMaterial;
+              }
+            });
+          }
+          $('#ar-mode-label').textContent = 'Flat surface detected. Tap to place.';
+          state.placementBlocked = false;
+        }
+      }
+    }
+    // ===== END FLAT-SURFACE DETECTION =====
+
     // Live measurement display during measurement mode
+
     if (state.arPurpose === 'measurement' && state.arPoints.length === 1 && state.latestHitPose) {
       const point0 = state.arPoints[0];
       const hitPos = state.latestHitPose.transform.position;
@@ -513,6 +660,7 @@ async function startNativeAR() {
 function captureNativePoint(frame) {
   const pose = state.latestHitPose;
   if (!pose) { toast('Move slowly until the floor target is detected, then tap again.'); return; }
+  if (state.placementBlocked) { toast('Surface is uneven. Find a flatter spot to place this item.'); return; }
   const point = pose.transform.position;
   if (state.arPurpose === 'placement') { 
     state.placedMatrix = pose.transform.matrix.slice(); 
@@ -678,6 +826,10 @@ async function startCameraFallback() {
     resize();
     syncSize();
 
+    // Setup model controls (rotate, move, zoom, reset buttons)
+    setupModelControls(modelRoot, syncSize);
+    $('#model-controls').hidden = false;
+
     fallbackHost.addEventListener('pointerdown', event => {
       fallbackHost.setPointerCapture(event.pointerId);
       fallbackHost.dataset.dragX = String(event.clientX);
@@ -747,6 +899,21 @@ async function startCameraFallback() {
     window.addEventListener('resize', resize, { passive: true });
     state.fallbackRender = { renderer, scene, camera, modelRoot, tick, resize };
     updateScaleLabel();
+
+    // Gyroscope-based tilt detection for camera-preview fallback (D5)
+    // Best-effort approximation: warn if device is tilted too far to judge flatness reliably
+    if (window.DeviceOrientationEvent) {
+      let lastBeta = 0; // Tilt front-to-back
+      window.addEventListener('deviceorientation', (e) => {
+        const tiltAngle = Math.abs(e.beta || 0);
+        if (tiltAngle > 45) {
+          // Device tilted significantly; flatness judgment unreliable
+          if ($('#ar-mode-label').textContent.indexOf('Hold steady') === -1) {
+            $('#ar-mode-label').textContent += ' (Hold the phone more level for better surface detection in preview mode.)';
+          }
+        }
+      }, { passive: true });
+    }
   }
 
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -824,6 +991,7 @@ function cleanupAR() {
   state.latestHitPose = null;
   state.session = null;
   hideLiveMeasurement();
+  $('#model-controls').hidden = true;
 
   // Clean up THREE.js resources
   if (state.xrRenderer) {
