@@ -91,6 +91,17 @@ function setARMode(mode) {
   console.log(`[AR Mode] Switched to: ${mode}`);
 }
 
+function updateLiveMeasurementDisplay(distanceInMeters) {
+  $('#live-cm').textContent = `${(distanceInMeters * 100).toFixed(1)} cm`;
+  $('#live-mm').textContent = `${(distanceInMeters * 1000).toFixed(0)} mm`;
+  $('#live-m').textContent = `${distanceInMeters.toFixed(3)} m`;
+  $('#live-measurement').hidden = false;
+}
+
+function hideLiveMeasurement() {
+  $('#live-measurement').hidden = true;
+}
+
 function colorFor(product) { return colorStyles[product.color] || '#8c9d88'; }
 function furniture(product, extra = '') {
   const model = ['sofa', 'table', 'chair', 'bed', 'shelf', 'desk'].includes(product.model) ? product.model : 'shelf';
@@ -437,6 +448,20 @@ async function startNativeAR() {
     const hits = state.hitTestSource ? xrFrame.getHitTestResults(state.hitTestSource) : [];
     state.latestHitPose = hits[0]?.getPose(state.referenceSpace) || null;
 
+    // Live measurement display during measurement mode
+    if (state.arPurpose === 'measurement' && state.arPoints.length === 1 && state.latestHitPose) {
+      const point0 = state.arPoints[0];
+      const hitPos = state.latestHitPose.transform.position;
+      const liveDistanceM = Math.sqrt(
+        (point0.x - hitPos.x) ** 2 +
+        (point0.y - hitPos.y) ** 2 +
+        (point0.z - hitPos.z) ** 2
+      );
+      updateLiveMeasurementDisplay(liveDistanceM);
+    } else {
+      hideLiveMeasurement();
+    }
+
     if (!state.latestHitPose || state.arPurpose !== 'placement') return;
 
     // Use THREE.js renderer if available and model is loaded
@@ -622,14 +647,22 @@ async function startCameraFallback() {
     let currentScale = 1;
     let dragX = 0;
     let pinchDistance = null;
+    let pinchStableFrames = 0; // Track stable pinch detection
 
     const updateScaleLabel = () => {
-      const percent = Math.round((currentScale / 1) * 100);
+      const smoothScale = Math.round(currentScale * 20) / 20; // Round to nearest 5%
+      const percent = Math.round((smoothScale / 1) * 100);
       $('#ar-mode-label').textContent = `Camera preview — drag to rotate, pinch to check scale. This device can't track the room, so use this to judge fit, not exact placement. Current size: ${percent}% of true scale.`;
     };
 
     const syncSize = () => {
       modelRoot.scale.setScalar(currentScale);
+      // Re-center model on every scale change to keep it grounded at the same visual spot
+      const scaledBbox = new THREE.Box3().setFromObject(modelRoot);
+      const center = scaledBbox.getCenter(new THREE.Vector3());
+      modelRoot.position.x = -center.x;
+      modelRoot.position.y = -scaledBbox.min.y;
+      modelRoot.position.z = -center.z;
       updateScaleLabel();
     };
 
@@ -671,6 +704,7 @@ async function startCameraFallback() {
       if (event.touches.length === 2) {
         const [a, b] = [event.touches[0], event.touches[1]];
         pinchDistance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+        pinchStableFrames = 0; // Reset stability counter on new pinch start
       }
     }, { passive: true });
 
@@ -678,11 +712,30 @@ async function startCameraFallback() {
       if (event.touches.length === 2 && pinchDistance) {
         const [a, b] = [event.touches[0], event.touches[1]];
         const nextDistance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-        const ratio = nextDistance / (pinchDistance || 1);
-        currentScale = Math.min(3, Math.max(0.3, currentScale * ratio));
+        const deltaDistance = Math.abs(nextDistance - pinchDistance);
+        
+        // Require at least ~10px of movement to filter out accidental 2-touch frames
+        if (deltaDistance > 10) {
+          pinchStableFrames++;
+          // Only apply scale after two consecutive stable frames confirm intentional pinch
+          if (pinchStableFrames > 1) {
+            const ratio = nextDistance / (pinchDistance || 1);
+            currentScale = Math.min(2.0, Math.max(0.5, currentScale * ratio));
+            syncSize();
+          }
+        }
         pinchDistance = nextDistance;
-        syncSize();
       }
+    }, { passive: true });
+
+    fallbackHost.addEventListener('touchend', event => {
+      if (event.touches.length < 2) pinchDistance = null;
+      pinchStableFrames = 0;
+    }, { passive: true });
+
+    fallbackHost.addEventListener('touchcancel', () => {
+      pinchDistance = null;
+      pinchStableFrames = 0;
     }, { passive: true });
 
     const tick = () => {
@@ -770,6 +823,7 @@ function cleanupAR() {
   state.referenceSpace = null;
   state.latestHitPose = null;
   state.session = null;
+  hideLiveMeasurement();
 
   // Clean up THREE.js resources
   if (state.xrRenderer) {
