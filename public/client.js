@@ -55,6 +55,7 @@ const state = {
   referenceSpace: null,
   latestHitPose: null,
   placedMatrix: null,
+  arLayoutObserver: null,
   arPurpose: null,
   arPoints: [],
   arMeasurement: null,
@@ -87,11 +88,20 @@ function mountARExperience() {
     experience = $('#ar-experience');
   }
   experience.hidden = false;
+  layoutControlRing();
+  state.arLayoutObserver?.disconnect();
+  const banner = $('.ar-instructions');
+  if (banner && typeof ResizeObserver !== 'undefined') {
+    state.arLayoutObserver = new ResizeObserver(layoutControlRing);
+    state.arLayoutObserver.observe(banner);
+  }
   $('#exit-ar').addEventListener('click', () => state.session ? state.session.end() : cleanupAR(), { once: true });
   return experience;
 }
 
 function unmountARExperience() {
+  state.arLayoutObserver?.disconnect();
+  state.arLayoutObserver = null;
   $('#ar-experience')?.remove();
 }
 
@@ -120,10 +130,15 @@ function hideLiveMeasurement() {
 }
 
 function layoutControlRing() {
-  const ring = document.querySelectorAll('.model-controls button:not(#reset-model)');
-  const radius = 80;
-  const center = 110;
-  const halfButton = 26;
+  const tray = $('.model-controls');
+  if (!tray) return;
+  const ring = tray.querySelectorAll('button:not(#reset-model)');
+  const traySize = tray.clientWidth;
+  const center = traySize / 2;
+  const halfButton = (ring[0]?.getBoundingClientRect().width || 40) / 2;
+  const radius = Math.max(0, center - halfButton - 8);
+  const banner = $('.ar-instructions');
+  if (banner) tray.style.bottom = `${banner.offsetHeight + 12}px`;
   ring.forEach((button, index) => {
     const angle = (index / ring.length) * 2 * Math.PI - Math.PI / 2;
     button.style.left = `${center + radius * Math.cos(angle) - halfButton}px`;
