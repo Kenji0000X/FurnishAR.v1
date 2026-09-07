@@ -78,6 +78,23 @@ const peso = value => new Intl.NumberFormat('en-PH', { style: 'currency', curren
 const cm = value => `${Math.round(value)} cm`;
 const colorStyles = { Sand: '#d4b18b', Oak: '#aa7953', Terracotta: '#c46e50', Walnut: '#725343', Black: '#474b47', White: '#d9d4ca', Natural: '#b58d62' };
 
+const AR_EXPERIENCE_HTML = `<div id="ar-experience" class="ar-experience"><video id="camera-feed" autoplay playsinline muted></video><canvas id="xr-canvas"></canvas><div id="fallback-product" class="fallback-product"></div><div class="ar-hud"><div><p class="eyebrow">FurnishAR placement</p><strong id="ar-product-name">Product</strong><span id="ar-mode-indicator" class="ar-mode-indicator" aria-label="AR mode"></span></div><button id="exit-ar" class="ar-exit">Exit</button></div><div class="ar-reticle"><i></i></div><div id="live-measurement" class="live-measurement" hidden><span id="live-cm">0 cm</span><span id="live-mm">0 mm</span><span id="live-m">0.00 m</span></div><div class="ar-instructions"><b id="ar-mode-label">Move your phone slowly to find the floor.</b><span>Tap the screen to place. Drag horizontally to rotate in preview mode.</span></div><div id="model-controls" class="model-controls" hidden><div class="control-group rotate-group"><button id="rotate-left" class="control-btn" aria-label="Rotate left" title="Rotate left">⟲</button><button id="rotate-right" class="control-btn" aria-label="Rotate right" title="Rotate right">⟳</button></div><div class="control-group move-group"><button id="move-up" class="control-btn" aria-label="Move away">↑</button><button id="move-down" class="control-btn" aria-label="Move closer">↓</button><button id="move-left" class="control-btn" aria-label="Move left">←</button><button id="move-right" class="control-btn" aria-label="Move right">→</button></div><div class="control-group zoom-group"><button id="zoom-in" class="control-btn" aria-label="Zoom in">+</button><button id="zoom-out" class="control-btn" aria-label="Zoom out">−</button></div><button id="reset-model" class="control-btn reset-btn" aria-label="Reset position" title="Reset to default position">⟲ Reset</button></div></div>`;
+
+function mountARExperience() {
+  let experience = $('#ar-experience');
+  if (!experience) {
+    document.body.insertAdjacentHTML('beforeend', AR_EXPERIENCE_HTML);
+    experience = $('#ar-experience');
+  }
+  experience.hidden = false;
+  $('#exit-ar').addEventListener('click', () => state.session ? state.session.end() : cleanupAR(), { once: true });
+  return experience;
+}
+
+function unmountARExperience() {
+  $('#ar-experience')?.remove();
+}
+
 function setARMode(mode) {
   state.arMode = mode;
   const indicator = $('#ar-mode-indicator');
@@ -249,7 +266,8 @@ function renderPlanner() {
   $('#planner-product').innerHTML = `<div class="planner-product-inner">${furniture(product)}<div><h3>${escapeHtml(product.name)}</h3><p>${escapeHtml(product.store)}</p><p>${product.dimensions.width} W × ${product.dimensions.depth} D × ${product.dimensions.height} H</p></div></div>`;
   $('#check-width').textContent = cm(product.dimensions.width);
   $('#check-depth').textContent = cm(product.dimensions.depth);
-  $('#ar-product-name').textContent = product.name;
+  const arProductName = $('#ar-product-name');
+  if (arProductName) arProductName.textContent = product.name;
   updateFitVerdict();
 }
 
@@ -270,6 +288,10 @@ function updateFitVerdict() {
 }
 
 function changeView(name) {
+  if ($('#ar-experience')) {
+    if (state.session) state.session.end().catch(cleanupAR);
+    else cleanupAR();
+  }
   $$('.view').forEach(view => view.classList.toggle('active', view.id === `${name}-view`));
   $$('.nav-link').forEach(button => button.classList.toggle('active', button.dataset.view === name));
   if (name === 'planner') renderPlanner();
@@ -964,9 +986,6 @@ async function startExperience(purpose) {
   const product = state.selected;
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-  // Keep controls hidden until the selected AR renderer is ready.
-  $('#model-controls').hidden = true;
-
   // Try iOS Quick Look if on iOS and USDZ is available and accessible
   if (isIOS && product.modelUsdz) {
     try {
@@ -988,7 +1007,8 @@ async function startExperience(purpose) {
     }
   }
 
-  state.arPurpose = purpose; state.arPoints = []; state.placedMatrix = null; $('#ar-experience').hidden = false; $('#camera-feed').style.display = ''; $('#xr-canvas').style.display = ''; $('#fallback-product').style.display = 'none';
+  mountARExperience();
+  state.arPurpose = purpose; state.arPoints = []; state.placedMatrix = null; $('#camera-feed').style.display = ''; $('#xr-canvas').style.display = ''; $('#fallback-product').style.display = 'none';
   console.log(`[AR Flow] Starting AR experience for "${state.selected.name}" (${purpose} mode)`);
   try {
     const supportsAR = await checkARSupport();
@@ -1047,7 +1067,7 @@ function cleanupAR() {
   state.cameraStream = null;
   $('#camera-feed').srcObject = null;
   $('#fallback-product').style.display = 'none';
-  $('#ar-experience').hidden = true;
+  unmountARExperience();
   state.placedMatrix = null;
 
   state.arPoints = [];
@@ -1156,7 +1176,6 @@ function bindEvents() {
   $('#clear-filters').addEventListener('click', () => { state.filters = { search: '', category: '', store: '', width: 240, color: '' }; $('#search').value = ''; $('#filter-category').value = ''; $('#filter-store').value = ''; $('#filter-width').value = 240; $('#width-output').textContent = 'No limit'; renderColors(); renderCatalog(); });
   $$('#point-a, #point-b').forEach(input => input.addEventListener('input', updateFitVerdict));
   $('#ar-button').addEventListener('click', () => startExperience('measurement'));
-  $('#exit-ar').addEventListener('click', () => state.session ? state.session.end() : cleanupAR());
   $('#login-form').addEventListener('submit', login); $('#logout').addEventListener('click', () => { state.token = ''; state.user = null; sessionStorage.removeItem('furnishar-token'); sessionStorage.removeItem('furnishar-user'); renderAdmin(); toast('Signed out.'); });
   $('#add-product').addEventListener('click', () => openProductForm()); $('#product-form').addEventListener('submit', saveProduct);
 }
@@ -1177,5 +1196,11 @@ async function init() {
 }
 // Only initialize on browser, not on server
 if (typeof document !== 'undefined') {
+  window.addEventListener('popstate', () => {
+    if ($('#ar-experience')) {
+      if (state.session) state.session.end().catch(cleanupAR);
+      else cleanupAR();
+    }
+  });
   init();
 }
