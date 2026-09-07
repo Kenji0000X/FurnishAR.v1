@@ -487,34 +487,44 @@ function captureNativePoint(frame) {
 async function startCameraFallback() {
   const product = state.selected;
   const isPlacement = state.arPurpose === 'placement';
+  const fallbackHost = $('#fallback-product');
+  const cameraVideo = $('#camera-feed');
+
   $('#ar-mode-label').textContent = isPlacement
     ? 'Camera preview — drag to rotate, pinch to check scale. This device can\'t track the room, so use this to judge fit, not exact placement.'
     : 'Camera preview active — use the two fields after closing to enter your tape measure reading.';
 
   $('#xr-canvas').style.display = 'none';
   $('#fallback-product').style.display = isPlacement ? 'block' : 'none';
+  cameraVideo.style.display = 'block';
+  cameraVideo.style.opacity = '1';
+  cameraVideo.style.zIndex = '1';
+  fallbackHost.style.zIndex = '2';
 
   if (isPlacement) {
     // This is an unanchored, device-side approximation for fit checking only.
     // It is not tracked AR; the real room placement still comes from native WebXR.
     const fallbackCanvas = document.createElement('canvas');
-    const fallbackHost = $('#fallback-product');
     fallbackHost.innerHTML = '';
     fallbackHost.appendChild(fallbackCanvas);
 
     const model = await loadScaledModel(product);
     if (!model || !THREE || !fallbackCanvas) {
-      fallbackHost.innerHTML = furniture(product);
+      fallbackHost.innerHTML = `<div class="fallback-message">3D preview not available for this product yet</div>`;
       return;
     }
 
-    const context = fallbackCanvas.getContext('webgl', { alpha: true, antialias: true });
+    const context = fallbackCanvas.getContext('webgl2', { alpha: true, antialias: true, premultipliedAlpha: false });
     if (!context) {
-      fallbackHost.innerHTML = furniture(product);
+      fallbackHost.innerHTML = `<div class="fallback-message">3D preview not available for this product yet</div>`;
       return;
     }
 
-    const renderer = new THREE.WebGLRenderer({ canvas: fallbackCanvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
+    const renderer = new THREE.WebGLRenderer({ canvas: fallbackCanvas, antialias: true, alpha: true, powerPreference: 'high-performance', premultipliedAlpha: false });
+    renderer.setClearColor(0x000000, 0);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 1000);
     camera.position.set(0, 0.9, 2.8);
@@ -528,22 +538,17 @@ async function startCameraFallback() {
     modelRoot.rotation.y = 0.6;
     scene.add(modelRoot);
 
-    const trueScale = 1;
-    const baseScale = 1.5;
-    const clipRadius = 0.75;
-    let currentScale = trueScale;
+    let currentScale = 1;
     let dragX = 0;
     let pinchDistance = null;
 
     const updateScaleLabel = () => {
-      const percent = Math.round((currentScale / trueScale) * 100);
+      const percent = Math.round((currentScale / 1) * 100);
       $('#ar-mode-label').textContent = `Camera preview — drag to rotate, pinch to check scale. This device can't track the room, so use this to judge fit, not exact placement. Current size: ${percent}% of true scale.`;
     };
 
     const syncSize = () => {
-      const distance = 1.5;
-      const target = (distance / baseScale) * currentScale;
-      modelRoot.scale.setScalar(target);
+      modelRoot.scale.setScalar(currentScale);
       updateScaleLabel();
     };
 
@@ -551,7 +556,6 @@ async function startCameraFallback() {
       const bounds = fallbackHost.getBoundingClientRect();
       const width = Math.max(bounds.width, 200);
       const height = Math.max(bounds.height, 160);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.setSize(width, height, false);
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
@@ -601,6 +605,7 @@ async function startCameraFallback() {
     }, { passive: true });
 
     const tick = () => {
+      renderer.setClearColor(0x000000, 0);
       renderer.render(scene, camera);
       requestAnimationFrame(tick);
     };
@@ -610,9 +615,19 @@ async function startCameraFallback() {
     updateScaleLabel();
   }
 
-  if (!navigator.mediaDevices?.getUserMedia) { $('#camera-feed').style.display = 'none'; $('#ar-mode-label').textContent = 'Camera access is not available. Use the guided measurement fields.'; return; }
-  try { state.cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false }); $('#camera-feed').srcObject = state.cameraStream; }
-  catch { $('#camera-feed').style.display = 'none'; $('#ar-mode-label').textContent = 'Camera permission was not granted. Use the guided measurement fields.'; }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    $('#camera-feed').style.display = 'none';
+    $('#ar-mode-label').textContent = 'Camera access is not available. Use the guided measurement fields.';
+    return;
+  }
+
+  try {
+    state.cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+    $('#camera-feed').srcObject = state.cameraStream;
+  } catch {
+    $('#camera-feed').style.display = 'none';
+    $('#ar-mode-label').textContent = 'Camera permission was not granted. Use the guided measurement fields.';
+  }
 }
 
 async function startExperience(purpose) {
