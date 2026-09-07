@@ -378,6 +378,7 @@ async function startNativeAR() {
     try {
       renderer = new THREE.WebGLRenderer({ canvas, context: gl, antialias: true, alpha: true });
       renderer.xr.enabled = true;
+      renderer.xr.setSession(session);
       renderer.setPixelRatio(1);
       renderer.setClearColor(0x000000, 0);
 
@@ -441,12 +442,12 @@ async function startNativeAR() {
         camera.projectionMatrix.fromArray(view.projectionMatrix);
         camera.matrix.fromArray(view.transform.matrix);
         camera.matrixAutoUpdate = false;
+        camera.updateMatrix();
 
         const placement = state.placedMatrix || state.latestHitPose.transform.matrix;
         const placementMatrix = new THREE.Matrix4().fromArray(placement);
-        placedModel.position.set(placementMatrix.elements[12], placementMatrix.elements[13], placementMatrix.elements[14]);
-        const quaternion = new THREE.Quaternion().setFromRotationMatrix(placementMatrix);
-        placedModel.quaternion.copy(quaternion);
+        placedModel.position.setFromMatrixPosition(placementMatrix);
+        placedModel.quaternion.setFromRotationMatrix(placementMatrix);
 
         renderer.render(scene, camera);
       }
