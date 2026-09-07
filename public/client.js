@@ -964,6 +964,9 @@ async function startExperience(purpose) {
   const product = state.selected;
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
+  // Keep controls hidden until the selected AR renderer is ready.
+  $('#model-controls').hidden = true;
+
   // Try iOS Quick Look if on iOS and USDZ is available and accessible
   if (isIOS && product.modelUsdz) {
     try {
