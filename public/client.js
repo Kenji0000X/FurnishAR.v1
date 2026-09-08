@@ -1109,6 +1109,22 @@ async function login(event) {
   catch (error) { $('#login-error').textContent = error.message; }
 }
 
+function showSignup() {
+  $('#login-panel').hidden = true;
+  $('#signup-panel').hidden = false;
+  $('#signup-message').textContent = '';
+}
+
+function showLogin() {
+  $('#login-panel').hidden = false;
+  $('#signup-panel').hidden = true;
+}
+
+function signup(event) {
+  event.preventDefault();
+  $('#signup-message').textContent = "Thanks — store sign-ups aren't open yet. We'll reach out to onboard your store manually.";
+}
+
 function renderAdmin() {
   const loggedIn = Boolean(state.token && state.user);
   $('#login-panel').hidden = loggedIn; $('#dashboard').hidden = !loggedIn;
@@ -1203,6 +1219,7 @@ function bindEvents() {
   $$('#point-a, #point-b').forEach(input => input.addEventListener('input', updateFitVerdict));
   $('#ar-button').addEventListener('click', () => startExperience('measurement'));
   $('#login-form').addEventListener('submit', login); $('#logout').addEventListener('click', () => { state.token = ''; state.user = null; sessionStorage.removeItem('furnishar-token'); sessionStorage.removeItem('furnishar-user'); renderAdmin(); toast('Signed out.'); });
+  $('#show-signup').addEventListener('click', showSignup); $('#show-login').addEventListener('click', showLogin); $('#signup-form').addEventListener('submit', signup);
   $('#add-product').addEventListener('click', () => openProductForm()); $('#product-form').addEventListener('submit', saveProduct);
 }
 
