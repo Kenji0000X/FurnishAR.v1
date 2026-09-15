@@ -25,11 +25,15 @@ project is configured.
 
 ## Live database (Supabase)
 
-Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` and the app switches to a real
+Supply a Supabase project URL and publishable key and the app switches to a real
 backend: Supabase Auth accounts, per-store furniture protected by row level
 security, 3D model uploads into Storage, and a catalogue that updates live in
 every open browser. Leave them unset and it keeps the bundled catalogue and the
 demo sign-in above, unchanged.
+
+The dashboard's Next.js snippets (`@supabase/ssr`, `utils/supabase/server.ts`,
+`next/headers`) do **not** apply here — this project has no framework. All it
+needs are the two values; `npm run check:supabase` verifies them.
 
 **[SUPABASE.md](SUPABASE.md)** is the full runbook — creating the project,
 running `supabase/migrations/0001_init.sql`, the storage bucket, the
