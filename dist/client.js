@@ -1243,10 +1243,23 @@ function cleanupAR() {
 }
 
 async function login(event) {
-  event.preventDefault(); $('#login-error').textContent = '';
-  const fields = new FormData(event.currentTarget);
-  try { const response = await api('/api/auth/login', { method: 'POST', body: JSON.stringify(Object.fromEntries(fields)) }); state.token = response.token; state.user = response.user; sessionStorage.setItem('furnishar-token', state.token); sessionStorage.setItem('furnishar-user', JSON.stringify(state.user)); event.currentTarget.reset(); renderAdmin(); toast(`Signed in to ${state.user.store}.`); }
-  catch (error) { $('#login-error').textContent = error.message; }
+  event.preventDefault();
+  $('#login-error').textContent = '';
+  // Hold on to the form: event.currentTarget is null once the await resumes.
+  const form = event.currentTarget;
+  const fields = Object.fromEntries(new FormData(form));
+  try {
+    const response = await api('/api/auth/login', { method: 'POST', body: JSON.stringify(fields) });
+    state.token = response.token;
+    state.user = response.user;
+    sessionStorage.setItem('furnishar-token', state.token);
+    sessionStorage.setItem('furnishar-user', JSON.stringify(state.user));
+    form.reset();
+    renderAdmin();
+    toast(`Signed in to ${state.user.store}.`);
+  } catch (error) {
+    $('#login-error').textContent = error.message;
+  }
 }
 
 function showSignup() {
@@ -1272,13 +1285,13 @@ function renderAdmin() {
   const own = state.products.filter(product => product.storeId === state.user.storeId);
   const store = state.products.length > 0 && own.length > 0 ? own[0] : null;
   // Determine plan from first product or default to freemium
-  const planInfo = store ? (state.products.find(p => p.storeId === state.user.storeId) ? 'Plan: Premium' : 'Plan: Freemium') : 'Plan: Freemium';
+  const plan = store && state.products.find(p => p.storeId === state.user.storeId) ? 'Premium' : 'Freemium';
   const FREEMIUM_LIMIT = 8;
-  const isFree = planInfo.includes('Freemium');
+  const isFree = plan === 'Freemium';
   const slotsRemaining = isFree ? Math.max(0, FREEMIUM_LIMIT - own.length) : null;
   $('#owner-store').textContent = state.user.store;
-  $('#inventory-summary').innerHTML = `<div class="inventory-stat"><span>${planInfo}</span></div><div class="inventory-stat"><span>Listed products</span><strong>${own.length}${isFree ? `/${FREEMIUM_LIMIT}` : ''}</strong></div><div class="inventory-stat"><span>Units available</span><strong>${own.reduce((sum, product) => sum + product.stock, 0)}</strong></div><div class="inventory-stat"><span>Catalog value</span><strong>${peso(own.reduce((sum, product) => sum + product.price * product.stock, 0))}</strong></div>`;
-  $('#inventory-body').innerHTML = own.length ? own.map(product => `<tr><td>${escapeHtml(product.name)}<small>${escapeHtml(product.category)} · ${escapeHtml(product.color)}</small></td><td>${product.dimensions.width} × ${product.dimensions.depth} × ${product.dimensions.height} cm</td><td>${peso(product.price)}</td><td>${product.stock}</td><td><small style="color: #999;">${relativeTime(product.updatedAt)}</small></td><td><div class="table-actions"><button class="icon-button" data-edit-product="${product.id}">Edit</button><button class="icon-button delete" data-delete-product="${product.id}">Delete</button></div></td></tr>`).join('') : '<tr><td colspan="6">No products listed yet. Add your first product above.</td></tr>';
+  $('#inventory-summary').innerHTML = `<div class="inventory-stat"><span>Plan</span><strong>${plan}</strong></div><div class="inventory-stat"><span>Listed products</span><strong>${own.length}${isFree ? `/${FREEMIUM_LIMIT}` : ''}</strong></div><div class="inventory-stat"><span>Units available</span><strong>${own.reduce((sum, product) => sum + product.stock, 0)}</strong></div><div class="inventory-stat"><span>Catalog value</span><strong>${peso(own.reduce((sum, product) => sum + product.price * product.stock, 0))}</strong></div>`;
+  $('#inventory-body').innerHTML = own.length ? own.map(product => `<tr><td>${escapeHtml(product.name)}<small>${escapeHtml(product.category)} · ${escapeHtml(product.color)}</small></td><td>${product.dimensions.width} × ${product.dimensions.depth} × ${product.dimensions.height} cm</td><td>${peso(product.price)}</td><td>${product.stock}</td><td><small>${relativeTime(product.updatedAt)}</small></td><td><div class="table-actions"><button class="icon-button" data-edit-product="${product.id}">Edit</button><button class="icon-button delete" data-delete-product="${product.id}">Delete</button></div></td></tr>`).join('') : '<tr><td colspan="6">No products listed yet. Add your first product above.</td></tr>';
 }
 
 function openProductForm(product = null) {
