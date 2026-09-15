@@ -65,9 +65,9 @@ export async function prepare() {
 }
 
 export function isConfigured() {
-  // The server may hold the credentials, so this cannot be answered from the
-  // page alone; prepare() settles it. Returning true lets the caller try.
-  return Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey) || typeof fetch === 'function';
+SUPABASE_URL=https://pasgfndrstoadwzynros.supabase.co
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_…
+FURNISHAR_JWT_SECRET=<node -e "console.log(require('crypto').randomBytes(32).toString('hex'))">
 }
 
 export function activeMode() {
