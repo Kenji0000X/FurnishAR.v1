@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="FurnishAR">
+  <rect width="512" height="512" fill="#141413"/>
+  <g fill="#f2f1ec">
+    <rect x="168" y="168" width="40" height="176"/>
+    <rect x="236" y="240" width="40" height="104"/>
+  </g>
+  <rect x="304" y="168" width="40" height="176" fill="#e08159"/>
+</svg>

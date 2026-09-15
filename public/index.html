@@ -7,6 +7,11 @@
     <meta name="description" content="FurnishAR helps shoppers in Mamburao see true-to-scale furniture before they buy." />
     <title>FurnishAR | See it. Fit it. Love it.</title>
     <link rel="stylesheet" href="styles.css" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="icon.svg" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="FurnishAR" />
+    <meta name="color-scheme" content="light" />
   </head>
   <body>
     <a class="skip-link" href="#catalog">Skip to catalog</a>
@@ -83,18 +88,43 @@
             <button class="button button-outline" data-view="home">Change product</button>
           </section>
           <section class="planner-card measure-card" aria-labelledby="measure-title">
-            <div class="card-heading"><span class="step-number">02</span><div><p>Measure your clearance</p><h2 id="measure-title">Two-point room scan</h2></div></div>
-            <p class="card-copy">Aim at a textured, non-reflective floor in bright light. On Android Chrome, tap to capture two real-world points. Else use the guided fallback below.</p>
-            <div class="measurement-visual" aria-hidden="true"><span class="measure-point point-a">A</span><span class="measure-line"></span><span class="measure-point point-b">B</span><span id="visual-distance">120 cm</span></div>
-            <div class="measurement-inputs"><label>Point A <input id="point-a" type="number" min="0" max="1000" value="0" inputmode="numeric" /> cm</label><label>Point B <input id="point-b" type="number" min="1" max="1000" value="120" inputmode="numeric" /> cm</label></div>
-            <p class="measurement-result"><span>Measured clearance</span><strong id="measured-distance">120 cm</strong></p>
+            <div class="card-heading"><span class="step-number">02</span><div><p>Measure your space</p><h2 id="measure-title">Room scan</h2></div></div>
+
+            <div class="mode-switch" role="radiogroup" aria-label="What to measure">
+              <button type="button" class="mode-option is-active" data-measure-mode="clearance" role="radio" aria-checked="true">Clearance</button>
+              <button type="button" class="mode-option" data-measure-mode="area" role="radio" aria-checked="false">Floor area</button>
+            </div>
+
+            <p class="card-copy" id="measure-copy">Aim at a textured, non-reflective floor in bright light. On Android Chrome, tap two points across the opening. Otherwise use the fields below.</p>
+
+            <div id="clearance-fields">
+              <div class="measurement-visual" aria-hidden="true"><span class="measure-point point-a">A</span><span class="measure-line"></span><span class="measure-point point-b">B</span><span id="visual-distance">120 cm</span></div>
+              <div class="measurement-inputs"><label>Point A <input id="point-a" type="number" min="0" max="1000" value="0" inputmode="numeric" /> cm</label><label>Point B <input id="point-b" type="number" min="1" max="1000" value="120" inputmode="numeric" /> cm</label></div>
+              <p class="measurement-result"><span>Measured clearance</span><strong id="measured-distance">120 cm</strong></p>
+            </div>
+
+            <div id="area-fields" hidden>
+              <div class="measurement-inputs"><label>Floor area <input id="floor-area" type="number" min="0.1" max="500" step="0.01" value="12" inputmode="decimal" /> m²</label><label>Longest side <input id="floor-span" type="number" min="10" max="2000" value="400" inputmode="numeric" /> cm</label></div>
+              <p class="measurement-result"><span>Measured floor</span><strong id="measured-area">12.0 m²</strong></p>
+              <p id="area-confidence" class="ar-status" aria-live="polite"></p>
+            </div>
+
             <button id="ar-button" class="button button-primary">Scan with your camera</button>
             <p id="ar-status" class="ar-status" aria-live="polite">Checking AR support…</p>
           </section>
           <section class="planner-card verdict-card" aria-labelledby="verdict-title">
             <div class="card-heading"><span class="step-number">03</span><div><p>Check the fit</p><h2 id="verdict-title">Clearance verdict</h2></div></div>
             <div id="fit-verdict" class="fit-verdict"></div>
-            <div class="dimension-list"><p><span>Furniture width</span><b id="check-width">—</b></p><p><span>Furniture depth</span><b id="check-depth">—</b></p><p><span>Measured clearance</span><b id="check-clearance">—</b></p></div>
+            <figure class="fit-plan" aria-labelledby="fit-plan-caption">
+              <div id="fit-plan-stage" class="fit-plan-stage">
+                <div id="fit-plan-space" class="fit-plan-space">
+                  <span id="fit-plan-space-label"></span>
+                  <div id="fit-plan-piece" class="fit-plan-piece"><span id="fit-plan-piece-label"></span></div>
+                </div>
+              </div>
+              <figcaption id="fit-plan-caption" class="fine-print">Plan view, drawn to scale: the piece against the space you measured.</figcaption>
+            </figure>
+            <div class="dimension-list"><p><span>Furniture width</span><b id="check-width">—</b></p><p><span>Furniture depth</span><b id="check-depth">—</b></p><p><span id="check-clearance-label">Measured clearance</span><b id="check-clearance">—</b></p></div>
             <p class="fine-print">Leave at least 5 cm extra for comfortable passage. This is a planning guide; verify final dimensions with the store.</p>
           </section>
         </div>
@@ -118,12 +148,16 @@
         <section id="dashboard" class="dashboard" hidden>
           <div class="dashboard-top"><div><p id="owner-store" class="eyebrow">Store inventory</p><h2>Welcome back</h2></div><div><button id="add-product" class="button button-primary">+ Add product</button><button id="logout" class="button button-outline">Sign out</button></div></div>
           <div id="inventory-summary" class="inventory-summary"></div>
+          <section class="plan-section" aria-labelledby="plan-title">
+            <div class="section-heading"><div><p class="eyebrow">Subscription</p><h2 id="plan-title">Your plan</h2></div></div>
+            <div id="plan-panel" class="plan-panel"></div>
+          </section>
           <div class="inventory-table-wrap"><table><thead><tr><th>Product</th><th>Dimensions</th><th>Price</th><th>In stock</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody id="inventory-body"></tbody></table></div>
         </section>
       </section>
     </main>
 
-    <footer><span class="brand footer-brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>Furnish<span>AR</span></span></span><p>Spatial planning for the homes of Mamburao.</p><p>Android Chrome + ARCore recommended for live placement.</p></footer>
+    <footer><span class="brand footer-brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>Furnish<span>AR</span></span></span><p>Spatial planning for the homes of Mamburao.</p><p>Android Chrome + ARCore recommended for live placement.</p><p id="build-stamp" class="build-stamp"></p></footer>
 
     <dialog id="product-dialog" class="product-dialog"><button class="dialog-close" data-close-dialog aria-label="Close product details">×</button><div id="dialog-content"></div></dialog>
     <dialog id="product-form-dialog" class="form-dialog"><button class="dialog-close" data-close-form aria-label="Close form">×</button><h2 id="form-title">Add a product</h2><form id="product-form" class="product-form"><input type="hidden" name="id" /><div class="form-grid"><label>Product name<input name="name" required maxlength="90" /></label><label>Category<select name="category"><option>Sofa</option><option>Table</option><option>Chair</option><option>Bed</option><option>Storage</option></select></label><label>Style<input name="style" required value="Modern" /></label><label>Colour<input name="color" required value="Natural" /></label><label>Price (PHP)<input name="price" type="number" min="0" step="1" required /></label><label>In stock<input name="stock" type="number" min="0" step="1" required /></label><label>Width (cm)<input name="width" type="number" min="1" required /></label><label>Height (cm)<input name="height" type="number" min="1" required /></label><label>Depth (cm)<input name="depth" type="number" min="1" required /></label><label>Preview shape<select name="model"><option value="sofa">Sofa</option><option value="table">Table</option><option value="chair">Chair</option><option value="bed">Bed</option><option value="shelf">Shelf</option><option value="desk">Desk</option></select></label><label class="form-wide">3D model (.glb)<input name="modelFile" type="file" accept=".glb,model/gltf-binary" /><small class="field-note">Uploaded to your store's folder. Up to 50 MB. Leave empty to keep the current model.</small></label><label>Android GLB path<input name="modelGlb" type="text" placeholder="models/example.glb" /></label><label>iPhone USDZ path<input name="modelUsdz" type="text" placeholder="models/example.usdz" /></label><label>AR box width (cm)<input name="modelWidth" type="number" min="1" step="0.1" placeholder="same as width" /></label><label>AR box height (cm)<input name="modelHeight" type="number" min="1" step="0.1" placeholder="same as height" /></label><label>AR box depth (cm)<input name="modelDepth" type="number" min="1" step="0.1" placeholder="same as depth" /></label></div><label>Description<textarea name="description" rows="3" maxlength="400"></textarea></label><p id="product-form-error" class="form-error" role="alert" aria-live="assertive"></p><button class="button button-primary" type="submit">Save product</button></form></dialog>

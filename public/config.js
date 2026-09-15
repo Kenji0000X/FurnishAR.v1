@@ -18,5 +18,8 @@
  */
 window.FURNISHAR_CONFIG = {
   supabaseUrl: '',
-  supabaseAnonKey: ''
+  supabaseAnonKey: '',
+  version: '1.0.0',
+  commit: 'dev',
+  builtAt: null
 };
