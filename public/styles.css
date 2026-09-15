@@ -1089,13 +1089,13 @@ footer {
   bottom: calc(1rem + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   display: flex; flex-direction: column; align-items: center; gap: .5rem;
-  max-width: calc(100vw - 1.4rem);
+  max-width: calc(100% - 1.4rem);
   pointer-events: none;
 }
 .ar-dock > * { pointer-events: auto; }
 
 .ar-hint {
-  width: max-content; max-width: min(90vw, 26rem);
+  width: max-content; max-width: min(90%, 26rem);
   padding: .5rem .85rem;
   font-size: .7rem; line-height: 1.35; text-align: center;
 }
@@ -1104,7 +1104,7 @@ footer {
 .ar-tray {
   display: flex; flex-wrap: wrap; align-items: end; justify-content: center;
   gap: .6rem .75rem;
-  width: max-content; max-width: calc(100vw - 1.4rem);
+  width: max-content; max-width: calc(100% - 1.4rem);
   padding: .65rem .75rem;
 }
 .ar-tray[hidden] { display: none; }
