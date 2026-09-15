@@ -4,5 +4,5 @@ window.FURNISHAR_CONFIG = {
   "supabaseAnonKey": "",
   "version": "1.1.0",
   "commit": "dev",
-  "builtAt": "2026-09-15T21:45:46.479Z"
+  "builtAt": "2026-09-15T21:53:00.430Z"
 };
