@@ -5,3 +5,8 @@ README.md
 supabase
 BRAND.md
 SUPABASE.md
+
+.env
+.env.local
+.gitignore
+scripts
