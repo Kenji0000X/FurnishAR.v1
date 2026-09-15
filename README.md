@@ -31,9 +31,11 @@ security, 3D model uploads into Storage, and a catalogue that updates live in
 every open browser. Leave them unset and it keeps the bundled catalogue and the
 demo sign-in above, unchanged.
 
-The dashboard's Next.js snippets (`@supabase/ssr`, `utils/supabase/server.ts`,
-`next/headers`) do **not** apply here — this project has no framework. All it
-needs are the two values; `npm run check:supabase` verifies them.
+The dashboard's snippets (`@supabase/ssr`, `utils/supabase/server.ts`,
+`createBrowserClient`) still do **not** apply, even though this is a Next.js
+app: they put the key in the browser, and this one deliberately does not. The
+integration already exists — all it needs are the two values, and
+`npm run check:supabase` verifies them.
 
 **[SUPABASE.md](SUPABASE.md)** is the full runbook — creating the project,
 running `supabase/migrations/0001_init.sql`, the storage bucket, the
@@ -83,6 +85,10 @@ The **Place in your room** action checks for WebXR immersive AR with hit-test su
 
 ## Deploying on Vercel
 
-This project now exposes the API through `api/index.js`, a Vercel serverless-function handler. Vercel serves `index.html`, `styles.css`, and `client.js` from the `dist` output and rewrites all `/api/*` requests to that handler. The function configuration explicitly bundles the seed catalog. `local.js` is excluded from deployments and only starts the local development server.
+This is a Next.js app, so Vercel builds and serves it directly — no rewrites or
+output directory to configure. Pages are server-rendered (product pages are
+generated statically at build time), and both APIs are Route Handlers:
+`/api/sb/*` is the Supabase proxy that keeps the key off the browser, and
+`/api/*` is the demo backend used when no Supabase project is configured.
 
 In **Vercel → Project → Settings → Environment Variables**, set `FURNISHAR_JWT_SECRET` to a long random value, then redeploy. The bundled JSON catalog is read-only on Vercel, so catalog viewing and login work there, while product changes intentionally return a clear service message until the catalog is migrated to a persistent database or Vercel KV. Local development retains file-backed CRUD.

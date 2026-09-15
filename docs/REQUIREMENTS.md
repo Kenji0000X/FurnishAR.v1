@@ -31,21 +31,25 @@ automatic 3D scanning of furniture by the store.
 
 ## 3. Functional requirements
 
+The AR and measurement functions named below (`startNativeAR`, `bindTray`,
+`captureNativePoint`, `reconcileReadings`, …) live in `app/plan/ar-engine.js`
+since the Next.js port; the measurement mathematics are in `public/geometry.js`.
+
 | ID | Requirement | Implemented in | Verified by |
 | --- | --- | --- | --- |
-| FR-1 | A shopper can browse a catalogue of furniture from local stores, filtered by category, store, width and colour. | `public/client.js` `renderCatalog`, `productMatches` | `tests/api.test.js` catalogue endpoint; browser pass at 1280 and 390 px |
-| FR-2 | A product shows real dimensions, price, description and the store's contact details. | `openProduct` | Browser pass (product dialog) |
+| FR-1 | A shopper can browse a catalogue of furniture from local stores, filtered by category, store, width and colour. | `app/page.js` (server-rendered), `app/CatalogSection.js` `matches` | `tests/api.test.js` catalogue endpoint; browser pass at 1280 and 390 px |
+| FR-2 | A product shows real dimensions, price, description and the store's contact details. | `app/furniture/[slug]/page.js` | Browser pass (product dialog) |
 | FR-3 | A shopper can place a product in their room at true scale using WebXR. | `startNativeAR`, `loadScaledModel` | `tests/geometry.test.js` (scaling maths); mocked WebXR session — 150+ frames, no errors |
 | FR-4 | Where WebXR is unavailable, the app degrades to an untracked camera preview rather than failing. | `startCameraFallback` | Browser pass with a faked camera |
 | FR-5 | A placed model can be moved, rotated 360°, resized and reset. | `arTransform`, `bindTray` | Browser pass: yaw 47°, scale 122° in a live session |
 | FR-6 | A shopper can measure a **clearance** between two points and get a fit verdict. | `captureNativePoint`, `fitAgainstClearance` | `tests/geometry.test.js` "fit against a linear clearance" |
 | FR-7 | A shopper can measure a **floor area** from three or more points and get a fit verdict against the piece's footprint. | `captureAreaPoint`, `closeAreaOutline`, `fitAgainstArea` | `tests/geometry.test.js` (8 area cases); end-to-end scan of a 4 × 3 m floor reading 12.0 m² |
 | FR-8 | A measurement is accepted only when two independent scans agree within 5%. | `reconcileReadings` | `tests/geometry.test.js` "the panel's 5% rule"; end-to-end rejection at 32% |
-| FR-9 | A store owner can sign up, creating an account and an application for review. | `signup`, `store_applications` | `tests/db.test.js` "the sign-up form is open to the public but its queue is not" |
+| FR-9 | A store owner can sign up, creating an account and an application for review. | `app/portal/Portal.js` `handleSignup`, `store_applications` | `tests/db.test.js` "the sign-up form is open to the public but its queue is not" |
 | FR-10 | An owner can add, edit and remove **their own** products only. | Supabase RLS on `products` | `tests/db.test.js` cross-store read/write/delete cases |
-| FR-11 | An owner can upload a `.glb` model, stored under their own store's folder. | `uploadModel`, storage policies | `tests/db.test.js` "storage: a store can only write under its own folder" |
-| FR-12 | A shopper can share a link to a specific piece. | `shareProduct`, `openProductFromUrl` | Browser pass: link copied and re-opened the dialog |
-| FR-13 | The catalogue updates without a refresh when a store publishes. | `subscribeToCatalog` | Not verified — needs a live Supabase project (see §6) |
+| FR-11 | An owner can upload a `.glb` model, stored under their own store's folder. | `app/portal/ProductFormDialog.js` → `uploadModel`, storage policies | `tests/db.test.js` "storage: a store can only write under its own folder" |
+| FR-12 | A shopper can share a link to a specific piece. | `app/furniture/[slug]/page.js` — a real URL per piece, plus `ProductActions` for the share sheet | Browser pass: link copied and re-opened the dialog |
+| FR-13 | The catalogue updates without a refresh when a store publishes. | `subscribeToCatalog` (60-second poll; realtime needs a direct websocket the proxy does not open) | Not verified — needs a live Supabase project (see §6) |
 
 ## 4. Non-functional requirements
 
