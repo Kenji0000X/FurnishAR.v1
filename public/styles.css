@@ -1241,14 +1241,15 @@ footer {
   .dialog-close { width: var(--tap); height: var(--tap); }
   .text-button { min-height: var(--tap); }
   .tray-btn { min-width: 38px; height: 38px; }
+  .tray-pad { grid-template-columns: repeat(3, 38px); }
   .filter-group select, .measurement-inputs input,
   .login-form input, .product-form input, .product-form select { min-height: var(--tap); }
 }
 
 @media (max-width: 460px) {
   .ar-tray { gap: .5rem; padding: .55rem .6rem; }
-  .tray-pad { grid-template-columns: repeat(3, 30px); }
-  .tray-btn { min-width: 30px; height: 28px; padding: 0 .35rem; }
+  .tray-pad { grid-template-columns: repeat(3, 34px); }
+  .tray-btn { min-width: 34px; height: 34px; padding: 0 .35rem; }
   .ar-place { width: 48px; height: 48px; }
 }
 
@@ -1287,3 +1288,103 @@ footer {
 }
 .product-form input[type="file"]::file-selector-button:hover { background: var(--ink); color: var(--paper); }
 .form-error.is-ok { color: var(--deep); }
+
+/* ---------------------------------------------------------- measurement ---- */
+/* Mode switch: two hard-edged segments, the active one inverted. */
+
+.mode-switch { display: flex; margin-bottom: 1.2rem; border: 1px solid var(--rule-strong); }
+.mode-option {
+  flex: 1; min-height: 38px; padding: .5rem .7rem;
+  border-right: 1px solid var(--rule-strong);
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.mode-option:last-child { border-right: 0; }
+.mode-option:hover { color: var(--ink); }
+.mode-option.is-active { background: var(--ink); color: var(--paper); }
+
+#area-confidence[data-level="medium"] { color: var(--accent-ink); }
+#area-confidence[data-level="low"] { color: var(--danger); }
+
+/* Plan view: the measured space and the piece, both to scale. */
+.fit-plan { margin: 1.2rem 0; }
+.fit-plan-stage {
+  position: relative;
+  display: grid; place-items: center;
+  min-height: 130px; padding: 1rem;
+  border: 1px solid var(--rule);
+  background: var(--paper-sunken);
+}
+.fit-plan-space {
+  position: relative;
+  display: grid; place-items: center;
+  max-width: 100%; max-height: 180px;
+  border: 1px dashed var(--rule-strong);
+}
+/* Direct child only: the piece's own label is a grandchild and must not
+   inherit this absolute placement. */
+.fit-plan-space > span {
+  position: absolute; top: -.55rem; left: .4rem;
+  padding: 0 .3rem; background: var(--paper-sunken);
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint);
+}
+.fit-plan-piece {
+  display: grid; place-items: center;
+  border: 1px solid var(--rule-strong);
+  background: var(--accent);
+  transition: width var(--dur-base) var(--ease-out), height var(--dur-base) var(--ease-out);
+}
+.fit-plan-piece span {
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .06em; color: var(--on-accent); text-align: center;
+}
+.fit-plan-piece.is-over { background: var(--danger); }
+
+/* The AR dock's outline control, shown only during an area scan. */
+.ar-outline-button {
+  padding: .6rem 1rem;
+  font-family: var(--mono); font-size: .62rem;
+  letter-spacing: .12em; text-transform: uppercase;
+  color: var(--glass-dark-text);
+}
+.ar-outline-button:hover { background: rgba(255, 255, 255, .18); }
+
+/* Build stamp: quiet, but present, so a maintainer can identify a deployment. */
+.build-stamp {
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .1em; text-transform: uppercase; opacity: .45;
+}
+.build-stamp:empty { display: none; }
+
+/* ------------------------------------------------------------- plans ------ */
+
+.plan-section { margin-top: .5rem; }
+.plan-section .section-heading { margin-bottom: 1rem; }
+.plan-section h2 { font-size: 1.1rem; }
+.plan-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: .75rem; }
+.plan-card {
+  display: grid; align-content: start; gap: .3rem;
+  padding: 1.1rem;
+  border: 1px solid var(--rule);
+  background: var(--paper-raised);
+}
+.plan-card.is-current { border-color: var(--rule-strong); box-shadow: var(--hard-sm); }
+.plan-price { font-family: var(--mono); font-size: 1.5rem; letter-spacing: -.04em; }
+.plan-cadence, .plan-usage, .plan-note {
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint);
+}
+.plan-usage { color: var(--accent-ink); }
+.plan-features { margin: .8rem 0 1rem; padding: 0; list-style: none; display: grid; gap: .4rem; }
+.plan-features li {
+  position: relative; padding-left: 1rem;
+  font-size: .8125rem; color: var(--ink-muted);
+}
+.plan-features li:before {
+  content: ""; position: absolute; left: 0; top: .55em;
+  width: 6px; height: 1px; background: var(--ink);
+}
+.plan-card .button { width: 100%; }
+.fit-plan-piece.is-tiny span { display: none; }

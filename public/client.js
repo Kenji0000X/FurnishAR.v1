@@ -73,6 +73,8 @@ const state = {
   viewerYaw: 0,
   pixelsPerCm: null,
   ownProducts: [],
+  measureMode: 'clearance',
+  areaPoints: [],
   membership: null,
   unsubscribeCatalog: null
 };
@@ -105,6 +107,7 @@ const AR_EXPERIENCE_HTML = `<div id="ar-experience" class="ar-layer">
   </div>
   <div class="ar-dock">
   <p id="ar-mode-label" class="ar-hint glass"></p>
+  <button id="close-outline" class="ar-outline-button glass" hidden>Close outline</button>
   <div id="ar-tray" class="ar-tray glass" role="group" aria-label="Model controls">
     <div class="tray-cluster" data-cluster="move">
       <span class="tray-label">Move</span>
@@ -321,6 +324,7 @@ function mountARExperience() {
   bindTray();
   syncTrayReadout();
   $('#exit-ar').addEventListener('click', () => state.session ? state.session.end() : cleanupAR(), { once: true });
+  $('#close-outline').addEventListener('click', closeAreaOutline);
   document.addEventListener('keydown', onARKeydown);
   return experience;
 }
@@ -373,7 +377,97 @@ function furniture(product, extra = '') {
 --------------------------------------------------------------------------- */
 
 let sb = null;             // the Supabase module, imported on demand
+let geo = null;            // measurement mathematics (public/geometry.js)
 const backend = { kind: 'local' };
+
+
+/* ---------------------------------------------------------------------------
+   Convenience
+   A shopper should be able to send someone a link to a piece, come back to a
+   half-finished measurement, and install the app on their phone. None of that
+   needs an account.
+--------------------------------------------------------------------------- */
+
+/** Opens the product named in ?product=<slug|id>, if there is one. */
+function openProductFromUrl() {
+  const wanted = new URLSearchParams(location.search).get('product');
+  if (!wanted) return false;
+  const product = state.products.find(item => item.slug === wanted || item.id === wanted);
+  if (!product) return false;
+  selectProduct(product.id);
+  openProduct(product.id);
+  return true;
+}
+
+/** Keeps the address bar in step so the page can be shared or reloaded. */
+function rememberProductInUrl(product) {
+  if (!product) return;
+  const url = new URL(location.href);
+  url.searchParams.set('product', product.slug || product.id);
+  history.replaceState({}, '', url);
+}
+
+async function shareProduct(product) {
+  const url = new URL(location.href);
+  url.searchParams.set('product', product.slug || product.id);
+  const link = url.toString();
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: product.name, text: `${product.name} — ${product.store}`, url: link });
+      return;
+    }
+    await navigator.clipboard.writeText(link);
+    toast('Link copied.');
+  } catch (error) {
+    if (error?.name !== 'AbortError') toast('Could not share that link.');
+  }
+}
+
+const MEASUREMENT_KEY = 'furnishar-measurement';
+
+function saveMeasurement() {
+  try {
+    localStorage.setItem(MEASUREMENT_KEY, JSON.stringify({
+      mode: state.measureMode,
+      pointA: $('#point-a').value,
+      pointB: $('#point-b').value,
+      area: $('#floor-area').value,
+      span: $('#floor-span').value,
+      savedAt: Date.now()
+    }));
+  } catch { /* private mode */ }
+}
+
+/** Restores the last measurement, so a shopper comparing pieces does not
+    re-measure the same doorway for every one. */
+function restoreMeasurement() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(MEASUREMENT_KEY) || 'null'); } catch { /* private mode */ }
+  if (!saved) return;
+  // A measurement older than a day is probably a different room.
+  if (Date.now() - (saved.savedAt || 0) > 24 * 60 * 60 * 1000) return;
+  if (saved.pointA) $('#point-a').value = saved.pointA;
+  if (saved.pointB) $('#point-b').value = saved.pointB;
+  if (saved.area) $('#floor-area').value = saved.area;
+  if (saved.span) $('#floor-span').value = saved.span;
+  if (saved.mode) setMeasureMode(saved.mode);
+}
+
+function showBuildStamp() {
+  const config = window.FURNISHAR_CONFIG || {};
+  const stamp = $('#build-stamp');
+  if (!stamp) return;
+  const version = config.version ? `v${config.version}` : '';
+  const commit = config.commit && config.commit !== 'dev' ? ` · ${config.commit}` : '';
+  const backend = usingSupabase() ? ' · live catalog' : '';
+  stamp.textContent = `${version}${commit}${backend}`.trim();
+}
+
+async function initGeometry() {
+  if (geo) return geo;
+  geo = await import('./geometry.js');
+  return geo;
+}
 
 async function initBackend() {
   try {
@@ -459,7 +553,8 @@ function openProduct(id) {
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const quickLookLink = (isIOS && product.modelUsdz) ? `<a class="button button-primary" rel="ar" href="${product.modelUsdz}"><img src="${product.modelUsdz.replace(/\.(usdz|glb)$/i, '.png')}" alt="${escapeHtml(product.name)} preview" style="display:block;width:100%;max-width:180px;border-radius:12px;margin:0 auto 12px;" onerror="this.style.display='none'" />Open in AR</a>` : '';
   const arAction = (navigator.xr && !isIOS) ? `<button class="button button-primary" data-place-product="${product.id}">Place in your room</button>` : (product.modelUsdz && isIOS ? quickLookLink : `<button class="button button-primary" data-place-product="${product.id}">Place in your room</button>`);
-  $('#dialog-content').innerHTML = `<div class="dialog-layout"><div class="dialog-image">${furniture(product)}</div><div class="dialog-info"><p class="product-store">${escapeHtml(product.store)} · ${escapeHtml(product.category)}</p><h2>${escapeHtml(product.name)}</h2><p class="dialog-price">${peso(product.price)}</p><p>${escapeHtml(product.description)}</p><div class="dialog-dimensions"><div><span>WIDTH</span><b>${cm(product.dimensions.width)}</b></div><div><span>DEPTH</span><b>${cm(product.dimensions.depth)}</b></div><div><span>HEIGHT</span><b>${cm(product.dimensions.height)}</b></div></div>${storeBlock}${arAction}<button class="button button-outline" data-plan-product="${product.id}">Measure the fit first</button></div></div>`;
+  $('#dialog-content').innerHTML = `<div class="dialog-layout"><div class="dialog-image">${furniture(product)}</div><div class="dialog-info"><p class="product-store">${escapeHtml(product.store)} · ${escapeHtml(product.category)}</p><h2>${escapeHtml(product.name)}</h2><p class="dialog-price">${peso(product.price)}</p><p>${escapeHtml(product.description)}</p><div class="dialog-dimensions"><div><span>WIDTH</span><b>${cm(product.dimensions.width)}</b></div><div><span>DEPTH</span><b>${cm(product.dimensions.depth)}</b></div><div><span>HEIGHT</span><b>${cm(product.dimensions.height)}</b></div></div>${storeBlock}${arAction}<button class="button button-outline" data-plan-product="${product.id}">Measure the fit first</button><button class="button button-outline" data-share-product="${product.id}">Copy link to this piece</button></div></div>`;
+  rememberProductInUrl(product);
   openDialog($('#product-dialog'));
 }
 
@@ -485,19 +580,112 @@ function renderPlanner() {
 }
 
 function measuredDistance() { return Math.abs(Number($('#point-b').value || 0) - Number($('#point-a').value || 0)); }
+function measuredArea() { return Math.max(Number($('#floor-area').value || 0), 0); }
+
+/* Clearance measures a span; floor area measures a polygon. The switch changes
+   what the AR scan captures, what the fields ask for, and how the verdict is
+   decided. */
+function setMeasureMode(mode) {
+  state.measureMode = mode === 'area' ? 'area' : 'clearance';
+  const isArea = state.measureMode === 'area';
+  $$('.mode-option').forEach(button => {
+    const active = button.dataset.measureMode === state.measureMode;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-checked', String(active));
+  });
+  $('#clearance-fields').hidden = isArea;
+  $('#area-fields').hidden = !isArea;
+  $('#measure-title').textContent = isArea ? 'Floor area scan' : 'Two-point room scan';
+  $('#measure-copy').textContent = isArea
+    ? 'Tap around the free floor — three points or more, in order, then close the outline. Two scans are compared before a reading is accepted.'
+    : 'Aim at a textured, non-reflective floor in bright light. On Android Chrome, tap two points across the opening. Otherwise use the fields below.';
+  $('#ar-button').textContent = isArea ? 'Scan floor area' : 'Scan with your camera';
+  try { localStorage.setItem('furnishar-measure-mode', state.measureMode); } catch { /* private mode */ }
+  updateFitVerdict();
+}
 function updateFitVerdict() {
   const product = state.selected;
-  if (!product) return;
+  if (!product || !geo) return;
+
+  // The verdict card names what was actually measured.
+  const isArea = state.measureMode === 'area';
+  $('#verdict-title').textContent = isArea ? 'Floor verdict' : 'Clearance verdict';
+  $('#check-clearance-label').textContent = isArea ? 'Measured floor' : 'Measured clearance';
+
+  if (isArea) {
+    const area = measuredArea();
+    const fit = geo.fitAgainstArea(product.dimensions, area);
+    $('#measured-area').textContent = geo.formatArea(area);
+    $('#check-clearance').textContent = geo.formatArea(area);
+    $('#fit-verdict').className = `fit-verdict ${fit.fits ? '' : 'fail'}`;
+    $('#fit-verdict').innerHTML = fit.fits
+      ? `<div class="verdict-icon">✓</div><h3>It fits the floor.</h3><p>The piece covers ${geo.formatArea(fit.footprint)} — ${Math.round(fit.shareOfFloor * 100)}% of the ${geo.formatArea(area)} you measured, leaving ${geo.formatArea(fit.remaining)} free.</p>`
+      : `<div class="verdict-icon">!</div><h3>Not enough floor.</h3><p>With a 5 cm gap on each side this piece needs ${geo.formatArea(fit.withMargin)}. You measured ${geo.formatArea(area)}.</p>`;
+    drawFitPlan(product, { kind: 'area', area });
+    return;
+  }
+
   const clearance = measuredDistance();
-  const needed = product.dimensions.width + 5;
-  const passes = clearance >= needed;
+  const fit = geo.fitAgainstClearance(product.dimensions, clearance);
   $('#measured-distance').textContent = cm(clearance);
   $('#visual-distance').textContent = cm(clearance);
   $('#check-clearance').textContent = cm(clearance);
-  $('#fit-verdict').className = `fit-verdict ${passes ? '' : 'fail'}`;
-  $('#fit-verdict').innerHTML = passes
-    ? `<div class="verdict-icon">✓</div><h3>It should fit.</h3><p>You have ${cm(clearance - product.dimensions.width)} of remaining clearance. Keep a little extra room for comfortable movement.</p>`
-    : `<div class="verdict-icon">!</div><h3>Needs more clearance.</h3><p>This piece needs at least ${cm(needed)} including a 5 cm comfort margin. Try a narrower option or re-measure the opening.</p>`;
+  $('#fit-verdict').className = `fit-verdict ${fit.fits ? '' : 'fail'}`;
+  $('#fit-verdict').innerHTML = fit.fits
+    ? `<div class="verdict-icon">✓</div><h3>It should fit.</h3><p>You have ${cm(fit.spare)} of remaining clearance. Keep a little extra room for comfortable movement.</p>`
+    : `<div class="verdict-icon">!</div><h3>Needs more clearance.</h3><p>This piece needs at least ${cm(fit.needed)} including a 5 cm comfort margin. Try a narrower option or re-measure the opening.</p>`;
+  drawFitPlan(product, { kind: 'clearance', clearance });
+}
+
+/* A plan view drawn to scale: the measured space, with the piece's real
+   footprint inside it. Numbers are easy to misread; a picture of the two
+   rectangles is not. */
+function drawFitPlan(product, measurement) {
+  const stage = $('#fit-plan-stage');
+  if (!stage) return;
+  const space = $('#fit-plan-space');
+  const piece = $('#fit-plan-piece');
+
+  // Metres of real space represented by the drawing, always square.
+  let spaceWidth;
+  let spaceDepth;
+  if (measurement.kind === 'area') {
+    const side = Math.sqrt(Math.max(measurement.area, 0.01));
+    const longest = Number($('#floor-span').value) / 100;
+    spaceWidth = longest > 0.1 ? longest : side;
+    spaceDepth = spaceWidth > 0 ? measurement.area / spaceWidth : side;
+    // A longest side that does not match the area produces a sliver of a room.
+    // Rather than draw something misleading, fall back to a square of the same
+    // area — the area is the measurement, the shape is only an illustration.
+    if (!Number.isFinite(spaceDepth) || spaceDepth < 0.4 || spaceDepth > spaceWidth) {
+      spaceWidth = side;
+      spaceDepth = side;
+    }
+    $('#fit-plan-space-label').textContent = `${geo.formatArea(measurement.area)} measured`;
+  } else {
+    spaceWidth = Math.max(measurement.clearance / 100, 0.1);
+    spaceDepth = Math.max(product.dimensions.depth / 100 * 1.6, 0.4);
+    $('#fit-plan-space-label').textContent = `${cm(measurement.clearance)} clearance`;
+  }
+
+  // The piece is drawn as a share of the space it sits in, so both rectangles
+  // stay in the same scale however the space is shaped.
+  const pieceWidthM = product.dimensions.width / 100;
+  const pieceDepthM = product.dimensions.depth / 100;
+  const tooWide = pieceWidthM > spaceWidth;
+  const tooDeep = pieceDepthM > spaceDepth;
+
+  space.style.aspectRatio = `${spaceWidth} / ${spaceDepth}`;
+  space.style.width = spaceWidth >= spaceDepth ? '100%' : 'auto';
+  space.style.height = spaceWidth >= spaceDepth ? 'auto' : '100%';
+  const widthShare = Math.min((pieceWidthM / spaceWidth) * 100, 100);
+  const depthShare = Math.min((pieceDepthM / spaceDepth) * 100, 100);
+  piece.style.width = `${widthShare}%`;
+  piece.style.height = `${depthShare}%`;
+  piece.classList.toggle('is-over', tooWide || tooDeep);
+  // Below about a third of the space the label no longer fits inside the piece.
+  piece.classList.toggle('is-tiny', widthShare < 34 || depthShare < 28);
+  $('#fit-plan-piece-label').textContent = `${product.dimensions.width} × ${product.dimensions.depth} cm`;
 }
 
 function changeView(name) {
@@ -709,9 +897,11 @@ async function startNativeAR() {
   }
 
   const product = state.selected;
-  setHint(state.arPurpose === 'measurement'
-    ? 'Tap point A, then point B. The reading updates as you move.'
-    : 'Find the floor, then place. Use the tray to move, turn, and resize.');
+  setHint(state.arPurpose !== 'measurement'
+    ? 'Find the floor, then place. Use the tray to move, turn, and resize.'
+    : state.measureMode === 'area'
+      ? 'Tap the corners of the free floor in order. Three or more, then close the outline.'
+      : 'Tap point A, then point B. The reading updates as you move.');
   session.addEventListener('select', event => captureNativePoint(event.frame));
   session.addEventListener('end', cleanupAR);
 
@@ -838,7 +1028,9 @@ async function startNativeAR() {
     // ===== REAL-TIME MEASUREMENT =====
     if (state.arPurpose === 'measurement') {
       const hitPos = state.latestHitPose?.transform.position;
-      if (hitPos && state.arPoints.length === 1) {
+      if (state.measureMode === 'area') {
+        updateLiveAreaDisplay(hitPos, pose);
+      } else if (hitPos && state.arPoints.length === 1) {
         const liveDistanceM = distanceBetween(state.arPoints[0], hitPos);
         updateLiveMeasurementDisplay(liveDistanceM, state.arNeedsConfirmation ? 'confirming span' : 'point A → target');
         // Feed the planner live so the fit verdict tracks the phone in real time.
@@ -905,6 +1097,8 @@ function captureNativePoint(frame) {
     return;
   }
 
+  if (state.measureMode === 'area') return captureAreaPoint(point);
+
   // Measurement mode: an initial scan, then a confirmatory scan of the same span.
   if (!state.arNeedsConfirmation) {
     state.arPoints.push({ x: point.x, y: point.y, z: point.z });
@@ -947,6 +1141,127 @@ function captureNativePoint(frame) {
   state.arMeasurement = null;
   state.arConfirmationMeasurement = null;
   state.arNeedsConfirmation = false;
+}
+
+
+/* ---------------------------------------------------------------------------
+   Floor area scan
+
+   Tap the corners of the free floor in order, then close the outline. The area
+   is the shoelace of those points on the floor plane. Nothing is accepted
+   until a second scan of the same floor agrees within 5%, and the points are
+   checked for flatness so a tap that landed on a sofa cannot quietly inflate
+   the answer. The mathematics live in geometry.js and are tested there.
+--------------------------------------------------------------------------- */
+
+function updateLiveAreaDisplay(hitPos, pose) {
+  if (!geo) return;
+  const points = state.arPoints;
+  if (!points.length) {
+    if (hitPos && pose) updateLiveMeasurementDisplay(distanceBetween(pose.transform.position, hitPos), 'phone → floor · tap the first corner');
+    else hideLiveMeasurement();
+    return;
+  }
+  // Preview the outline as if the reticle were the next corner.
+  const preview = hitPos ? [...points, { x: hitPos.x, y: hitPos.y, z: hitPos.z }] : points;
+  const area = geo.polygonArea(preview);
+  // Count only the corners actually captured — the reticle is a preview, not a tap.
+  showAreaReadout(area, points.length, geo.perimeter(preview));
+}
+
+function showAreaReadout(area, cornerCount, perimeterMetres) {
+  const panel = $('#live-measurement');
+  if (!panel) return;
+  $('#live-m').textContent = geo.formatArea(area);
+  $('#live-cm').textContent = `${cornerCount} ${cornerCount === 1 ? 'corner' : 'corners'}`;
+  $('#live-mm').textContent = `${perimeterMetres.toFixed(2)} m around`;
+  $('#live-caption').textContent = state.arNeedsConfirmation ? 'confirming the same floor' : 'tap corners, then close';
+  panel.hidden = false;
+}
+
+function captureAreaPoint(point) {
+  state.arPoints.push({ x: point.x, y: point.y, z: point.z });
+  const count = state.arPoints.length;
+  $('#close-outline').hidden = count < 3;
+  setHint(count < 3
+    ? `${count} of 3 corners. Keep tapping the edge of the free floor.`
+    : `${count} corners. Tap more, or close the outline to read the area.`);
+}
+
+/* Closes the outline and either stores the first reading or reconciles it with
+   the confirmatory one. */
+function closeAreaOutline() {
+  if (!geo) return;
+  const points = state.arPoints;
+  if (points.length < 3) { toast('Tap at least three corners first.'); return; }
+
+  const area = geo.polygonArea(points);
+  const confidence = geo.areaConfidence({ points, difference: 0 });
+  if (confidence.level === 'low') {
+    toast(`Scan again — ${confidence.reasons[0]}.`);
+    setHint(`Scan again: ${confidence.reasons[0]}.`);
+    state.arPoints = [];
+    $('#close-outline').hidden = true;
+    return;
+  }
+
+  if (!state.arNeedsConfirmation) {
+    state.arMeasurement = area;
+    state.areaPoints = points.slice();
+    state.arNeedsConfirmation = true;
+    state.arPoints = [];
+    $('#close-outline').hidden = true;
+    setHint(`First reading ${geo.formatArea(area)}. Walk the same floor again to confirm.`);
+    toast(`First reading ${geo.formatArea(area)}. Scan once more.`);
+    return;
+  }
+
+  const reconciled = geo.reconcileReadings(state.arMeasurement, area);
+  if (!reconciled.agrees) {
+    setHint(`Readings differ by ${reconciled.difference.toFixed(0)}% (${geo.formatArea(state.arMeasurement)} vs ${geo.formatArea(area)}). Scan again.`);
+    toast('The two scans differ by more than 5%. Measuring again.');
+    resetAreaScan();
+    return;
+  }
+
+  const accepted = reconciled.value;
+  const finalConfidence = geo.areaConfidence({ points, difference: reconciled.difference });
+  applyMeasuredArea(accepted, points, finalConfidence, reconciled.difference);
+  toast(`Confirmed within ${reconciled.difference.toFixed(1)}%. Floor ${geo.formatArea(accepted)}.`);
+  state.session?.end();
+  resetAreaScan();
+}
+
+function resetAreaScan() {
+  state.arPoints = [];
+  state.areaPoints = [];
+  state.arMeasurement = null;
+  state.arNeedsConfirmation = false;
+  const button = $('#close-outline');
+  if (button) button.hidden = true;
+}
+
+/* Writes an accepted area into the planner, with the longest side so the plan
+   view can draw the room at its real proportions. */
+function applyMeasuredArea(area, points, confidence, difference) {
+  const field = $('#floor-area');
+  if (!field) return;
+  field.value = area.toFixed(2);
+
+  let longest = 0;
+  for (let i = 0; i < points.length; i++) {
+    longest = Math.max(longest, geo.distanceOnFloor(points[i], points[(i + 1) % points.length]));
+  }
+  if (longest > 0) $('#floor-span').value = Math.round(longest * 100);
+
+  const note = $('#area-confidence');
+  if (note) {
+    note.textContent = confidence.level === 'high'
+      ? `Confirmed to within ${difference.toFixed(1)}% across two scans.`
+      : `Accepted, but check it: ${confidence.reasons[0] || 'the scans were not identical'}.`;
+    note.dataset.level = confidence.level;
+  }
+  updateFitVerdict();
 }
 
 async function startCameraFallback() {
@@ -1228,6 +1543,7 @@ async function startExperience(purpose) {
   $('#ar-product-name').textContent = product.name;
   $('#ar-product-dims').textContent = `${width} × ${depth} × ${height} cm`;
   state.arPurpose = purpose;
+  if (purpose === 'measurement' && state.measureMode === 'area') resetAreaScan();
   state.arPoints = [];
   state.placedMatrix = null;
   state.placementBlocked = false;
@@ -1429,6 +1745,63 @@ async function signup(event) {
   }
 }
 
+
+/* ---------------------------------------------------------------------------
+   Plans
+   The tiers the panel asked us to think through, stated where an owner can
+   actually see them. The limits are not decoration: the 8-product cap and
+   premium-only featuring are enforced by the database, so what this panel
+   claims is what the system does.
+--------------------------------------------------------------------------- */
+
+const PLANS = [
+  {
+    id: 'freemium',
+    name: 'Freemium',
+    price: 'Free',
+    cadence: 'no card, no expiry',
+    features: [
+      'Up to 8 published products',
+      'AR placement and room measurement',
+      '3D model upload, 50 MB per file',
+      'Store profile in every listing'
+    ]
+  },
+  {
+    id: 'premium',
+    name: 'Premium',
+    price: '₱499',
+    cadence: 'per store, per month',
+    features: [
+      'Unlimited products',
+      'Featured placement at the top of the catalog',
+      'Everything in Freemium'
+    ]
+  }
+];
+
+function renderPlans() {
+  const host = $('#plan-panel');
+  if (!host) return;
+  const current = usingSupabase() ? (state.user?.plan || 'freemium') : 'premium';
+  const used = (usingSupabase() ? (state.ownProducts || []) : state.products.filter(p => p.storeId === state.user?.storeId)).length;
+
+  host.innerHTML = PLANS.map(plan => {
+    const isCurrent = plan.id === current;
+    const usage = plan.id === 'freemium' && isCurrent
+      ? `<p class="plan-usage">${used} of 8 products used</p>`
+      : '';
+    return `<article class="plan-card${isCurrent ? ' is-current' : ''}">
+      <p class="eyebrow">${plan.name}${isCurrent ? ' · current' : ''}</p>
+      <p class="plan-price">${plan.price}</p>
+      <p class="plan-cadence">${plan.cadence}</p>
+      ${usage}
+      <ul class="plan-features">${plan.features.map(feature => `<li>${escapeHtml(feature)}</li>`).join('')}</ul>
+      ${isCurrent ? '<p class="plan-note">Your current plan.</p>' : `<button class="button button-outline" data-plan-enquiry="${plan.id}">Ask about ${escapeHtml(plan.name)}</button>`}
+    </article>`;
+  }).join('');
+}
+
 function renderAdmin() {
   const loggedIn = Boolean(state.token && state.user);
   const awaitingApproval = loggedIn && usingSupabase() && !state.user.storeUuid;
@@ -1456,6 +1829,7 @@ function renderAdmin() {
 
   $('#owner-store').textContent = state.user.store;
   $('#inventory-summary').innerHTML = `<div class="inventory-stat"><span>Plan</span><strong>${plan}</strong></div><div class="inventory-stat"><span>Listed products</span><strong>${own.length}${isFree ? `/${FREEMIUM_LIMIT}` : ''}</strong></div><div class="inventory-stat"><span>Units available</span><strong>${own.reduce((sum, product) => sum + product.stock, 0)}</strong></div><div class="inventory-stat"><span>Catalog value</span><strong>${peso(own.reduce((sum, product) => sum + product.price * product.stock, 0))}</strong></div>`;
+  renderPlans();
   $('#inventory-body').innerHTML = own.length ? own.map(product => `<tr><td>${escapeHtml(product.name)}<small>${escapeHtml(product.category)} · ${escapeHtml(product.color)}${product.modelGlb ? ' · 3D model' : ''}</small></td><td>${product.dimensions.width} × ${product.dimensions.depth} × ${product.dimensions.height} cm</td><td>${peso(product.price)}</td><td>${product.stock}</td><td><small>${relativeTime(product.updatedAt)}</small></td><td><div class="table-actions"><button class="icon-button" data-edit-product="${product.id}">Edit</button><button class="icon-button delete" data-delete-product="${product.id}">Delete</button></div></td></tr>`).join('') : '<tr><td colspan="6">No products listed yet. Add your first product above.</td></tr>';
 }
 
@@ -1594,6 +1968,10 @@ function bindEvents() {
     const view = event.target.closest('[data-view]')?.dataset.view; if (view) { changeView(view); return; }
     const open = event.target.closest('[data-open-product]')?.dataset.openProduct; if (open) return openProduct(open);
     const color = event.target.closest('[data-color]')?.dataset.color; if (color !== undefined) { state.filters.color = state.filters.color === color ? '' : color; renderColors(); renderCatalog(); return; }
+    const planEnquiry = event.target.closest('[data-plan-enquiry]')?.dataset.planEnquiry;
+    if (planEnquiry) { toast(`Thanks — we'll be in touch about the ${planEnquiry} plan.`); return; }
+    const share = event.target.closest('[data-share-product]')?.dataset.shareProduct;
+    if (share) { const item = state.products.find(p => p.id === share); if (item) shareProduct(item); return; }
     const place = event.target.closest('[data-place-product]')?.dataset.placeProduct; if (place) { selectProduct(place); return startExperience('placement'); }
     const plan = event.target.closest('[data-plan-product]')?.dataset.planProduct; if (plan) return selectProduct(plan, true);
     const edit = event.target.closest('[data-edit-product]')?.dataset.editProduct; if (edit) return openProductForm(state.products.find(product => product.id === edit));
@@ -1608,6 +1986,10 @@ function bindEvents() {
   $('#clear-filters').addEventListener('click', () => { state.filters = { search: '', category: '', store: '', width: 240, color: '' }; $('#search').value = ''; $('#filter-category').value = ''; $('#filter-store').value = ''; $('#filter-width').value = 240; $('#width-output').textContent = 'No limit'; renderColors(); renderCatalog(); });
   $$('#point-a, #point-b').forEach(input => input.addEventListener('input', updateFitVerdict));
   $('#ar-button').addEventListener('click', () => startExperience('measurement'));
+  $$('.mode-option').forEach(button => button.addEventListener('click', () => setMeasureMode(button.dataset.measureMode)));
+  $('#close-outline')?.addEventListener('click', closeAreaOutline);
+  ['#floor-area', '#floor-span'].forEach(selector => $(selector)?.addEventListener('input', () => { updateFitVerdict(); saveMeasurement(); }));
+  ['#point-a', '#point-b'].forEach(selector => $(selector)?.addEventListener('input', saveMeasurement));
   $('#login-form').addEventListener('submit', login); $('#logout').addEventListener('click', logout);
   $('#show-signup').addEventListener('click', showSignup); $('#show-login').addEventListener('click', showLogin); $('#signup-form').addEventListener('submit', signup);
   $('#add-product').addEventListener('click', () => openProductForm()); $('#product-form').addEventListener('submit', saveProduct);
@@ -1616,6 +1998,10 @@ function bindEvents() {
 async function init() {
   bindEvents();
   showCatalogSkeleton();
+  await initGeometry();
+  let savedMode = 'clearance';
+  try { savedMode = localStorage.getItem('furnishar-measure-mode') || 'clearance'; } catch { /* private mode */ }
+  setMeasureMode(savedMode);
   await initBackend();
 
   try {
@@ -1624,6 +2010,9 @@ async function init() {
       loadThreeJS(),
       checkARSupport()
     ]);
+    restoreMeasurement();
+    openProductFromUrl();
+    showBuildStamp();
   } catch (error) {
     $('#product-grid').classList.remove('is-loading');
     $('#product-grid').removeAttribute('aria-busy');

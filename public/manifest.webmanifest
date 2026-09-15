@@ -1,0 +1,16 @@
+{
+  "name": "FurnishAR — see it, fit it",
+  "short_name": "FurnishAR",
+  "description": "Browser-native furniture planning for Mamburao. See furniture at true scale and check your room before you buy.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f2f1ec",
+  "theme_color": "#14483e",
+  "categories": ["shopping", "lifestyle", "utilities"],
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
