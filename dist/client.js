@@ -11,10 +11,9 @@ async function loadThreeJS() {
     THREE = await import('three');
     const { GLTFLoader: Loader } = await import('three/addons/loaders/GLTFLoader.js');
     GLTFLoader = Loader;
-    console.log('[THREE.js] ✓ Loaded successfully from CDN');
     return true;
   } catch (error) {
-    console.error('[THREE.js] Failed to load:', error?.message, '— app will degrade to CSS illustrations and camera fallback only');
+    console.error('[AR] THREE.js unavailable:', error?.message);
     THREE = null;
     GLTFLoader = null;
     return false;
@@ -55,7 +54,6 @@ const state = {
   referenceSpace: null,
   latestHitPose: null,
   placedMatrix: null,
-  arLayoutObserver: null,
   arPurpose: null,
   arPoints: [],
   arMeasurement: null,
@@ -71,7 +69,9 @@ const state = {
   xrCamera: null,
   xrLight: null,
   arMode: null,
-  placementConfirmed: false
+  placementConfirmed: false,
+  viewerYaw: 0,
+  pixelsPerCm: null
 };
 
 const $ = (selector, parent = document) => parent.querySelector(selector);
@@ -80,7 +80,226 @@ const peso = value => new Intl.NumberFormat('en-PH', { style: 'currency', curren
 const cm = value => `${Math.round(value)} cm`;
 const colorStyles = { Sand: '#d4b18b', Oak: '#aa7953', Terracotta: '#c46e50', Walnut: '#725343', Black: '#474b47', White: '#d9d4ca', Natural: '#b58d62' };
 
-const AR_EXPERIENCE_HTML = `<div id="ar-experience" class="ar-experience"><video id="camera-feed" autoplay playsinline muted></video><canvas id="xr-canvas"></canvas><div id="fallback-product" class="fallback-product"></div><div class="ar-hud"><div><p class="eyebrow">FurnishAR placement</p><strong id="ar-product-name">Product</strong><span id="ar-mode-indicator" class="ar-mode-indicator" aria-label="AR mode"></span></div><button id="reset-model" class="ar-reset" aria-label="Reset model" title="Reset model">↻</button><button id="exit-ar" class="ar-exit">Exit</button></div><div class="ar-reticle"><i></i></div><div id="live-measurement" class="live-measurement" hidden><span id="live-cm">0 cm</span><span id="live-mm">0 mm</span><span id="live-m">0.00 m</span></div><div class="ar-instructions"><b id="ar-mode-label">Move your phone slowly to find the floor.</b><span>Drag to move, twist with two fingers to rotate, pinch to resize. Tap the button to confirm placement.</span></div><button id="place-button" class="place-button" aria-label="Confirm placement" disabled>●</button></div>`;
+const AR_EXPERIENCE_HTML = `<div id="ar-experience" class="ar-layer">
+  <video id="camera-feed" autoplay playsinline muted></video>
+  <canvas id="xr-canvas"></canvas>
+  <div id="fallback-product" class="ar-stage"></div>
+  <div id="ar-reticle" class="ar-reticle" aria-hidden="true"><span></span></div>
+  <div id="ar-anchor-chip" class="ar-anchor-chip glass" hidden><b id="anchor-primary"></b><i id="anchor-secondary"></i></div>
+  <svg id="ar-measure-line" class="ar-measure-line" aria-hidden="true" hidden><line x1="0" y1="0" x2="0" y2="0" /><circle id="measure-dot-a" r="7" /><circle id="measure-dot-b" r="7" /></svg>
+  <header class="ar-bar">
+    <div class="ar-title glass">
+      <strong id="ar-product-name"></strong>
+      <span id="ar-product-dims"></span>
+    </div>
+    <span id="ar-mode-indicator" class="ar-chip glass" aria-label="Tracking mode"></span>
+    <button id="exit-ar" class="ar-chip glass ar-chip-button" aria-label="Close AR view">Close</button>
+  </header>
+  <div id="live-measurement" class="ar-measure glass" hidden>
+    <b id="live-m">0.00 m</b>
+    <span><i id="live-cm">0 cm</i><i id="live-mm">0 mm</i></span>
+    <em id="live-caption"></em>
+  </div>
+  <div class="ar-dock">
+  <p id="ar-mode-label" class="ar-hint glass"></p>
+  <div id="ar-tray" class="ar-tray glass" role="group" aria-label="Model controls">
+    <div class="tray-cluster" data-cluster="move">
+      <span class="tray-label">Move</span>
+      <div class="tray-pad">
+        <button class="tray-btn" data-step="move" data-axis="z" data-dir="-1" aria-label="Move away">↑</button>
+        <button class="tray-btn" data-step="move" data-axis="x" data-dir="-1" aria-label="Move left">←</button>
+        <button class="tray-btn" data-step="move" data-axis="z" data-dir="1" aria-label="Move closer">↓</button>
+        <button class="tray-btn" data-step="move" data-axis="x" data-dir="1" aria-label="Move right">→</button>
+      </div>
+    </div>
+    <div class="tray-cluster" data-cluster="rotate">
+      <span class="tray-label">Rotate <i id="yaw-value">0°</i></span>
+      <div class="tray-row">
+        <button class="tray-btn" data-step="rotate" data-dir="-1" aria-label="Rotate left">↺</button>
+        <button class="tray-btn tray-toggle" id="spin-toggle" aria-pressed="false" aria-label="Spin 360 degrees">360°</button>
+        <button class="tray-btn" data-step="rotate" data-dir="1" aria-label="Rotate right">↻</button>
+      </div>
+    </div>
+    <div class="tray-cluster" data-cluster="scale">
+      <span class="tray-label">Scale <i id="scale-value">100%</i></span>
+      <div class="tray-row">
+        <button class="tray-btn" data-step="scale" data-dir="-1" aria-label="Smaller">−</button>
+        <button class="tray-btn tray-wide" id="reset-model" aria-label="Reset model">Reset</button>
+        <button class="tray-btn" data-step="scale" data-dir="1" aria-label="Larger">+</button>
+      </div>
+    </div>
+    <button id="place-button" class="ar-place" aria-label="Confirm placement" disabled><span></span></button>
+  </div>
+  </div>
+</div>`;
+
+/* Shared model transform. Both the WebXR path and the camera preview read from
+   this, so the tray drives the model identically in either mode. */
+const arTransform = {
+  x: 0, z: 0, yaw: 0, scale: 1, spinning: false,
+  reset() { this.x = 0; this.z = 0; this.yaw = 0; this.scale = 1; this.spinning = false; syncTrayReadout(); },
+  move(axis, dir, amount = 0.02) {
+    // Move along the screen axes: "left" is left of the viewer, whichever way they face.
+    const yaw = state.viewerYaw || 0;
+    const viewX = axis === 'x' ? dir * amount : 0;
+    const viewZ = axis === 'z' ? dir * amount : 0;
+    this.x += viewX * Math.cos(yaw) + viewZ * Math.sin(yaw);
+    this.z += viewZ * Math.cos(yaw) - viewX * Math.sin(yaw);
+  },
+  rotate(dir, radians = 0.035) { this.yaw = (this.yaw + dir * radians) % (Math.PI * 2); syncTrayReadout(); },
+  resize(dir, amount = 0.01) { this.scale = clamp(this.scale + dir * amount, 0.5, 2); syncTrayReadout(); },
+  tickSpin() {
+    const now = performance.now();
+    const elapsed = Math.min((now - (this.lastSpin || now)) / 1000, 0.1);
+    this.lastSpin = now;
+    // A full turn every 12 seconds, independent of frame rate.
+    if (this.spinning) { this.yaw = (this.yaw + (Math.PI / 6) * elapsed) % (Math.PI * 2); syncTrayReadout(); }
+  }
+};
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+function syncTrayReadout() {
+  const scaleValue = $('#scale-value');
+  if (scaleValue) scaleValue.textContent = `${Math.round(arTransform.scale * 100)}%`;
+  const yawValue = $('#yaw-value');
+  if (yawValue) yawValue.textContent = `${Math.round((arTransform.yaw * 180 / Math.PI + 360) % 360)}°`;
+}
+
+/* Tray buttons repeat while held, so a long press glides the model instead of
+   needing dozens of taps. */
+function bindTray() {
+  const tray = $('#ar-tray');
+  if (!tray) return;
+  let held = null;
+  let lastTick = 0;
+
+  // Rates per second, so the model glides at the same speed on any frame rate.
+  const RATES = { move: 0.35, rotate: Math.PI / 3, scale: 0.35 };
+  const STEPS = { move: 0.02, rotate: Math.PI / 36, scale: 0.05 };
+
+  const apply = (button, amount) => {
+    const dir = Number(button.dataset.dir);
+    if (button.dataset.step === 'move') arTransform.move(button.dataset.axis, dir, amount);
+    if (button.dataset.step === 'rotate') arTransform.rotate(dir, amount);
+    if (button.dataset.step === 'scale') arTransform.resize(dir, amount);
+  };
+
+  const repeat = timestamp => {
+    if (!held) return;
+    const elapsed = Math.min((timestamp - lastTick) / 1000, 0.1);
+    lastTick = timestamp;
+    apply(held, RATES[held.dataset.step] * elapsed);
+    requestAnimationFrame(repeat);
+  };
+
+  tray.addEventListener('pointerdown', event => {
+    const button = event.target.closest('[data-step]');
+    if (!button) return;
+    event.preventDefault();
+    button.setPointerCapture?.(event.pointerId);
+    held = button;
+    lastTick = performance.now();
+    button.classList.add('is-active');
+    apply(button, STEPS[button.dataset.step]); // a tap nudges once
+    requestAnimationFrame(repeat);
+  });
+
+  const release = () => { held?.classList.remove('is-active'); held = null; };
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(type => tray.addEventListener(type, release));
+
+  $('#spin-toggle').addEventListener('click', () => {
+    arTransform.spinning = !arTransform.spinning;
+    $('#spin-toggle').setAttribute('aria-pressed', String(arTransform.spinning));
+    $('#spin-toggle').classList.toggle('is-on', arTransform.spinning);
+  });
+}
+
+function setARMode(mode) {
+  state.arMode = mode;
+  const indicator = $('#ar-mode-indicator');
+  if (!indicator) return;
+  const modes = { 'native-ar': 'Tracking', 'camera-preview': 'Preview', 'illustration-only': 'No camera' };
+  indicator.textContent = modes[mode] || '';
+  indicator.dataset.mode = mode;
+}
+
+function setHint(text) {
+  const hint = $('#ar-mode-label');
+  if (hint && hint.textContent !== text) hint.textContent = text;
+}
+
+function updateLiveMeasurementDisplay(distanceInMeters, caption = '') {
+  const panel = $('#live-measurement');
+  if (!panel) return;
+  $('#live-cm').textContent = `${(distanceInMeters * 100).toFixed(1)} cm`;
+  $('#live-mm').textContent = `${(distanceInMeters * 1000).toFixed(0)} mm`;
+  $('#live-m').textContent = `${distanceInMeters.toFixed(3)} m`;
+  $('#live-caption').textContent = caption;
+  panel.hidden = false;
+}
+
+function hideLiveMeasurement() {
+  const panel = $('#live-measurement');
+  if (panel) panel.hidden = true;
+}
+
+/* Spatial UI: a small chip pinned to the model's own screen position, so the
+   readout sits with the object rather than floating in a corner. */
+function positionAnchorChip(screenPoint, primary, secondary = '') {
+  const chip = $('#ar-anchor-chip');
+  if (!chip) return;
+  if (!screenPoint) { chip.hidden = true; return; }
+  chip.hidden = false;
+  // Keep the chip on screen even when the model itself is partly out of frame.
+  const x = clamp(screenPoint.x, 72, window.innerWidth - 72);
+  const y = clamp(screenPoint.y, 108, window.innerHeight - 190);
+  chip.style.transform = `translate(-50%,-50%) translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+  $('#anchor-primary').textContent = primary;
+  $('#anchor-secondary').textContent = secondary;
+}
+
+function userYawQuaternion() {
+  return new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), arTransform.yaw);
+}
+
+/* Pins the size chip to the top of the model and keeps its numbers honest as
+   the tray rescales it. */
+function updatePlacementChip(model, camera, product) {
+  if (!THREE || !model) return positionAnchorChip(null);
+  const box = new THREE.Box3().setFromObject(model);
+  const top = new THREE.Vector3((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2);
+  // Read the size off the product's own footprint, not the world-aligned box,
+  // so turning the piece never inflates the numbers.
+  const bounds = product.modelBounds || product.dimensions;
+  const scale = arTransform.scale;
+  positionAnchorChip(
+    projectToScreen(top, camera),
+    `${Math.round(bounds.width * scale)} × ${Math.round(bounds.depth * scale)} cm`,
+    `${Math.round(bounds.height * scale)} cm tall · ${product.name}`
+  );
+}
+
+/* Real-time link from the AR reading to the planner's fit verdict. */
+function applyLiveClearance(centimeters) {
+  const pointB = $('#point-b');
+  if (!pointB) return;
+  const rounded = Math.round(centimeters);
+  if (Number(pointB.value) === rounded) return;
+  $('#point-a').value = 0;
+  pointB.value = rounded;
+  updateFitVerdict();
+}
+
+function projectToScreen(vector3, camera) {
+  if (!THREE || !camera) return null;
+  const projected = vector3.clone().project(camera);
+  if (projected.z > 1) return null;
+  return {
+    x: (projected.x * 0.5 + 0.5) * window.innerWidth,
+    y: (-projected.y * 0.5 + 0.5) * window.innerHeight
+  };
+}
 
 function mountARExperience() {
   let experience = $('#ar-experience');
@@ -89,40 +308,15 @@ function mountARExperience() {
     experience = $('#ar-experience');
   }
   experience.hidden = false;
-  state.arLayoutObserver?.disconnect();
-  const banner = $('.ar-instructions');
+  arTransform.reset();
+  bindTray();
+  syncTrayReadout();
   $('#exit-ar').addEventListener('click', () => state.session ? state.session.end() : cleanupAR(), { once: true });
   return experience;
 }
 
 function unmountARExperience() {
-  state.arLayoutObserver?.disconnect();
-  state.arLayoutObserver = null;
   $('#ar-experience')?.remove();
-}
-
-function setARMode(mode) {
-  state.arMode = mode;
-  const indicator = $('#ar-mode-indicator');
-  if (!indicator) return;
-  const modes = {
-    'native-ar': '📡 Live AR',
-    'camera-preview': '📷 Camera preview',
-    'illustration-only': '🎨 Illustration'
-  };
-  indicator.textContent = modes[mode] || '';
-  console.log(`[AR Mode] Switched to: ${mode}`);
-}
-
-function updateLiveMeasurementDisplay(distanceInMeters) {
-  $('#live-cm').textContent = `${(distanceInMeters * 100).toFixed(1)} cm`;
-  $('#live-mm').textContent = `${(distanceInMeters * 1000).toFixed(0)} mm`;
-  $('#live-m').textContent = `${distanceInMeters.toFixed(3)} m`;
-  $('#live-measurement').hidden = false;
-}
-
-function hideLiveMeasurement() {
-  $('#live-measurement').hidden = true;
 }
 
 function setModelSurfaceState(modelRoot, blocked) {
@@ -131,12 +325,13 @@ function setModelSurfaceState(modelRoot, blocked) {
     if (!(child instanceof THREE.Mesh) || !child.material) return;
     if (!child.userData.normalMaterial) child.userData.normalMaterial = child.material;
     if (blocked) {
-      child.userData.warningMaterial ||= new THREE.MeshBasicMaterial({ color: 0xff3333, transparent: true, opacity: 0.72 });
+      child.userData.warningMaterial ||= new THREE.MeshBasicMaterial({ color: 0xff6b5a, transparent: true, opacity: 0.66 });
       child.material = child.userData.warningMaterial;
     } else {
       child.material = child.userData.normalMaterial;
     }
   });
+  $('#ar-reticle')?.classList.toggle('is-blocked', !!blocked);
 }
 
 function setPlacementButtonState(blocked, confirmed = false) {
@@ -145,7 +340,7 @@ function setPlacementButtonState(blocked, confirmed = false) {
   button.disabled = blocked || confirmed;
   button.classList.toggle('is-blocked', blocked);
   button.classList.toggle('is-confirmed', confirmed);
-  button.textContent = confirmed ? '✓' : '●';
+  button.setAttribute('aria-label', confirmed ? 'Placed' : 'Confirm placement');
 }
 
 function colorFor(product) { return colorStyles[product.color] || '#8c9d88'; }
@@ -178,7 +373,7 @@ function renderCatalog() {
   $('#result-count').textContent = `${found.length} ${found.length === 1 ? 'piece' : 'pieces'} to explore`;
   $('#product-grid').innerHTML = found.length ? found.map(product => `
     <article class="product-card">
-      <div class="product-image">${furniture(product)}<span class="ar-badge">⌑ AR READY</span><button class="view-button" data-open-product="${product.id}" aria-label="View ${escapeHtml(product.name)}">→</button></div>
+      <div class="product-image">${furniture(product)}<span class="ar-badge">AR</span><button class="view-button" data-open-product="${product.id}" aria-label="View ${escapeHtml(product.name)}">→</button></div>
       <div class="product-info"><p class="product-store">${escapeHtml(product.store)}</p><h3 class="product-name">${escapeHtml(product.name)}</h3><div class="product-meta"><span class="product-price">${peso(product.price)}</span><span class="product-dimension">${product.dimensions.width} × ${product.dimensions.depth} × ${product.dimensions.height} cm</span></div></div>
     </article>`).join('') : '<div class="no-results"><b>No furniture matches these filters.</b><br /><small>Try widening your search or clearing a filter.</small></div>';
 }
@@ -193,10 +388,15 @@ function openProduct(id) {
   if (!product) return;
   state.selected = product;
   const storeInfo = state.stores[product.storeId];
-  const storeBlock = storeInfo ? `<div style="background: #f5f5f5; padding: 12px; border-radius: 4px; margin-top: 12px; font-size: 13px;"><strong>📍 ${escapeHtml(storeInfo.name)}</strong><br />${escapeHtml(storeInfo.address)}<br />☎️ ${escapeHtml(storeInfo.contactNumber)}<br />🕒 ${escapeHtml(storeInfo.hours)}</div>` : '';
+  const storeBlock = storeInfo ? `<dl class="store-card">
+    <div><dt>Store</dt><dd>${escapeHtml(storeInfo.name)}</dd></div>
+    <div><dt>Address</dt><dd>${escapeHtml(storeInfo.address)}</dd></div>
+    <div><dt>Contact</dt><dd>${escapeHtml(storeInfo.contactNumber)}</dd></div>
+    <div><dt>Hours</dt><dd>${escapeHtml(storeInfo.hours)}</dd></div>
+  </dl>` : '';
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const quickLookLink = (isIOS && product.modelUsdz) ? `<a class="button button-primary" rel="ar" href="${product.modelUsdz}"><img src="${product.modelUsdz.replace(/\.(usdz|glb)$/i, '.png')}" alt="${escapeHtml(product.name)} preview" style="display:block;width:100%;max-width:180px;border-radius:12px;margin:0 auto 12px;" onerror="this.style.display='none'" />Open in AR</a>` : '';
-  const arAction = (navigator.xr && !isIOS) ? `<button class="button button-primary" data-place-product="${product.id}">⌑ Place in your room</button>` : (product.modelUsdz && isIOS ? quickLookLink : `<button class="button button-primary" data-place-product="${product.id}">⌑ Place in your room</button>`);
+  const arAction = (navigator.xr && !isIOS) ? `<button class="button button-primary" data-place-product="${product.id}">Place in your room</button>` : (product.modelUsdz && isIOS ? quickLookLink : `<button class="button button-primary" data-place-product="${product.id}">Place in your room</button>`);
   $('#dialog-content').innerHTML = `<div class="dialog-layout"><div class="dialog-image">${furniture(product)}</div><div class="dialog-info"><p class="product-store">${escapeHtml(product.store)} · ${escapeHtml(product.category)}</p><h2>${escapeHtml(product.name)}</h2><p class="dialog-price">${peso(product.price)}</p><p>${escapeHtml(product.description)}</p><div class="dialog-dimensions"><div><span>WIDTH</span><b>${cm(product.dimensions.width)}</b></div><div><span>DEPTH</span><b>${cm(product.dimensions.depth)}</b></div><div><span>HEIGHT</span><b>${cm(product.dimensions.height)}</b></div></div>${storeBlock}${arAction}<button class="button button-outline" data-plan-product="${product.id}">Measure the fit first</button></div></div>`;
   $('#product-dialog').showModal();
 }
@@ -258,28 +458,24 @@ function toast(message) {
 async function checkARSupport() {
   const status = $('#ar-status');
   if (!window.isSecureContext) {
-    console.info('[AR Support] Branch: insecure-context -> camera/WebXR unavailable');
     status.textContent = 'Use HTTPS (or localhost) to enable camera and WebXR. Guided measurement is still available.';
     return false;
   }
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   if (isIOS && state.selected?.modelUsdz) {
-    console.info('[AR Support] Branch: iOS Quick Look path selected for USDZ product');
     status.textContent = 'iPhone Safari detected. AR Quick Look will open the native USDZ viewer for this product.';
     return false;
   }
   if (!navigator.xr) {
-    console.info('[AR Support] Branch: navigator.xr missing');
     status.textContent = 'WebXR is unavailable in this browser. The camera preview and guided measurement will still work.';
     return false;
   }
   try {
     const supported = await navigator.xr.isSessionSupported('immersive-ar');
-    console.info(`[AR Support] Branch: isSessionSupported('immersive-ar') -> ${supported}`);
     status.textContent = supported ? 'AR-ready device detected. Use a bright, textured floor for best tracking.' : 'This device does not expose immersive AR. A camera preview will be used instead.';
     return supported;
   } catch (error) {
-    console.warn('[AR Support] Branch: session support probe threw:', error?.name, error?.message);
+    console.warn('[AR] Support probe failed:', error?.name, error?.message);
     status.textContent = 'AR availability could not be checked. Guided measurement is available.';
     return false;
   }
@@ -301,13 +497,11 @@ function arRenderer(gl) {
 async function loadScaledModel(product) {
   if (!THREE) await loadThreeJS();
   if (!THREE || !GLTFLoader) {
-    console.log(`[AR Model] THREE.js unavailable, using fallback cube for "${product.name}"`);
     return null;
   }
 
   const modelPath = product.modelGlb;
   if (!modelPath) {
-    console.log(`[AR Model] Product "${product.name}" has no 3D model, using fallback cube`);
     return null;
   }
 
@@ -317,7 +511,7 @@ async function loadScaledModel(product) {
       loader.load(
         modelPath,
         resolve,
-        (progress) => console.log(`[AR Model] Loading ${modelPath}: ${Math.round((progress.loaded / progress.total) * 100)}%`),
+        undefined,
         reject
       );
     });
@@ -364,10 +558,10 @@ async function loadScaledModel(product) {
       }
     });
 
-    console.log(`[AR Model] ✓ Loaded and scaled "${product.name}" to ${targetBounds.width}×${targetBounds.height}×${targetBounds.depth} cm`);
+    console.log(`[AR] ${product.name} scaled to ${targetBounds.width}×${targetBounds.height}×${targetBounds.depth} cm`);
     return model;
   } catch (error) {
-    console.error(`[AR Model] ✗ Failed to load ${modelPath}:`, error?.name, error?.message);
+    console.error(`[AR] Could not load ${modelPath}:`, error?.name, error?.message);
     return null;
   }
 }
@@ -378,7 +572,6 @@ async function loadGLBModel(product) {
 }
 
 async function startNativeAR() {
-  console.log('[AR Session] Requesting XR immersive-ar session...');
   setARMode('native-ar');
   const root = $('#ar-experience');
   
@@ -397,7 +590,7 @@ async function startNativeAR() {
     });
     state.hitTestRequired = true;
   } catch (error) {
-    console.warn('[AR Session] hit-test required failed:', error?.name, error?.message, '— retrying without hit-test...');
+    console.warn('[AR] hit-test required failed:', error?.name, error?.message, '— retrying without hit-test...');
     try {
       // Fallback: try without hit-test as required
       session = await navigator.xr.requestSession('immersive-ar', {
@@ -405,10 +598,9 @@ async function startNativeAR() {
         domOverlay: { root }
       });
       state.hitTestRequired = false;
-      console.log('[AR Session] ✓ Session created without hit-test requirement');
     } catch (finalError) {
       // Log detailed diagnostics
-      console.error('[AR Session] XR session request failed:', {
+      console.error('[AR] XR session request failed:', {
         errorName: finalError?.name,
         errorMessage: finalError?.message,
         errorCode: finalError?.code,
@@ -421,7 +613,6 @@ async function startNativeAR() {
   }
   
   state.session = session;
-  console.log('[AR Session] ✓ XR session created successfully');
 
   // Load THREE.js if needed
   if (!THREE) await loadThreeJS();
@@ -429,7 +620,7 @@ async function startNativeAR() {
   const canvas = $('#xr-canvas');
   const gl = canvas.getContext('webgl2', { xrCompatible: true, alpha: true });
   if (!gl) {
-    console.warn('[AR Session] WebGL2 not available, falling back to WebGL');
+    console.warn('[AR] WebGL2 not available, falling back to WebGL');
     const glFallback = canvas.getContext('webgl', { xrCompatible: true, alpha: true });
     if (glFallback) await glFallback.makeXRCompatible();
   } else {
@@ -445,17 +636,16 @@ async function startNativeAR() {
   if (state.hitTestRequired !== false) {
     try {
       state.hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
-      console.log('[AR Session] ✓ Hit-test source initialized');
     } catch (err) {
-      console.warn('[AR Session] Hit-test source unavailable:', err?.name, err?.message);
+      console.warn('[AR] Hit-test source unavailable:', err?.name, err?.message);
       state.hitTestSource = null;
     }
   }
 
   const product = state.selected;
-  $('#ar-mode-label').textContent = state.arPurpose === 'measurement'
-    ? 'Tap point A, then point B on the floor.'
-    : 'Drag to move, twist with two fingers to rotate, pinch to resize. Tap the button to confirm placement.';
+  setHint(state.arPurpose === 'measurement'
+    ? 'Tap point A, then point B. The reading updates as you move.'
+    : 'Find the floor, then place. Use the tray to move, turn, and resize.');
   session.addEventListener('select', event => captureNativePoint(event.frame));
   session.addEventListener('end', cleanupAR);
 
@@ -470,9 +660,26 @@ async function startNativeAR() {
   let light = null;
   let dirLight = null;
   let placedModel = null;
+  let baseScale = null;
+
+  $('#ar-tray').hidden = state.arPurpose !== 'placement';
+
+  // Tray actions are wired up whether or not a GLB loaded, so the box fallback
+  // can still be placed and reset.
+  $('#place-button').addEventListener('click', event => {
+    event.stopPropagation();
+    captureNativePoint(null);
+  });
+  $('#reset-model').addEventListener('click', event => {
+    event.stopPropagation();
+    arTransform.reset();
+    state.placedMatrix = null;
+    state.placementConfirmed = false;
+    setPlacementButtonState(false);
+    setHint('Reset. Find the floor and place again.');
+  });
 
   if (THREE && state.loadedModel) {
-    console.log('[AR Render] Setting up THREE.js renderer for real 3D model');
     try {
       renderer = new THREE.WebGLRenderer({ canvas, context: gl, antialias: true, alpha: true });
       renderer.xr.enabled = true;
@@ -500,31 +707,14 @@ async function startNativeAR() {
       // Clone the loaded model for this session
       placedModel = state.loadedModel.clone();
       scene.add(placedModel);
+      baseScale = placedModel.scale.clone();
 
-      $('#place-button').disabled = false;
-      $('#place-button').addEventListener('click', event => {
-        event.stopPropagation();
-        captureNativePoint(null);
-      }, { once: false });
-      const nativeInitialScale = placedModel.scale.clone();
-      const nativeInitialPosition = placedModel.position.clone();
-      $('#reset-model').addEventListener('click', event => {
-        event.stopPropagation();
-        placedModel.scale.copy(nativeInitialScale);
-        placedModel.position.copy(nativeInitialPosition);
-        placedModel.rotation.set(0, 0, 0);
-        state.placedMatrix = null;
-        setPlacementButtonState(false);
-      }, { once: true });
-
-      console.log('[AR Render] ✓ THREE.js scene initialized with 3D model');
     } catch (error) {
-      console.error('[AR Render] Failed to initialize THREE.js:', error.message);
+      console.error('[AR] THREE.js renderer unavailable:', error.message);
       renderer = null;
     }
   }
 
-  let renderLogged = false;
   function frame(time, xrFrame) {
     session.requestAnimationFrame(frame);
     const pose = xrFrame.getViewerPose(state.referenceSpace);
@@ -563,80 +753,72 @@ async function startNativeAR() {
         }
       }
 
-      // Apply visual feedback based on flatness
-      if (placedModel) {
-        if (!isSurfaceFlat) {
-              setModelSurfaceState(placedModel, true);
-          $('#ar-mode-label').textContent = 'Surface looks uneven — find a flatter spot to place this item.';
-          state.placementBlocked = true;
-              setPlacementButtonState(true);
-        } else {
-              setModelSurfaceState(placedModel, false);
-          $('#ar-mode-label').textContent = 'Flat surface detected. Tap to place.';
-          state.placementBlocked = false;
-              setPlacementButtonState(false);
-        }
-      }
+      // Visual feedback on flatness. This also gates the place button, so it
+      // runs whether or not a GLB is available for this product.
+      setModelSurfaceState(placedModel, !isSurfaceFlat);
+      setHint(isSurfaceFlat ? 'Flat surface found. Tap to place.' : 'Uneven surface — find a flatter spot.');
+      state.placementBlocked = !isSurfaceFlat;
+      setPlacementButtonState(!isSurfaceFlat);
     }
     // ===== END FLAT-SURFACE DETECTION =====
 
-    // Live measurement display during measurement mode
+    // Viewer heading, so the tray's left/right follow wherever the phone faces.
+    const viewerOrientation = pose.transform.orientation;
+    state.viewerYaw = Math.atan2(
+      2 * (viewerOrientation.w * viewerOrientation.y + viewerOrientation.x * viewerOrientation.z),
+      1 - 2 * (viewerOrientation.y ** 2 + viewerOrientation.z ** 2)
+    );
 
-    if (state.arPurpose === 'measurement' && state.arPoints.length === 1 && state.latestHitPose) {
-      const point0 = state.arPoints[0];
-      const hitPos = state.latestHitPose.transform.position;
-      const liveDistanceM = Math.sqrt(
-        (point0.x - hitPos.x) ** 2 +
-        (point0.y - hitPos.y) ** 2 +
-        (point0.z - hitPos.z) ** 2
-      );
-      updateLiveMeasurementDisplay(liveDistanceM);
+    // ===== REAL-TIME MEASUREMENT =====
+    if (state.arPurpose === 'measurement') {
+      const hitPos = state.latestHitPose?.transform.position;
+      if (hitPos && state.arPoints.length === 1) {
+        const liveDistanceM = distanceBetween(state.arPoints[0], hitPos);
+        updateLiveMeasurementDisplay(liveDistanceM, state.arNeedsConfirmation ? 'confirming span' : 'point A → target');
+        // Feed the planner live so the fit verdict tracks the phone in real time.
+        applyLiveClearance(liveDistanceM * 100);
+      } else if (hitPos) {
+        const viewerPos = pose.transform.position;
+        updateLiveMeasurementDisplay(distanceBetween(viewerPos, hitPos), 'phone → surface');
+      } else {
+        hideLiveMeasurement();
+      }
     } else {
       hideLiveMeasurement();
     }
 
-    if (!state.latestHitPose || state.arPurpose !== 'placement') return;
+    arTransform.tickSpin();
 
-    // Use THREE.js renderer if available and model is loaded
-    if (renderer && scene && placedModel && !renderLogged) {
-      console.log(`[AR Render] Starting 3D model render loop for "${product.name}"`);
-      renderLogged = true;
+    const anchor = state.placedMatrix || state.latestHitPose?.transform.matrix;
+    if (!anchor || state.arPurpose !== 'placement') return;
+
+    if (renderer && scene && placedModel) {
+      const anchorMatrix = new THREE.Matrix4().fromArray(anchor);
+      const anchorPosition = new THREE.Vector3().setFromMatrixPosition(anchorMatrix);
+      const anchorQuaternion = new THREE.Quaternion().setFromRotationMatrix(anchorMatrix);
+
+      // Anchor pose + the tray's offset, heading and scale.
+      placedModel.position.set(anchorPosition.x + arTransform.x, anchorPosition.y, anchorPosition.z + arTransform.z);
+      placedModel.quaternion.copy(anchorQuaternion).multiply(userYawQuaternion());
+      placedModel.scale.copy(baseScale).multiplyScalar(arTransform.scale);
+
+      // three.js drives the XR framebuffer, viewports and per-eye cameras itself.
+      renderer.render(scene, camera);
+      updatePlacementChip(placedModel, renderer.xr.getCamera?.() || camera, product);
+      return;
     }
 
+    // Fallback cube when the GLB or THREE.js is unavailable.
     gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
-
-    if (renderer && scene && placedModel) {
-      // THREE.js rendering path
-      for (const view of pose.views) {
-        const viewport = layer.getViewport(view);
-        gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
-
-        // Update camera with XR view
-        camera.projectionMatrix.fromArray(view.projectionMatrix);
-        camera.matrix.fromArray(view.transform.matrix);
-        camera.matrixAutoUpdate = false;
-        camera.updateMatrix();
-
-        const placement = state.placedMatrix || state.latestHitPose.transform.matrix;
-        const placementMatrix = new THREE.Matrix4().fromArray(placement);
-        placedModel.position.setFromMatrixPosition(placementMatrix);
-        placedModel.quaternion.setFromRotationMatrix(placementMatrix);
-
-        renderer.render(scene, camera);
-      }
-    } else {
-      // Fallback to cube rendering
-      const dimensions = product.dimensions;
-      const placement = state.placedMatrix || state.latestHitPose.transform.matrix;
-      for (const view of pose.views) {
-        const viewport = layer.getViewport(view);
-        gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
-        const model = translateScale(placement, 0, dimensions.height / 200, 0, dimensions.width / 200, dimensions.height / 200, dimensions.depth / 200);
-        fallbackRenderer.draw(matrixMultiply(view.projectionMatrix, matrixMultiply(view.transform.inverse.matrix, model)), [red, green, blue, .72]);
-      }
+    const dimensions = product.dimensions;
+    for (const view of pose.views) {
+      const viewport = layer.getViewport(view);
+      gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
+      const model = translateScale(anchor, arTransform.x, dimensions.height / 200, arTransform.z, dimensions.width / 200, dimensions.height / 200, dimensions.depth / 200);
+      fallbackRenderer.draw(matrixMultiply(view.projectionMatrix, matrixMultiply(view.transform.inverse.matrix, model)), [red, green, blue, .72]);
     }
   }
 
@@ -647,75 +829,54 @@ function captureNativePoint(frame) {
   const pose = state.latestHitPose;
   if (!pose) { toast('Move slowly until the floor target is detected, then tap again.'); return; }
   const point = pose.transform.position;
-  if (state.arPurpose === 'placement') { 
-    if (state.placementBlocked || state.placementConfirmed) { toast('Surface is uneven. Find a flatter spot to place this item.'); return; }
+  if (state.arPurpose === 'placement') {
+    if (state.placementBlocked || state.placementConfirmed) { toast('Uneven surface. Find a flatter spot.'); return; }
     state.placedMatrix = pose.transform.matrix.slice();
     state.placementConfirmed = true;
-    console.log(`[AR Placement] "${state.selected.name}" placed at position (${point.x.toFixed(2)}, ${point.y.toFixed(2)}, ${point.z.toFixed(2)})`);
-    if (state.loadedModel) {
-      console.log(`[AR Placement] ✓ 3D model "${state.selected.name}" will render at placement point`);
-    } else {
-      console.log(`[AR Placement] ℹ Using box renderer for "${state.selected.name}"`);
-    }
-    $('#ar-mode-label').textContent = 'Placed. Walk around it to check the fit.'; 
+    setHint('Placed at true scale. Use the tray to adjust it.');
     setPlacementButtonState(false, true);
-    toast(`${state.selected.name} is placed at true scale. Walk around it to inspect the fit.`); 
-    return; 
+    toast(`${state.selected.name} placed at true scale.`);
+    return;
   }
-  
-  // Measurement mode: handle initial scan and confirmatory scan
+
+  // Measurement mode: an initial scan, then a confirmatory scan of the same span.
   if (!state.arNeedsConfirmation) {
-    // Initial measurement scan
     state.arPoints.push({ x: point.x, y: point.y, z: point.z });
-    if (state.arPoints.length === 1) { 
-      $('#ar-mode-label').textContent = 'Point A captured. Now tap point B.'; 
-      toast('Point A captured. Tap the other side of the opening.'); 
-      return; 
+    if (state.arPoints.length === 1) {
+      setHint('Point A set. Tap point B.');
+      return;
     }
-    // Got both points for initial measurement
     state.arMeasurement = distanceBetween(state.arPoints[0], state.arPoints[1]) * 100;
     state.arNeedsConfirmation = true;
     state.arPoints = [];
-    $('#ar-mode-label').textContent = 'First measurement complete. Tap to start confirmatory scan of the SAME span.';
-    toast(`Initial reading: ${cm(state.arMeasurement)}. Please confirm by scanning the same span again.`);
+    setHint(`First reading ${cm(state.arMeasurement)}. Scan the same span again to confirm.`);
     return;
   }
-  
-  // Confirmatory measurement scan
+
   state.arPoints.push({ x: point.x, y: point.y, z: point.z });
-  if (state.arPoints.length === 1) { 
-    $('#ar-mode-label').textContent = 'Point A captured. Tap point B to complete the confirmatory scan.'; 
-    toast('Confirmatory scan - Point A captured.'); 
-    return; 
+  if (state.arPoints.length === 1) {
+    setHint('Point A set. Tap point B to finish the check.');
+    return;
   }
-  
-  // Got confirmatory measurement
+
   state.arConfirmationMeasurement = distanceBetween(state.arPoints[0], state.arPoints[1]) * 100;
-  
-  // Calculate difference and validate
-  const diff = Math.abs(state.arMeasurement - state.arConfirmationMeasurement);
-  const percentDiff = (diff / state.arMeasurement) * 100;
-  
+  const percentDiff = Math.abs(state.arMeasurement - state.arConfirmationMeasurement) / state.arMeasurement * 100;
+
   if (percentDiff > 5) {
-    // Readings differ by more than 5%
-    $('#ar-mode-label').innerHTML = `<span style="color: #d32f2f;">⚠ Readings differ by ${Math.round(percentDiff)}%</span><br />Initial: ${cm(state.arMeasurement)} vs Confirmatory: ${cm(state.arConfirmationMeasurement)}<br />Tap to rescan or close the AR view to use the initial reading.`;
-    toast(`Measurements differ by ${Math.round(percentDiff)}%. Within 5% is preferred. Rescan or accept?`);
+    setHint(`Readings differ by ${Math.round(percentDiff)}% (${cm(state.arMeasurement)} vs ${cm(state.arConfirmationMeasurement)}). Scan again.`);
+    toast('Readings differ by more than 5%. Measure the span again.');
     state.arPoints = [];
     state.arNeedsConfirmation = false;
     state.arMeasurement = null;
     state.arConfirmationMeasurement = null;
     return;
   }
-  
-  // Within 5% - average the readings
+
   const finalMeasurement = (state.arMeasurement + state.arConfirmationMeasurement) / 2;
-  $('#point-a').value = 0;
-  $('#point-b').value = Math.round(finalMeasurement);
-  updateFitVerdict();
-  toast(`Measurements verified (within 5%). Averaged: ${cm(finalMeasurement)}`);
+  applyLiveClearance(finalMeasurement);
+  toast(`Confirmed within 5%. Clearance ${cm(finalMeasurement)}.`);
   state.session?.end();
-  
-  // Reset
+
   state.arPoints = [];
   state.arMeasurement = null;
   state.arConfirmationMeasurement = null;
@@ -725,286 +886,249 @@ function captureNativePoint(frame) {
 async function startCameraFallback() {
   const product = state.selected;
   const isPlacement = state.arPurpose === 'placement';
-  const fallbackHost = $('#fallback-product');
+  const stage = $('#fallback-product');
   const cameraVideo = $('#camera-feed');
 
   setARMode('camera-preview');
-
-  $('#ar-mode-label').textContent = isPlacement
-    ? 'Camera preview — drag to rotate, pinch to check scale. This device can\'t track the room, so use this to judge fit, not exact placement. Tap the button to confirm placement.'
-    : 'Camera preview active — use the two fields after closing to enter your tape measure reading.';
-
   $('#xr-canvas').style.display = 'none';
-  $('#fallback-product').style.display = isPlacement ? 'block' : 'none';
+  stage.style.display = 'block';
   cameraVideo.style.display = 'block';
-  cameraVideo.style.opacity = '1';
-  cameraVideo.style.zIndex = '1';
-  fallbackHost.style.zIndex = '2';
+  $('#ar-tray').hidden = !isPlacement;
+  $('#ar-reticle').hidden = true;
 
-  if (isPlacement) {
-    // This is an unanchored, device-side approximation for fit checking only.
-    // It is not tracked AR; the real room placement still comes from native WebXR.
-    const fallbackCanvas = document.createElement('canvas');
-    fallbackHost.innerHTML = '';
-    fallbackHost.appendChild(fallbackCanvas);
-
-    const model = await loadScaledModel(product);
-    if (!model || !THREE || !fallbackCanvas) {
-      setARMode('illustration-only');
-      fallbackHost.innerHTML = `<div class="fallback-message">3D preview unavailable. Use guided measurement to check fit.</div>`;
-      return;
-    }
-
-    const context = fallbackCanvas.getContext('webgl2', { alpha: true, antialias: true, premultipliedAlpha: false });
-    if (!context) {
-      setARMode('illustration-only');
-      fallbackHost.innerHTML = `<div class="fallback-message">3D preview unavailable. Use guided measurement to check fit.</div>`;
-      return;
-    }
-
-    const renderer = new THREE.WebGLRenderer({ canvas: fallbackCanvas, antialias: true, alpha: true, powerPreference: 'high-performance', premultipliedAlpha: false });
-    renderer.setClearColor(0x000000, 0);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 1000);
-    camera.position.set(0, 0.9, 2.8);
-
-    const ambient = new THREE.HemisphereLight(0xffffff, 0x000000, 1.2);
-    const key = new THREE.DirectionalLight(0xffffff, 1);
-    key.position.set(2, 3, 2.5);
-    scene.add(ambient, key);
-
-    const modelRoot = model.clone();
-    modelRoot.rotation.y = 0.6;
-    scene.add(modelRoot);
-
-    let currentScale = 1;
-    let dragX = 0;
-    let pinchDistance = null;
-    let pinchStableFrames = 0; // Track stable pinch detection
-    let pinchConfirmed = false;
-    let lastTouchCenter = null;
-    let lastTouchAngle = null;
-    let surfaceBlocked = false;
-    let placementConfirmed = false;
-    const initialPosition = modelRoot.position.clone();
-
-    const updateScaleLabel = () => {
-      const smoothScale = Math.round(currentScale * 20) / 20; // Round to nearest 5%
-      const percent = Math.round((smoothScale / 1) * 100);
-      $('#ar-mode-label').textContent = `Drag to move, twist with two fingers to rotate, pinch to resize. Current: ${percent}% of true scale. Tap the button to confirm placement.`;
-    };
-
-    const syncSize = () => {
-      modelRoot.scale.setScalar(currentScale);
-      updateScaleLabel();
-    };
-
-    const resize = () => {
-      const bounds = fallbackHost.getBoundingClientRect();
-      const width = Math.max(bounds.width, 200);
-      const height = Math.max(bounds.height, 160);
-      renderer.setSize(width, height, false);
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
-    };
-
-    resize();
-    syncSize();
-    setPlacementButtonState(false);
-
-    const resetModel = event => {
-      event?.stopPropagation();
-      currentScale = 1;
-      dragX = 0.6;
-      modelRoot.scale.setScalar(currentScale);
-      modelRoot.rotation.y = dragX;
-      modelRoot.position.copy(initialPosition);
-      placementConfirmed = false;
-      setPlacementButtonState(surfaceBlocked);
-      updateScaleLabel();
-    };
-
-    $('#reset-model')?.addEventListener('click', resetModel);
-    $('#place-button')?.addEventListener('click', event => {
-      event.stopPropagation();
-      if (surfaceBlocked) return;
-      placementConfirmed = true;
-      setPlacementButtonState(false, true);
-      $('#ar-mode-label').textContent = 'Placed. Walk around it to check the fit.';
-    });
-
-    fallbackHost.addEventListener('pointerdown', event => {
-      if (placementConfirmed || event.pointerType === 'touch') return;
-      fallbackHost.setPointerCapture(event.pointerId);
-      fallbackHost.dataset.lastX = String(event.clientX);
-      fallbackHost.dataset.lastY = String(event.clientY);
-    });
-
-    fallbackHost.addEventListener('pointermove', event => {
-      if (placementConfirmed || event.pointerType === 'touch' || !fallbackHost.hasPointerCapture(event.pointerId)) return;
-      const previousX = Number(fallbackHost.dataset.lastX || event.clientX);
-      const previousY = Number(fallbackHost.dataset.lastY || event.clientY);
-      modelRoot.position.x += (event.clientX - previousX) * 0.002;
-      modelRoot.position.z += (event.clientY - previousY) * 0.002;
-      fallbackHost.dataset.lastX = String(event.clientX);
-      fallbackHost.dataset.lastY = String(event.clientY);
-    });
-
-    fallbackHost.addEventListener('wheel', event => {
-      if (placementConfirmed) return;
-      event.preventDefault();
-      currentScale = Math.min(3, Math.max(0.3, currentScale + (event.deltaY > 0 ? -0.1 : 0.1)));
-      syncSize();
-    }, { passive: false });
-
-    fallbackHost.addEventListener('touchstart', event => {
-      if (!placementConfirmed && event.touches.length === 1) {
-        fallbackHost.dataset.lastTouchX = String(event.touches[0].clientX);
-        fallbackHost.dataset.lastTouchY = String(event.touches[0].clientY);
-      }
-      if (!placementConfirmed && event.touches.length === 2) {
-        const [a, b] = [event.touches[0], event.touches[1]];
-        pinchDistance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-        pinchStableFrames = 0; // Reset stability counter on new pinch start
-        pinchConfirmed = false;
-        lastTouchCenter = { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
-        lastTouchAngle = Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX);
-      }
-    }, { passive: true });
-
-    fallbackHost.addEventListener('touchmove', event => {
-      if (placementConfirmed) return;
-      if (event.touches.length === 1 && !pinchDistance) {
-        const touch = event.touches[0];
-        const previousX = Number(fallbackHost.dataset.lastTouchX || touch.clientX);
-        const previousY = Number(fallbackHost.dataset.lastTouchY || touch.clientY);
-        modelRoot.position.x += (touch.clientX - previousX) * 0.002;
-        modelRoot.position.z += (touch.clientY - previousY) * 0.002;
-        fallbackHost.dataset.lastTouchX = String(touch.clientX);
-        fallbackHost.dataset.lastTouchY = String(touch.clientY);
-        return;
-      }
-      if (event.touches.length === 2 && pinchDistance) {
-        const [a, b] = [event.touches[0], event.touches[1]];
-        const nextDistance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-        const deltaDistance = Math.abs(nextDistance - pinchDistance);
-        
-        // Require at least ~10px of movement to filter out accidental 2-touch frames
-        if (deltaDistance > 10) {
-          pinchStableFrames++;
-          // Only apply scale after two consecutive stable frames confirm intentional pinch
-          if (pinchStableFrames > 1) {
-            pinchConfirmed = true;
-            const ratio = nextDistance / (pinchDistance || 1);
-            currentScale = Math.min(2.0, Math.max(0.5, currentScale * ratio));
-            syncSize();
-          }
-        }
-        const center = { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
-        const angle = Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX);
-        if (pinchConfirmed && lastTouchAngle !== null) modelRoot.rotation.y += angle - lastTouchAngle;
-        lastTouchAngle = angle;
-        if (lastTouchCenter) {
-          modelRoot.position.x += (center.x - lastTouchCenter.x) * 0.002;
-          modelRoot.position.z += (center.y - lastTouchCenter.y) * 0.002;
-        }
-        lastTouchCenter = center;
-        pinchDistance = nextDistance;
-      }
-    }, { passive: true });
-
-    fallbackHost.addEventListener('touchend', event => {
-      if (event.touches.length < 2) {
-        pinchDistance = null;
-        pinchConfirmed = false;
-        lastTouchCenter = null;
-        lastTouchAngle = null;
-      }
-      pinchStableFrames = 0;
-      fallbackHost.dataset.lastTouchX = '';
-      fallbackHost.dataset.lastTouchY = '';
-    }, { passive: true });
-
-    fallbackHost.addEventListener('touchcancel', () => {
-      pinchDistance = null;
-      pinchStableFrames = 0;
-      pinchConfirmed = false;
-      lastTouchCenter = null;
-      lastTouchAngle = null;
-    }, { passive: true });
-
-    let previewTilt = 0;
-    let lastDebugLog = 0;
-    const tick = timestamp => {
-      const nextSurfaceBlocked = Math.abs(previewTilt) > 45;
-      if (nextSurfaceBlocked !== surfaceBlocked) {
-        surfaceBlocked = nextSurfaceBlocked;
-        setModelSurfaceState(modelRoot, surfaceBlocked);
-        setPlacementButtonState(surfaceBlocked, placementConfirmed);
-        if (surfaceBlocked) $('#ar-mode-label').textContent = 'Surface looks uneven — hold the phone level before placing.';
-        else updateScaleLabel();
-      }
-      if (timestamp - lastDebugLog > 1000) {
-        lastDebugLog = timestamp;
-        console.debug('[AR Preview] camera/model transform', {
-          camera: camera.position.toArray(),
-          model: modelRoot.position.toArray(),
-          distance: camera.position.distanceTo(modelRoot.position)
-        });
-      }
-      renderer.setClearColor(0x000000, 0);
-      renderer.render(scene, camera);
-      requestAnimationFrame(tick);
-    };
-    tick();
-    window.addEventListener('resize', resize, { passive: true });
-    state.fallbackRender = { renderer, scene, camera, modelRoot, tick, resize };
-    updateScaleLabel();
-
-    // Gyroscope-based tilt detection for camera-preview fallback (D5)
-    // Best-effort approximation: warn if device is tilted too far to judge flatness reliably
-    if (window.DeviceOrientationEvent) {
-      let lastCheck = 0;
-      let latestBeta = 0;
-      const statusEl = $('#ar-mode-label');
-      const warning = 'Hold the phone more level for better surface detection in preview mode.';
-      const normalMessage = statusEl.textContent;
-      const updateOrientationWarning = (message) => {
-        const nextMessage = message || normalMessage;
-        if (statusEl.dataset.lastMsg === nextMessage) return;
-        statusEl.dataset.lastMsg = nextMessage;
-        statusEl.textContent = nextMessage;
-      };
-      const onOrientationTick = (timestamp) => {
-        if (timestamp - lastCheck < 400) return;
-        lastCheck = timestamp;
-        updateOrientationWarning(Math.abs(latestBeta) > 45 ? warning : '');
-      };
-      window.addEventListener('deviceorientation', (event) => {
-        latestBeta = event.beta || 0;
-        previewTilt = latestBeta;
-        onOrientationTick(performance.now());
-      }, { passive: true });
-    }
+  const hasCamera = await startCameraStream();
+  if (hasCamera) {
+    setHint(isPlacement
+      ? 'Untracked preview. Use the tray to move, turn and resize.'
+      : 'Drag across the opening. The reading follows your finger.');
   }
 
-  if (!navigator.mediaDevices?.getUserMedia) {
-    $('#camera-feed').style.display = 'none';
+  // The preview is an unanchored, device-side approximation for judging fit.
+  // Tracked room placement still comes from WebXR where the device supports it.
+  const model = await loadScaledModel(product);
+  const canvas = document.createElement('canvas');
+  stage.innerHTML = '';
+  stage.appendChild(canvas);
+
+  if (!model || !THREE || !canvas.getContext('webgl2', { alpha: true })) {
     setARMode('illustration-only');
-    $('#ar-mode-label').textContent = 'Camera access is not available. Use the guided measurement fields.';
+    stage.innerHTML = '<div class="fallback-message glass">3D preview unavailable on this device. Use the measurement fields to check fit.</div>';
+    $('#ar-tray').hidden = true;
     return;
   }
 
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance', premultipliedAlpha: false });
+  renderer.setClearColor(0x000000, 0);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(46, 1, 0.01, 100);
+  camera.position.set(0, 1.35, 2.6);
+  camera.lookAt(0, 0.4, 0);
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x1a1a1a, 1.25));
+  const key = new THREE.DirectionalLight(0xffffff, 1);
+  key.position.set(2, 3, 2.5);
+  scene.add(key);
+
+  const modelRoot = model.clone();
+  const baseScale = modelRoot.scale.clone();
+  scene.add(modelRoot);
+
+  // In measurement mode the product stays on screen as the scale reference the
+  // ruler is calibrated against, so it is dimmed rather than removed.
+  if (!isPlacement) {
+    modelRoot.traverse(child => {
+      if (!child.isMesh || !child.material) return;
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      materials.forEach(material => { material.transparent = true; material.opacity = 0.35; });
+    });
+  }
+
+  const resize = () => {
+    if (!canvas.isConnected) return; // the AR layer was closed
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    renderer.setSize(width, height, false);
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+  };
+  resize();
+  window.addEventListener('resize', resize, { passive: true });
+
+  let surfaceBlocked = false;
+  let placementConfirmed = false;
+  let previewTilt = 0;
+
+  setPlacementButtonState(false);
+  $('#reset-model').addEventListener('click', event => {
+    event.stopPropagation();
+    arTransform.reset();
+    placementConfirmed = false;
+    setPlacementButtonState(surfaceBlocked);
+    setHint('Reset to true scale.');
+  });
+  $('#place-button').addEventListener('click', event => {
+    event.stopPropagation();
+    if (surfaceBlocked) return;
+    placementConfirmed = true;
+    setPlacementButtonState(false, true);
+    setHint('Placed. Move around it to judge the fit.');
+  });
+
+  bindPreviewGestures(stage, () => placementConfirmed || !isPlacement);
+  if (!isPlacement) bindPreviewRuler(stage, product);
+
+  const tick = () => {
+    if (!state.fallbackRender) return;
+    arTransform.tickSpin();
+    modelRoot.position.set(arTransform.x, 0, arTransform.z);
+    modelRoot.rotation.y = arTransform.yaw;
+    modelRoot.scale.copy(baseScale).multiplyScalar(arTransform.scale);
+
+    const nextBlocked = Math.abs(previewTilt) > 45;
+    if (nextBlocked !== surfaceBlocked) {
+      surfaceBlocked = nextBlocked;
+      setModelSurfaceState(modelRoot, surfaceBlocked);
+      setPlacementButtonState(surfaceBlocked, placementConfirmed);
+      setHint(surfaceBlocked ? 'Hold the phone level to judge the surface.' : 'Untracked preview. Use the tray to move, turn and resize.');
+    }
+
+    renderer.render(scene, camera);
+    state.pixelsPerCm = measurePixelsPerCm(modelRoot, camera);
+    if (isPlacement) updatePlacementChip(modelRoot, camera, product);
+    requestAnimationFrame(tick);
+  };
+
+  state.fallbackRender = { renderer, scene, camera, modelRoot, resize };
+  tick();
+
+  if (window.DeviceOrientationEvent) {
+    window.addEventListener('deviceorientation', event => { previewTilt = event.beta || 0; }, { passive: true });
+  }
+}
+
+/* Screen scale derived from the model's known true width at its current depth.
+   It is what makes the preview ruler read in centimetres. */
+function measurePixelsPerCm(modelRoot, camera) {
+  if (!THREE) return null;
+  const box = new THREE.Box3().setFromObject(modelRoot);
+  const size = box.getSize(new THREE.Vector3());
+  const centre = box.getCenter(new THREE.Vector3());
+  const left = projectToScreen(new THREE.Vector3(centre.x - size.x / 2, centre.y, centre.z), camera);
+  const right = projectToScreen(new THREE.Vector3(centre.x + size.x / 2, centre.y, centre.z), camera);
+  if (!left || !right || size.x <= 0) return null;
+  return Math.hypot(right.x - left.x, right.y - left.y) / (size.x * 100);
+}
+
+/* Touch gestures stay available and write into the same transform the tray
+   uses, so the two never disagree. */
+function bindPreviewGestures(stage, isLocked) {
+  let pinchDistance = null;
+  let lastAngle = null;
+  let lastPoint = null;
+
+  stage.addEventListener('pointerdown', event => {
+    if (isLocked()) return;
+    stage.setPointerCapture(event.pointerId);
+    lastPoint = { x: event.clientX, y: event.clientY };
+  });
+
+  stage.addEventListener('pointermove', event => {
+    if (isLocked() || !lastPoint || !stage.hasPointerCapture?.(event.pointerId)) return;
+    arTransform.x += (event.clientX - lastPoint.x) * 0.002;
+    arTransform.z += (event.clientY - lastPoint.y) * 0.002;
+    lastPoint = { x: event.clientX, y: event.clientY };
+  });
+
+  ['pointerup', 'pointercancel'].forEach(type => stage.addEventListener(type, () => { lastPoint = null; }));
+
+  stage.addEventListener('wheel', event => {
+    if (isLocked()) return;
+    event.preventDefault();
+    arTransform.resize(event.deltaY > 0 ? -1 : 1, 0.05);
+  }, { passive: false });
+
+  stage.addEventListener('touchmove', event => {
+    if (isLocked() || event.touches.length !== 2) return;
+    const [a, b] = [event.touches[0], event.touches[1]];
+    const distance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    const angle = Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX);
+    if (pinchDistance && Math.abs(distance - pinchDistance) > 6) {
+      arTransform.scale = clamp(arTransform.scale * (distance / pinchDistance), 0.5, 2);
+      syncTrayReadout();
+    }
+    if (lastAngle !== null) arTransform.rotate(1, angle - lastAngle);
+    pinchDistance = distance;
+    lastAngle = angle;
+  }, { passive: true });
+
+  ['touchend', 'touchcancel'].forEach(type => stage.addEventListener(type, () => { pinchDistance = null; lastAngle = null; }, { passive: true }));
+}
+
+/* Real-time ruler for devices without WebXR: drag across the opening and the
+   span is read off the on-screen scale of the product itself. */
+function bindPreviewRuler(stage, product) {
+  const svg = $('#ar-measure-line');
+  const line = svg.querySelector('line');
+  const dotA = $('#measure-dot-a');
+  const dotB = $('#measure-dot-b');
+  let origin = null;
+
+  const draw = (from, to) => {
+    // SVGElement has no `hidden` IDL property — the attribute has to go directly.
+    svg.removeAttribute('hidden');
+    line.setAttribute('x1', from.x); line.setAttribute('y1', from.y);
+    line.setAttribute('x2', to.x); line.setAttribute('y2', to.y);
+    dotA.setAttribute('cx', from.x); dotA.setAttribute('cy', from.y);
+    dotB.setAttribute('cx', to.x); dotB.setAttribute('cy', to.y);
+  };
+
+  const readout = (from, to) => {
+    if (!state.pixelsPerCm) return;
+    const centimetres = Math.hypot(to.x - from.x, to.y - from.y) / state.pixelsPerCm;
+    updateLiveMeasurementDisplay(centimetres / 100, `estimate · scaled to ${product.dimensions.width} cm reference`);
+    applyLiveClearance(centimetres);
+  };
+
+  stage.addEventListener('pointerdown', event => {
+    origin = { x: event.clientX, y: event.clientY };
+    draw(origin, origin);
+    readout(origin, origin);
+  });
+
+  stage.addEventListener('pointermove', event => {
+    if (!origin) return;
+    const point = { x: event.clientX, y: event.clientY };
+    draw(origin, point);
+    readout(origin, point);
+  });
+
+  ['pointerup', 'pointercancel'].forEach(type => stage.addEventListener(type, () => {
+    if (origin) setHint('Reading saved to the planner. Drag again to re-measure.');
+    origin = null;
+  }));
+}
+
+/* Opens the rear camera for the preview layer. */
+async function startCameraStream() {
+  const feed = $('#camera-feed');
+  if (!navigator.mediaDevices?.getUserMedia) {
+    feed.style.display = 'none';
+    setARMode('illustration-only');
+    setHint('No camera on this device. Use the measurement fields instead.');
+    return false;
+  }
   try {
     state.cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
-    $('#camera-feed').srcObject = state.cameraStream;
+    feed.srcObject = state.cameraStream;
+    return true;
   } catch {
-    $('#camera-feed').style.display = 'none';
+    feed.style.display = 'none';
     setARMode('illustration-only');
-    $('#ar-mode-label').textContent = 'Camera permission was not granted. Use the guided measurement fields.';
+    setHint('Camera permission denied. Use the measurement fields instead.');
+    return false;
   }
 }
 
@@ -1023,29 +1147,34 @@ async function startExperience(purpose) {
         quickLookLink.href = product.modelUsdz;
         quickLookLink.target = '_blank';
         quickLookLink.click();
-        console.log(`[AR Flow] iOS Quick Look opened for ${product.modelUsdz}`);
         toast('Opening the native AR Quick Look viewer on iPhone Safari.');
         return;
       } else {
-        console.warn(`[AR Flow] USDZ file returned ${response.status} at ${product.modelUsdz}`, { url: product.modelUsdz });
+        console.warn(`[AR] USDZ file returned ${response.status} at ${product.modelUsdz}`, { url: product.modelUsdz });
       }
     } catch (err) {
-      console.warn(`[AR Flow] Could not verify USDZ availability (${err?.message}), falling back to WebXR/camera`, { url: product.modelUsdz, error: err?.message });
+      console.warn(`[AR] Could not verify USDZ availability (${err?.message}), falling back to WebXR/camera`, { url: product.modelUsdz, error: err?.message });
     }
   }
 
   mountARExperience();
-  const hudName = $('#ar-product-name');
-  if (hudName) hudName.textContent = product.name;
-  state.arPurpose = purpose; state.arPoints = []; state.placedMatrix = null; state.placementBlocked = false; state.placementConfirmed = false; $('#camera-feed').style.display = ''; $('#xr-canvas').style.display = ''; $('#fallback-product').style.display = 'none';
-  $('#place-button').hidden = purpose !== 'placement';
-  $('#reset-model').hidden = purpose !== 'placement';
-  console.log(`[AR Flow] Starting AR experience for "${state.selected.name}" (${purpose} mode)`);
+  const { width, depth, height } = product.dimensions;
+  $('#ar-product-name').textContent = product.name;
+  $('#ar-product-dims').textContent = `${width} × ${depth} × ${height} cm`;
+  state.arPurpose = purpose;
+  state.arPoints = [];
+  state.placedMatrix = null;
+  state.placementBlocked = false;
+  state.placementConfirmed = false;
+  $('#camera-feed').style.display = '';
+  $('#xr-canvas').style.display = '';
+  $('#fallback-product').style.display = 'none';
+  $('#ar-tray').hidden = purpose !== 'placement';
   try {
     const supportsAR = await checkARSupport();
     if (supportsAR) await startNativeAR(); else await startCameraFallback();
   } catch (error) {
-    console.error('[AR Flow] Native AR start failed:', {
+    console.error('[AR] Native AR start failed:', {
       errorName: error?.name,
       errorMessage: error?.message,
       errorCode: error?.code,
@@ -1093,12 +1222,19 @@ function cleanupAR() {
   state.xrCamera = null;
   state.xrLight = null;
 
+  // Stops the preview render loop, which bails out as soon as this is cleared.
+  state.fallbackRender?.renderer?.dispose();
+  state.fallbackRender = null;
+  state.pixelsPerCm = null;
+  state.viewerYaw = 0;
+
   state.cameraStream?.getTracks().forEach(track => track.stop());
   state.cameraStream = null;
-  $('#camera-feed').srcObject = null;
-  $('#fallback-product').style.display = 'none';
+  const feed = $('#camera-feed');
+  if (feed) feed.srcObject = null;
   unmountARExperience();
   state.placedMatrix = null;
+  state.placementConfirmed = false;
 
   state.arPoints = [];
   state.arMeasurement = null;
