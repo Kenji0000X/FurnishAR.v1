@@ -1241,14 +1241,15 @@ footer {
   .dialog-close { width: var(--tap); height: var(--tap); }
   .text-button { min-height: var(--tap); }
   .tray-btn { min-width: 38px; height: 38px; }
+  .tray-pad { grid-template-columns: repeat(3, 38px); }
   .filter-group select, .measurement-inputs input,
   .login-form input, .product-form input, .product-form select { min-height: var(--tap); }
 }
 
 @media (max-width: 460px) {
   .ar-tray { gap: .5rem; padding: .55rem .6rem; }
-  .tray-pad { grid-template-columns: repeat(3, 30px); }
-  .tray-btn { min-width: 30px; height: 28px; padding: 0 .35rem; }
+  .tray-pad { grid-template-columns: repeat(3, 34px); }
+  .tray-btn { min-width: 34px; height: 34px; padding: 0 .35rem; }
   .ar-place { width: 48px; height: 48px; }
 }
 
