@@ -19,7 +19,7 @@ let client = null;
 let loading = null;
 
 export function isConfigured() {
-  return Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey);
+  return Boolean(CONFIG.sb_publishable_du3BD8pkX689kQ_NVgP3_Q_dCiPM6fs && CONFIG.sb_secret_REDACTED_ROTATED_20260921);
 }
 
 async function getClient() {
