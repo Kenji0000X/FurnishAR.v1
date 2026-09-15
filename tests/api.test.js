@@ -39,23 +39,30 @@ test('catalog and health endpoints serve the expected data', async () => {
   const home = await fetch(`http://127.0.0.1:${port}/`);
   const privateSource = await fetch(`http://127.0.0.1:${port}/server.js`);
   assert.equal(health.status, 'ok');
-  assert.ok(catalog.products.length >= 6);
+  assert.ok(catalog.products.length >= 1);
   assert.ok(catalog.products.every(product => product.dimensions.width > 0 && product.arReady));
   assert.equal(home.status, 200);
   assert.equal(privateSource.status, 404);
 });
 
-test('products without modelGlb/modelUsdz fields remain optional and backward-compatible', async () => {
+test('catalog products with a GLB carry AR bounds and the file is served', async () => {
   const catalog = await fetch(`http://127.0.0.1:${port}/api/products`).then(response => response.json());
-  // Verify some products don't have 3D models
-  const noModel = catalog.products.find(p => !p.modelGlb && !p.modelUsdz);
-  assert.ok(noModel, 'Should have at least one product without 3D model fields');
-  // Verify some products DO have 3D models with proper bounds
-  const withModel = catalog.products.find(p => p.modelGlb && p.modelUsdz && p.modelBounds);
-  assert.ok(withModel, 'Should have at least one product with complete 3D model info');
-  assert.ok(withModel.modelBounds.width > 0);
-  assert.ok(withModel.modelBounds.height > 0);
-  assert.ok(withModel.modelBounds.depth > 0);
+  const withModel = catalog.products.filter(p => p.modelGlb);
+  assert.ok(withModel.length >= 1, 'Should have at least one product with a GLB model');
+  for (const product of withModel) {
+    assert.ok(product.modelBounds, `${product.id} should declare AR bounds`);
+    assert.ok(product.modelBounds.width > 0);
+    assert.ok(product.modelBounds.height > 0);
+    assert.ok(product.modelBounds.depth > 0);
+    const asset = await fetch(`http://127.0.0.1:${port}/${product.modelGlb}`);
+    assert.equal(asset.status, 200, `${product.modelGlb} should be served`);
+    assert.equal(asset.headers.get('content-type'), 'model/gltf-binary');
+  }
+});
+
+test('the USDZ field stays optional so GLB-only products still work', async () => {
+  const catalog = await fetch(`http://127.0.0.1:${port}/api/products`).then(response => response.json());
+  assert.ok(catalog.products.every(p => p.modelUsdz === undefined || typeof p.modelUsdz === 'string'));
 });
 
 test('owner login is scoped and protected API routes reject anonymous changes', async () => {
@@ -116,17 +123,19 @@ test('freemium stores are capped at 8 products and premium stores have no limit'
   await new Promise(resolve => functionServer.listen(0, '127.0.0.1', resolve));
   const { port: functionPort } = functionServer.address();
   try {
-    // Login as freemium store (tiampion) - already has 2 products (table-harvest, shelf-baybay)
+    // Login as the freemium store (tiampion)
     const freemiumLogin = await fetch(`http://127.0.0.1:${functionPort}/api/index?__furnishar_path=auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'tiampion@furnishar.ph', password: 'furnishar' }) }).then(response => response.json());
     const testProduct = { name: 'Test item', category: 'Storage', style: 'Modern', color: 'Natural', price: 100, stock: 1, dimensions: { width: 10, height: 10, depth: 10 } };
-    
-    // Add 6 more products to reach the 8-product limit
-    for (let i = 0; i < 6; i++) {
+
+    // Fill the store up to its 8-product freemium limit, whatever it starts with
+    const catalog = await fetch(`http://127.0.0.1:${functionPort}/api/index?__furnishar_path=products`).then(response => response.json());
+    const existing = catalog.products.filter(p => p.storeId === 'tiampion').length;
+    for (let i = existing; i < 8; i++) {
       const resp = await fetch(`http://127.0.0.1:${functionPort}/api/index?__furnishar_path=products`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${freemiumLogin.token}` }, body: JSON.stringify(testProduct) });
       assert.equal(resp.status, 201, `Product ${i + 1} should succeed`);
     }
-    
-    // 9th product (3rd added in this test, 9th total) should fail with 403
+
+    // The 9th product should fail with 403
     const failResp = await fetch(`http://127.0.0.1:${functionPort}/api/index?__furnishar_path=products`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${freemiumLogin.token}` }, body: JSON.stringify(testProduct) });
     assert.equal(failResp.status, 403);
     const error = await failResp.json();

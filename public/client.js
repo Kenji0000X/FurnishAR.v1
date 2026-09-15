@@ -324,18 +324,20 @@ async function loadScaledModel(product) {
 
     const model = gltf.scene;
     
-    // Ensure vertex colors are preserved for models without image textures
-    // Models like the cabinets use COLOR_0 vertex attributes instead of textures
+    // Ensure vertex colors are used only when the geometry actually carries a
+    // COLOR_0 attribute. Forcing it on a textured model (no colour attribute)
+    // leaves the shader without that attribute and renders the mesh black.
     model.traverse(node => {
-      if (node.isMesh && node.material) {
-        if (Array.isArray(node.material)) {
-          node.material.forEach(mat => {
-            mat.vertexColors = true;
-          });
-        } else {
-          node.material.vertexColors = true;
+      if (!node.isMesh || !node.material) return;
+      const hasVertexColors = !!node.geometry?.getAttribute?.('color');
+      const materials = Array.isArray(node.material) ? node.material : [node.material];
+      materials.forEach(mat => {
+        if (mat.vertexColors !== hasVertexColors) {
+          mat.vertexColors = hasVertexColors;
+          mat.needsUpdate = true;
         }
-      }
+        if (mat.map) mat.map.colorSpace = THREE.SRGBColorSpace;
+      });
     });
 
     const bbox = new THREE.Box3().setFromObject(model);
@@ -1033,6 +1035,8 @@ async function startExperience(purpose) {
   }
 
   mountARExperience();
+  const hudName = $('#ar-product-name');
+  if (hudName) hudName.textContent = product.name;
   state.arPurpose = purpose; state.arPoints = []; state.placedMatrix = null; state.placementBlocked = false; state.placementConfirmed = false; $('#camera-feed').style.display = ''; $('#xr-canvas').style.display = ''; $('#fallback-product').style.display = 'none';
   $('#place-button').hidden = purpose !== 'placement';
   $('#reset-model').hidden = purpose !== 'placement';
