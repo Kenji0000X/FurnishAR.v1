@@ -16,7 +16,14 @@ export const metadata = {
     'FurnishAR helps shoppers in Mamburao see true-to-scale furniture before they buy.',
   manifest: '/manifest.webmanifest',
   appleWebApp: { capable: true, title: 'FurnishAR' },
-  icons: { apple: '/icon.svg' }
+  // Declaring `icons` at all turns off Next's file-based icon detection, so
+  // the tab icon has to be named here too — otherwise browsers fall back to
+  // requesting /favicon.ico and 404.
+  icons: {
+    icon: '/icon.svg',
+    shortcut: '/icon.svg',
+    apple: '/icon.svg'
+  }
 };
 
 export const viewport = {

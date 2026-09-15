@@ -16,7 +16,7 @@ service down. This is deliberate, and each fallback is verified.
 | If this fails | What happens | Verified |
 | --- | --- | --- |
 | The Supabase project | The app serves the catalogue bundled with the deployment. Browsing and AR still work; only owner edits stop. | Yes — with keys set but the library unreachable |
-| The three.js CDN | AR still runs, drawing the piece as a true-scale box instead of the model. | Yes — the no-THREE path renders and places |
+| three.js failing to load | AR still runs, drawing the piece as a true-scale box instead of the model. Less likely than it was: three.js now ships with the deployment instead of being fetched from a CDN at run time. | Yes — the no-THREE path renders and places |
 | WebXR / ARCore missing | Untracked camera preview with a scale-reference ruler, labelled as an estimate. | Yes |
 | The camera is refused | Manual measurement fields, and the fit verdict still works. | Yes |
 | The network, mid-session | Already-loaded pages keep working; the model is cached by the browser. | Partially — no offline cache yet (§5) |
@@ -54,15 +54,26 @@ what the subscription tiers in `docs/BUSINESS-PLAN.md` are sized to cover.
 
 ## 3. Can it keep being maintained?
 
-- **The app has no runtime npm dependencies.** Nothing to install, nothing that
-  rots on the server. Two libraries load from a CDN at pinned versions, each
-  with a fallback.
-- **It is plain HTML, CSS and JavaScript** with no build framework. `npm run
-  build` copies files and writes one config file. A student who can read
-  JavaScript can maintain it; there is no toolchain to relearn in two years.
-- **50 automated tests** cover the API, the database access rules, the
-  measurement mathematics and the data mapping. A change that breaks an
-  access rule or a formula fails before it ships.
+- **Four runtime dependencies**, all mainstream: Next.js, React, React DOM and
+  three.js. This is a real change from the first version of this document,
+  which argued the app had none and therefore nothing to rot. That argument is
+  gone and should not be claimed: a framework has to be kept current, and a
+  major version will eventually need migrating.
+
+  What was bought with it: furniture has shareable, indexable URLs, which is
+  what lets a shop be found at all; pages render on the server instead of
+  after a round trip on a phone connection; and three.js is pinned in
+  `package-lock.json` rather than fetched from a CDN that has to be up when a
+  customer opens the app. On balance the trade was worth making — but it is a
+  trade, not a free win.
+- **The AR engine is still plain JavaScript.** The largest and most delicate
+  part of the codebase was moved into the framework, not rewritten in it, so it
+  can be read and fixed without knowing React. See `docs/FRAMEWORK.md`.
+- **59 automated tests** cover the API, the database access rules, the
+  measurement mathematics and the data mapping, plus two browser checks
+  (`npm run check:planner`, `npm run check:portal`) for the parts that only
+  fail at runtime. A change that breaks an access rule or a formula fails
+  before it ships.
 - **The design system is documented** in `BRAND.md` with measured contrast
   ratios, so a later contributor can extend the interface without guessing.
 - **The schema is a migration file**, not a hand-made database. A new
