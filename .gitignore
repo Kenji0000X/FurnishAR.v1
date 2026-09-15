@@ -1,0 +1,13 @@
+# Local environment. Keys belong in the deployment's settings, not in the repo.
+.env
+.env.local
+.env.*.local
+
+node_modules/
+npm-debug.log*
+
+# Local Postgres used by npm run test:db
+pgdata/
+
+# Generated at build time from the environment (may contain project keys).
+dist/config.js

@@ -11,10 +11,37 @@ The app runs two ways:
 | 3D models | files committed to `public/models/` | uploaded to Storage, per store |
 | Updates | on refresh | pushed live to every open browser |
 
-It picks automatically: set `SUPABASE_URL` and `SUPABASE_ANON_KEY` and it uses
-Supabase; leave either unset and it behaves exactly as it does today. If the
-keys are set but the client library cannot be fetched, it logs a warning and
-falls back to the bundled catalogue rather than showing an empty shop.
+It picks automatically: supply a project URL and a publishable key (§4) and it
+uses Supabase; leave either unset and it behaves exactly as it does today. If
+the keys are set but the client library cannot be fetched, it logs a warning
+and falls back to the bundled catalogue rather than showing an empty shop.
+
+**Already have `.env.local` from the dashboard? It works as-is — skip to §4.**
+
+---
+
+## 0. Ignore the dashboard's framework snippets
+
+Supabase's "Connect" panel hands out **Next.js** code by default:
+`@supabase/ssr`, `createServerClient`, `cookies()` from `next/headers`,
+`utils/supabase/server.ts`, `NEXT_PUBLIC_*` variables and a `todos` table.
+
+**None of it applies to FurnishAR.** This project is plain HTML, CSS and
+JavaScript with no framework, no bundler and no server components. There is
+nothing for `next/headers` to run inside, no `@/` path alias to resolve, and
+`todos` is not a table in this schema.
+
+| The dashboard shows | This project uses |
+| --- | --- |
+| `@supabase/ssr`, `createServerClient` | `@supabase/supabase-js@2`, loaded from a CDN in `public/supabase.js` |
+| `utils/supabase/server.ts`, `client.ts`, `middleware.ts` | one file: `public/supabase.js` |
+| `cookies()` from `next/headers` | the browser's own session storage, handled by supabase-js |
+| `process.env.NEXT_PUBLIC_*` inlined by Next | `window.FURNISHAR_CONFIG`, written into `dist/config.js` by `npm run build` |
+| `supabase.from('todos')` | `supabase.from('catalog')` — see §"Schema at a glance" |
+
+You do **not** need to create any `utils/` files, install any npm packages, or
+add `@supabase/ssr`. The integration already exists. All you have to supply is
+the URL and the key.
 
 ---
 
@@ -54,22 +81,52 @@ policies. Confirm it under **Storage** — it should be public, 50 MB limit.
 
 ## 4. Point the app at it
 
-**Vercel → Project → Settings → Environment Variables**:
+Two values, from **Settings → API**. The app reads them at build time and
+writes them into `dist/config.js`.
 
-| Name | Value | Where to find it |
-| --- | --- | --- |
-| `SUPABASE_URL` | `https://<ref>.supabase.co` | Settings → API → Project URL |
-| `SUPABASE_ANON_KEY` | the `anon` / publishable key | Settings → API → Project API keys |
+| Value | Where it comes from |
+| --- | --- |
+| Project URL | Settings → API → Project URL, e.g. `https://pasgfndrstoadwzynros.supabase.co` |
+| Publishable key | Settings → API keys → the **publishable** (`sb_publishable_…`) or legacy **anon** key |
 
-Redeploy. `npm run build` writes those into `dist/config.js`.
+### Locally
 
-> The **anon key belongs in the browser** — that is its purpose, and row level
-> security is what actually protects the data. The **service role key must
-> never** be put in these variables or anywhere else the browser can read. The
-> build refuses to run if `SUPABASE_ANON_KEY` looks like a service role key.
+Create `.env.local` in the project root. The names Supabase's dashboard gives
+you work as they are — the build accepts every spelling:
 
-For local development, edit `public/config.js` directly. Do not commit real
-keys to it.
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://pasgfndrstoadwzynros.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_xxxxxxxxxxxxxxxxxxxx
+```
+
+`SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_PUBLISHABLE_KEY` /
+`NEXT_PUBLIC_SUPABASE_ANON_KEY` are all accepted too, so nothing has to be
+renamed. `.env.local` is git-ignored.
+
+Then check the wiring before you deploy anything:
+
+```bash
+npm run check:supabase
+```
+
+It reports, one line at a time, whether the key is accepted, whether the tables
+exist, whether the seed data is there, whether drafts are correctly hidden from
+the public, whether the sign-up queue is closed, and whether email sign-in is
+on. Every failure names the fix. Run it from a normal internet connection.
+
+Then `npm run build && npm run local` and open
+[http://localhost:4173](http://localhost:4173). The footer will read
+`v1.1.0 · dev · live catalog` when the app is talking to Supabase.
+
+### On Vercel
+
+**Settings → Environment Variables**, same two names and values, then redeploy.
+Vercel's own variables always win over any `.env.local` left in a checkout.
+
+> The **publishable/anon key belongs in the browser** — that is its purpose, and
+> row level security is what actually protects the data. The **secret**
+> (`sb_secret_…`) or **service_role** key must never go in these variables; it
+> bypasses RLS entirely. `npm run build` refuses to run if it sees one.
 
 ## 5. Approve the first owner
 
