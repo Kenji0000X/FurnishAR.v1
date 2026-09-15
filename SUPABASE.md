@@ -13,10 +13,11 @@ The app runs two ways:
 
 It picks automatically: supply a project URL and a publishable key (§4) and it
 uses Supabase; leave either unset and it behaves exactly as it does today. If
-the keys are set but the client library cannot be fetched, it logs a warning
-and falls back to the bundled catalogue rather than showing an empty shop.
+the keys are set but the backend cannot be reached, it logs a warning and falls
+back to the bundled catalogue rather than showing an empty shop.
 
-**Already have `.env.local` from the dashboard? It works as-is — skip to §4.**
+**Already have `.env.local` from the dashboard? It works as-is — but rename two
+variables so the key stops being published to the browser. See §4.**
 
 ---
 
@@ -34,9 +35,10 @@ nothing for `next/headers` to run inside, no `@/` path alias to resolve, and
 | The dashboard shows | This project uses |
 | --- | --- |
 | `@supabase/ssr`, `createServerClient` | `@supabase/supabase-js@2`, loaded from a CDN in `public/supabase.js` |
-| `utils/supabase/server.ts`, `client.ts`, `middleware.ts` | one file: `public/supabase.js` |
+| `utils/supabase/server.ts`, `client.ts`, `middleware.ts` | two files: `lib/supabase-proxy.js` (server) and `public/supabase.js` (browser) |
 | `cookies()` from `next/headers` | the browser's own session storage, handled by supabase-js |
-| `process.env.NEXT_PUBLIC_*` inlined by Next | `window.FURNISHAR_CONFIG`, written into `dist/config.js` by `npm run build` |
+| `process.env.NEXT_PUBLIC_*` inlined into the browser bundle | server-only variables, read by `lib/supabase-proxy.js`; the browser gets nothing |
+| `createBrowserClient` calling Supabase from the page | the page calling `/api/sb/…` on this app's own origin |
 | `supabase.from('todos')` | `supabase.from('catalog')` — see §"Schema at a glance" |
 
 You do **not** need to create any `utils/` files, install any npm packages, or
@@ -76,32 +78,60 @@ policies. Confirm it under **Storage** — it should be public, 50 MB limit.
 - **Authentication → URL Configuration**: add your Vercel domain to *Site URL*
   and *Redirect URLs*.
 - **Database → Replication** (or **Realtime**): enable replication for
-  `public.products` and `public.product_assets`. This is what makes a shopper's
-  catalogue update the moment a shop publishes something.
+  `public.products` and `public.product_assets`. In direct mode this is what
+  makes a shopper's catalogue update the moment a shop publishes something. In
+  proxy mode (§4, the recommended one) the websocket cannot be proxied, so the
+  catalogue refreshes on a 60-second poll instead; enabling replication anyway
+  costs nothing and keeps the option open.
 
 ## 4. Point the app at it
 
-Two values, from **Settings → API**. The app reads them at build time and
-writes them into `dist/config.js`.
+Two values, from **Settings → API**:
 
 | Value | Where it comes from |
 | --- | --- |
-| Project URL | Settings → API → Project URL, e.g. `https://pasgfndrstoadwzynros.supabase.co` |
+| Project URL | Settings → API → Project URL, e.g. `https://xxxxxxxx.supabase.co` |
 | Publishable key | Settings → API keys → the **publishable** (`sb_publishable_…`) or legacy **anon** key |
 
-### Locally
+### Name them without `NEXT_PUBLIC_`
 
-Create `.env.local` in the project root. The names Supabase's dashboard gives
-you work as they are — the build accepts every spelling:
+This is the part that matters. **The prefix is not cosmetic** — anywhere it is
+honoured, including Next.js, `NEXT_PUBLIC_` means *"copy this value into the
+JavaScript sent to every visitor"*. Drop it, and the value stays on the server:
 
 ```bash
-NEXT_PUBLIC_SUPABASE_URL=https://pasgfndrstoadwzynros.supabase.co
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_xxxxxxxxxxxxxxxxxxxx
+# .env.local — git-ignored
+SUPABASE_URL=https://xxxxxxxx.supabase.co
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_xxxxxxxxxxxxxxxxxxxx
 ```
 
-`SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_PUBLISHABLE_KEY` /
-`NEXT_PUBLIC_SUPABASE_ANON_KEY` are all accepted too, so nothing has to be
-renamed. `.env.local` is git-ignored.
+With these names the app runs in **proxy mode**: the browser calls this app's
+own `/api/sb/…` routes, and `lib/supabase-proxy.js` calls Supabase with the key.
+The page never receives the key — or even the project URL. You can confirm it
+yourself: open DevTools → Network, and every Supabase request goes to your own
+domain.
+
+The proxy holds the *publishable* key on purpose, never the secret one, so row
+level security still applies to every request. A signed-in browser forwards its
+own access token, so the database sees the real user.
+
+<details>
+<summary>The old <code>NEXT_PUBLIC_*</code> names still work — here is what you give up</summary>
+
+`NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` /
+`NEXT_PUBLIC_SUPABASE_ANON_KEY` / `SUPABASE_ANON_KEY` are all still accepted, so
+an existing `.env.local` keeps working. But with a `NEXT_PUBLIC_` name the build
+writes the key into `dist/config.js` and the app runs in **direct mode**:
+the browser talks to Supabase itself and anyone can read the key out of the
+network tab. RLS still protects your rows — the key was never the security
+boundary — but the key can be scraped and spent against your free-tier quota,
+and your project URL is advertised to every visitor. Rename the two variables
+and that stops.
+
+Direct mode does buy one thing: Supabase realtime, which needs a websocket
+straight to the project. In proxy mode the catalogue polls every 60 seconds
+instead. For a pilot at this size that is the better trade.
+</details>
 
 Then check the wiring before you deploy anything:
 
@@ -120,13 +150,28 @@ Then `npm run build && npm run local` and open
 
 ### On Vercel
 
-**Settings → Environment Variables**, same two names and values, then redeploy.
-Vercel's own variables always win over any `.env.local` left in a checkout.
+**Settings → Environment Variables** → add `SUPABASE_URL` and
+`SUPABASE_PUBLISHABLE_KEY`, then redeploy. Vercel's own variables always win
+over any `.env.local` left in a checkout. If you previously set the
+`NEXT_PUBLIC_` versions there, **delete them** — otherwise the build keeps
+inlining the key into `dist/config.js` and the proxy work is undone.
 
-> The **publishable/anon key belongs in the browser** — that is its purpose, and
-> row level security is what actually protects the data. The **secret**
-> (`sb_secret_…`) or **service_role** key must never go in these variables; it
-> bypasses RLS entirely. `npm run build` refuses to run if it sees one.
+One more variable belongs here, and the app refuses to start on Vercel without
+it:
+
+```bash
+FURNISHAR_JWT_SECRET=<a long random string>
+```
+
+It signs the owner session cookies for the demo accounts in `lib/handler.js`.
+Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+Without it the code would fall back to a secret that is published in this
+repository, and anyone could forge an owner session — so it throws instead.
+
+> The **secret** (`sb_secret_…`) or **service_role** key must never go in any of
+> these variables, not even the server-only ones. It bypasses row level security
+> entirely, which would make the proxy the only thing standing between the public
+> and every row in your database. `npm run build` refuses to run if it sees one.
 
 ## 5. Approve the first owner
 

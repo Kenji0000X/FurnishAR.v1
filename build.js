@@ -31,18 +31,31 @@ copyDir(publicDir, distDir);
 // Credentials resolve through lib/env.js, which also reads .env.local, so the
 // file Supabase's dashboard tells you to create works without being copied
 // anywhere. A deployment's own environment always wins over that file.
-const { loadSupabaseEnv, assertPublishableKey } = require('./lib/env.js');
-const { supabaseUrl, supabaseAnonKey, urlFrom, keyFrom } = loadSupabaseEnv();
+const { loadSupabaseEnv, publicBundleCredentials, assertPublishableKey } = require('./lib/env.js');
+const env = loadSupabaseEnv();
+const { urlFrom, keyFrom } = env;
 
-assertPublishableKey(supabaseAnonKey);
-if (supabaseUrl && !/^https:\/\/[a-z0-9-]+\.supabase\.(co|in)$/.test(supabaseUrl)) {
-  console.warn(`! ${urlFrom} does not look like a Supabase project URL: ${supabaseUrl}`);
+assertPublishableKey(env.supabaseAnonKey);
+if (env.supabaseUrl && !/^https:\/\/[a-z0-9-]+\.supabase\.(co|in)$/.test(env.supabaseUrl)) {
+  console.warn(`! ${urlFrom} does not look like a Supabase project URL: ${env.supabaseUrl}`);
 }
-if (supabaseUrl && !supabaseAnonKey) {
-  throw new Error('A Supabase URL is set but no key. Set SUPABASE_ANON_KEY or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.');
+if (env.supabaseUrl && !env.supabaseAnonKey) {
+  throw new Error('A Supabase URL is set but no key. Set SUPABASE_PUBLISHABLE_KEY.');
 }
-if (supabaseAnonKey && !supabaseUrl) {
-  throw new Error('A Supabase key is set but no URL. Set SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL.');
+if (env.supabaseAnonKey && !env.supabaseUrl) {
+  throw new Error('A Supabase key is set but no URL. Set SUPABASE_URL.');
+}
+
+// Only NEXT_PUBLIC_*-named credentials are written into the browser bundle —
+// that prefix is the opt-in to the old direct-to-Supabase mode. Server-only
+// names stay out of dist/config.js and are used by lib/supabase-proxy.js
+// instead, so the key never reaches a visitor. See SUPABASE.md §4.
+const { supabaseUrl, supabaseAnonKey, mode, mixed } = publicBundleCredentials(env);
+if (mixed) {
+  console.warn(
+    `! ${urlFrom} and ${keyFrom} mix public and server-only names. Treating both as ` +
+    'server-only and keeping them out of the browser bundle. Rename them to match.'
+  );
 }
 
 // A build stamp so a maintainer can tell exactly what is deployed. Vercel
@@ -59,6 +72,17 @@ fs.writeFileSync(
     builtAt: new Date().toISOString()
   }, null, 2)};\n`
 );
-console.log(supabaseUrl
-  ? `✓ Build complete: public/ → dist/ (Supabase: ${new URL(supabaseUrl).host}, key from ${keyFrom})`
-  : '✓ Build complete: public/ → dist/ (bundled catalogue — no Supabase URL found)');
+if (mode === 'direct') {
+  console.log(`✓ Build complete: public/ → dist/ (Supabase: ${new URL(supabaseUrl).host})`);
+  console.warn(
+    `! Direct mode: ${keyFrom} is a NEXT_PUBLIC_* name, so the key is now in dist/config.js\n` +
+    '  and readable by every visitor. Rename to SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY to\n' +
+    '  keep it on the server. See SUPABASE.md §4.'
+  );
+} else if (mode === 'proxy') {
+  console.log(
+    `✓ Build complete: public/ → dist/ (Supabase via /api/sb — key held server-side, from ${keyFrom})`
+  );
+} else {
+  console.log('✓ Build complete: public/ → dist/ (bundled catalogue — no Supabase URL found)');
+}

@@ -1,25 +1,30 @@
 /**
  * Runtime configuration.
  *
- * Left empty here on purpose. `npm run build` overwrites this file in dist/
- * from the deployment's environment variables:
+ * Left empty here on purpose, and it should STAY empty in a normal deployment.
  *
- *     SUPABASE_URL=https://<project-ref>.supabase.co
- *     SUPABASE_ANON_KEY=<the anon/publishable key>
+ * Whatever lands in this file is served to every visitor, so the preferred
+ * setup puts nothing in it: name the deployment's variables `SUPABASE_URL` and
+ * `SUPABASE_PUBLISHABLE_KEY` (no NEXT_PUBLIC_ prefix), and the credentials stay
+ * on the server in lib/supabase-proxy.js. The browser reaches Supabase through
+ * this app's own /api/sb/… routes and never sees a key. See SUPABASE.md §4.
  *
- * With both set, the app talks to Supabase: real accounts, per-store
- * furniture, model uploads and a live catalogue. With either missing it falls
- * back to the bundled JSON catalogue and the demo sign-in, so local
- * development and the current deployment keep working untouched.
+ * `npm run build` only fills this file in when it finds the legacy
+ * NEXT_PUBLIC_* names, which ask for the old direct-to-Supabase mode. That mode
+ * still works and row level security still protects the data — the anon key was
+ * never the security boundary — but the key is then readable in DevTools and
+ * can be spent against your quota.
  *
- * Only the anon key belongs here. It is safe in a browser because every table
- * is protected by row level security. The service role key must never be put
- * in this file.
+ * With neither configured the app falls back to the bundled JSON catalogue and
+ * the demo sign-in, so local development keeps working untouched.
+ *
+ * The service role / secret key must never be put in this file, under any
+ * name: it bypasses row level security.
  */
 window.FURNISHAR_CONFIG = {
   supabaseUrl: '',
   supabaseAnonKey: '',
-  version: '1.0.0',
+  version: '1.1.0',
   commit: 'dev',
   builtAt: null
 };
