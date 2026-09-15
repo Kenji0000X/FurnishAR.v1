@@ -81,9 +81,26 @@ test('the Vercel function entry exports a request handler without starting a ser
 });
 
 test('the local listener does not start in the Vercel runtime', async () => {
-  const child = spawn(process.execPath, ['local.js'], { cwd: path.resolve(__dirname, '..'), env: { ...process.env, VERCEL: '1' } });
+  const child = spawn(process.execPath, ['local.js'], {
+    cwd: path.resolve(__dirname, '..'),
+    // A session secret is required in production; supply one so this test
+    // exercises the listener, not the secret guard.
+    env: { ...process.env, VERCEL: '1', FURNISHAR_JWT_SECRET: 'test-secret-for-this-case' }
+  });
   const exitCode = await new Promise((resolve, reject) => { child.once('exit', resolve); child.once('error', reject); });
   assert.equal(exitCode, 0);
+});
+
+test('a production runtime refuses to start on the repository\'s public dev secret', async () => {
+  const child = spawn(process.execPath, ['local.js'], {
+    cwd: path.resolve(__dirname, '..'),
+    env: { ...process.env, VERCEL: '1', FURNISHAR_JWT_SECRET: '' }
+  });
+  let stderr = '';
+  child.stderr.on('data', chunk => { stderr += chunk; });
+  const exitCode = await new Promise((resolve, reject) => { child.once('exit', resolve); child.once('error', reject); });
+  assert.notEqual(exitCode, 0, 'it must not boot with a forgeable session secret');
+  assert.match(stderr, /FURNISHAR_JWT_SECRET is not set/);
 });
 
 test('the Vercel rewrite reaches the requested API endpoint', async () => {
