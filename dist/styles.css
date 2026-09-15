@@ -1267,3 +1267,23 @@ footer {
   .nav-link.active:after { opacity: 1; }
   .skeleton-image, .skeleton-line { animation: none; background: var(--paper-sunken); }
 }
+
+/* Owner portal: the model upload field and its note span the form grid. */
+.form-wide { grid-column: 1 / -1; }
+.field-note {
+  font-family: var(--sans); font-size: .6875rem;
+  letter-spacing: normal; text-transform: none; color: var(--ink-faint);
+}
+.product-form input[type="file"] {
+  padding: .5rem .6rem;
+  border: 1px dashed var(--rule);
+  background: var(--paper);
+  font-family: var(--mono); font-size: .6875rem;
+}
+.product-form input[type="file"]::file-selector-button {
+  margin-right: .7rem; padding: .35rem .7rem;
+  border: 1px solid var(--rule-strong); background: transparent;
+  font-family: var(--sans); font-size: .6875rem; cursor: pointer;
+}
+.product-form input[type="file"]::file-selector-button:hover { background: var(--ink); color: var(--paper); }
+.form-error.is-ok { color: var(--deep); }

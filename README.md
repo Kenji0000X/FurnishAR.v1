@@ -14,13 +14,34 @@ Open [http://localhost:4173](http://localhost:4173). `localhost` is treated as a
 
 ## Demo owner accounts
 
+These belong to the bundled-catalogue mode, which is what runs when no Supabase
+project is configured.
+
 | Store | Email | Password |
 | --- | --- | --- |
 | S&C Variety Store | `owner@furnishar.ph` | `furnishar` |
 | Tiampion Buildings | `tiampion@furnishar.ph` | `furnishar` |
 | Sanros General Merchandise | `sanros@furnishar.ph` | `furnishar` |
 
-Catalog changes are written to `data/catalog.json`. Set `FURNISHAR_JWT_SECRET` to a strong unique secret before deployment, replace demo accounts with hashed credentials in a real identity provider, and move the JSON catalog to PostgreSQL/MySQL or equivalent managed storage.
+## Live database (Supabase)
+
+Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` and the app switches to a real
+backend: Supabase Auth accounts, per-store furniture protected by row level
+security, 3D model uploads into Storage, and a catalogue that updates live in
+every open browser. Leave them unset and it keeps the bundled catalogue and the
+demo sign-in above, unchanged.
+
+**[SUPABASE.md](SUPABASE.md)** is the full runbook — creating the project,
+running `supabase/migrations/0001_init.sql`, the storage bucket, the
+environment variables, and how to approve a shop owner's application.
+
+Store owners sign themselves up in the portal. That creates an account and a
+`store_applications` row; the account owns nothing until an admin links it to a
+store, so a new sign-up sees a "your store is in review" screen rather than an
+empty dashboard.
+
+`npm run test:db` checks the schema and every access rule against a real
+Postgres, including that one shop can never read or write another's furniture.
 
 ## Panel feedback & roadmap
 
