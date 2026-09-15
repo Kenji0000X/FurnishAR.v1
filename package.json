@@ -1,6 +1,6 @@
 {
   "name": "furnishar",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "FurnishAR - browser-native furniture planning for Mamburao retailers",
   "scripts": {

@@ -45,14 +45,27 @@ Postgres, including that one shop can never read or write another's furniture.
 
 ## Panel feedback & roadmap
 
-The thesis panel requested four features, all now implemented:
+### Earlier panel requests
 
 | Reviewer | Request | Implementation | Status |
 | --- | --- | --- | --- |
-| Leonard Flores (RECO) | Subscription tiers | Added `plan` tier per store (freemium: 8-product cap; premium: unlimited). Freemium stores cannot exceed the limit; premium stores can set `featured` on products which sort first in the catalog. | ✅ Done |
-| Ian F. Bautista (Panel) | Maintenance audit trail | All products stamped with `updatedAt` (ISO timestamp) on create/edit. Owner dashboard shows "last updated" per row in relative time (e.g., "3 days ago"). | ✅ Done |
-| Ian F. Bautista (Panel) | Measurement validation | Native AR measurement now requires a confirmatory scan. If readings differ by >5%, the UI shows a warning and asks to rescan. If within 5%, readings are averaged and accepted. Camera fallback and manual fields remain unchanged. | ✅ Done |
-| Vina A. Atienza (Panel) | Store profiles | Each store now has address, contact number, and hours. Store info block appears in product detail dialogs. Addresses are currently placeholders (Mamburao, Occidental Mindoro) — **replace before public launch**. | ✅ Done |
+| Leonard Flores (RECO) | Subscription tiers | `plan` per store (freemium: 8-product cap; premium: unlimited + featured). Enforced by database triggers, not by the UI. | ✅ Done |
+| Ian F. Bautista (Panel) | Maintenance audit trail | Products stamped with `updatedAt`; the dashboard shows "last updated" per row. | ✅ Done |
+| Ian F. Bautista (Panel) | Measurement validation | A confirmatory scan is required; readings must agree within 5% or the app asks for a rescan. | ✅ Done |
+| Vina A. Atienza (Panel) | Store profiles | Address, contact number and hours per store, shown in every product dialog. Addresses are still placeholders — **replace before launch**. | ✅ Done |
+
+### Latest panel comments
+
+| Reviewer | Comment | What was done | Evidence |
+| --- | --- | --- | --- |
+| Leonard Flores (RECO) | Usage convenience | Shareable product links, native share / copy to clipboard, and the last measurement remembered for a day. | Browser pass: link copied, deep link reopens the piece, measurement survives a new visit |
+| Leonard Flores (RECO) | Visualization: Design | Interface rebuilt on a documented system (minimalism + a pinch of brutalism + glass on the z-axis only); a to-scale plan view added to the fit verdict. | [`BRAND.md`](BRAND.md); 0 contrast failures, 0 under-size targets |
+| Leonard Flores (RECO) | Consider mobile view | Verified at 390 px: no horizontal scroll, every control ≥ 44 px on touch. Installable to the home screen. | Automated audit; web manifest served and parsed |
+| Leonard Flores (RECO) | Requirements Analysis | Requirements, stakeholders, constraints and a traceability matrix — each requirement tied to the code that implements it and the test that proves it. | [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md) |
+| Leonard Flores (RECO) | Startup idea: business plan, Freemium/Premium | Tiers, pricing rationale, unit economics, break-even and risks. Shown in the portal with live usage against the cap. | [`docs/BUSINESS-PLAN.md`](docs/BUSINESS-PLAN.md) |
+| Ian F. Bautista (Panel) | Maintenance/Updates | Version and commit stamped into every build and shown in the footer; routine schedule, upgrade procedure, troubleshooting table and handover checklist. | [`docs/MAINTENANCE.md`](docs/MAINTENANCE.md); `CHANGELOG.md` |
+| Ian F. Bautista (Panel) | Validation of accurate area measurement | **Floor area scanning added** (three or more points, shoelace on the floor plane), validated by a second scan within 5% and a flatness check on the tapped points. Mathematics tested against shapes with known answers. | 18 tests in `tests/geometry.test.js`; an end-to-end scan of a 4 × 3 m floor reads 12.0 m². **Field validation against a tape measure is still outstanding** — protocol in [`docs/MAINTENANCE.md`](docs/MAINTENANCE.md) §5 |
+| Vina A. Atienza (Panel) | System Sustainability | Failure behaviour, running costs against free-tier limits, maintainability, backups, handover — and an explicit list of what is not sustainable yet. | [`docs/SUSTAINABILITY.md`](docs/SUSTAINABILITY.md) |
 
 ## AR notes
 
