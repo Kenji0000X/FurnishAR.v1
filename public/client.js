@@ -301,6 +301,12 @@ function projectToScreen(vector3, camera) {
   };
 }
 
+function onARKeydown(event) {
+  if (event.key !== 'Escape' || !$('#ar-experience')) return;
+  event.preventDefault();
+  if (state.session) state.session.end().catch(cleanupAR); else cleanupAR();
+}
+
 function mountARExperience() {
   let experience = $('#ar-experience');
   if (!experience) {
@@ -312,10 +318,12 @@ function mountARExperience() {
   bindTray();
   syncTrayReadout();
   $('#exit-ar').addEventListener('click', () => state.session ? state.session.end() : cleanupAR(), { once: true });
+  document.addEventListener('keydown', onARKeydown);
   return experience;
 }
 
 function unmountARExperience() {
+  document.removeEventListener('keydown', onARKeydown);
   $('#ar-experience')?.remove();
 }
 
@@ -383,6 +391,24 @@ function renderColors() {
   $('#color-options').innerHTML = colors.map(color => `<button class="color-option ${state.filters.color === color ? 'active' : ''}" data-color="${color}" style="background:${colorFor({ color })}" aria-label="Filter by ${color}" aria-pressed="${state.filters.color === color}"></button>`).join('');
 }
 
+/* Dialogs remember the control that opened them, so closing returns focus
+   where the keyboard left it instead of dropping it on <body>. */
+function openDialog(dialog) {
+  dialog.dataset.returnFocus = '';
+  state.focusReturn = document.activeElement;
+  dialog.showModal();
+  const heading = dialog.querySelector('h2');
+  if (heading) {
+    heading.setAttribute('tabindex', '-1');
+    heading.focus({ preventScroll: true });
+  }
+  dialog.addEventListener('close', () => {
+    const target = state.focusReturn;
+    state.focusReturn = null;
+    if (target && document.contains(target)) target.focus({ preventScroll: true });
+  }, { once: true });
+}
+
 function openProduct(id) {
   const product = state.products.find(item => item.id === id);
   if (!product) return;
@@ -398,7 +424,7 @@ function openProduct(id) {
   const quickLookLink = (isIOS && product.modelUsdz) ? `<a class="button button-primary" rel="ar" href="${product.modelUsdz}"><img src="${product.modelUsdz.replace(/\.(usdz|glb)$/i, '.png')}" alt="${escapeHtml(product.name)} preview" style="display:block;width:100%;max-width:180px;border-radius:12px;margin:0 auto 12px;" onerror="this.style.display='none'" />Open in AR</a>` : '';
   const arAction = (navigator.xr && !isIOS) ? `<button class="button button-primary" data-place-product="${product.id}">Place in your room</button>` : (product.modelUsdz && isIOS ? quickLookLink : `<button class="button button-primary" data-place-product="${product.id}">Place in your room</button>`);
   $('#dialog-content').innerHTML = `<div class="dialog-layout"><div class="dialog-image">${furniture(product)}</div><div class="dialog-info"><p class="product-store">${escapeHtml(product.store)} · ${escapeHtml(product.category)}</p><h2>${escapeHtml(product.name)}</h2><p class="dialog-price">${peso(product.price)}</p><p>${escapeHtml(product.description)}</p><div class="dialog-dimensions"><div><span>WIDTH</span><b>${cm(product.dimensions.width)}</b></div><div><span>DEPTH</span><b>${cm(product.dimensions.depth)}</b></div><div><span>HEIGHT</span><b>${cm(product.dimensions.height)}</b></div></div>${storeBlock}${arAction}<button class="button button-outline" data-plan-product="${product.id}">Measure the fit first</button></div></div>`;
-  $('#product-dialog').showModal();
+  openDialog($('#product-dialog'));
 }
 
 function selectProduct(id, goToPlanner = false) {
@@ -444,7 +470,11 @@ function changeView(name) {
     else cleanupAR();
   }
   $$('.view').forEach(view => view.classList.toggle('active', view.id === `${name}-view`));
-  $$('.nav-link').forEach(button => button.classList.toggle('active', button.dataset.view === name));
+  $$('.nav-link').forEach(button => {
+    const isCurrent = button.dataset.view === name;
+    button.classList.toggle('active', isCurrent);
+    button.setAttribute('aria-current', isCurrent ? 'page' : 'false');
+  });
   if (name === 'planner') renderPlanner();
   if (name === 'admin') renderAdmin();
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1245,6 +1275,7 @@ function cleanupAR() {
 async function login(event) {
   event.preventDefault();
   $('#login-error').textContent = '';
+  event.currentTarget.querySelector('[name="email"]')?.removeAttribute('aria-invalid');
   // Hold on to the form: event.currentTarget is null once the await resumes.
   const form = event.currentTarget;
   const fields = Object.fromEntries(new FormData(form));
@@ -1259,6 +1290,8 @@ async function login(event) {
     toast(`Signed in to ${state.user.store}.`);
   } catch (error) {
     $('#login-error').textContent = error.message;
+    form.querySelector('[name="email"]')?.setAttribute('aria-invalid', 'true');
+    form.querySelector('[name="email"]')?.focus();
   }
 }
 
@@ -1306,7 +1339,7 @@ function openProductForm(product = null) {
     form.elements.modelHeight.value = product.modelBounds?.height ?? product.dimensions.height;
     form.elements.modelDepth.value = product.modelBounds?.depth ?? product.dimensions.depth;
   }
-  $('#product-form-dialog').showModal();
+  openDialog($('#product-form-dialog'));
 }
 
 async function saveProduct(event) {
@@ -1334,6 +1367,16 @@ async function deleteProduct(id) {
   catch (error) { toast(error.message); }
 }
 
+const SKELETON_CARD = `<article class="skeleton-card" aria-hidden="true"><div class="skeleton-image"></div><div class="skeleton-info"><span class="skeleton-line is-short"></span><span class="skeleton-line is-title"></span><span class="skeleton-line is-short"></span></div></article>`;
+
+function showCatalogSkeleton(count = 6) {
+  const grid = $('#product-grid');
+  if (!grid) return;
+  grid.classList.add('is-loading');
+  grid.setAttribute('aria-busy', 'true');
+  grid.innerHTML = SKELETON_CARD.repeat(count);
+}
+
 async function loadProducts() {
   const data = await api('/api/products'); 
   state.products = data.products;
@@ -1348,6 +1391,9 @@ async function loadProducts() {
     console.warn('Could not load store information:', error);
   }
   if (!state.selected || !state.products.some(product => product.id === state.selected.id)) state.selected = state.products[0] || null;
+  const grid = $('#product-grid');
+  grid.classList.remove('is-loading');
+  grid.removeAttribute('aria-busy');
   renderColors(); renderCatalog(); renderPlanner(); renderAdmin();
 }
 
@@ -1378,6 +1424,7 @@ function bindEvents() {
 
 async function init() {
   bindEvents();
+  showCatalogSkeleton();
   try {
     // Pre-load THREE.js in parallel with products
     await Promise.all([
