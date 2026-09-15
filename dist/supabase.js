@@ -1,30 +1,81 @@
 /**
- * Supabase backend for FurnishAR.
+ * Backend for FurnishAR, in two transports behind one interface.
  *
- * Loaded only when public/config.js supplies a project URL and anon key. The
- * anon key is meant to be public — every table is protected by row level
- * security, so the key alone grants nothing beyond what a shopper may see.
- * The service role key must never appear in this file or any other file that
- * reaches a browser.
+ *   proxy  (default, recommended)
+ *          The browser calls this app's own /api/sb/… endpoints. The Supabase
+ *          key stays on the server and never reaches a page, so it cannot be
+ *          read out of the network tab or reused against your quota. No
+ *          third-party script is loaded either.
  *
- * Everything here speaks the app's own product shape, so client.js does not
- * care which backend is answering.
+ *   direct (legacy)
+ *          Only if public/config.js still carries a key. The browser talks to
+ *          Supabase itself via supabase-js. Faster to set up, but the key is
+ *          visible to anyone who opens DevTools — which is true of every
+ *          browser-side Supabase app, in any framework.
+ *
+ * Either way row level security is the thing protecting the data; the proxy
+ * hides the key, it does not replace RLS. client.js calls the exports below and
+ * does not care which transport answered.
  */
 
 const CONFIG = (typeof window !== 'undefined' && window.FURNISHAR_CONFIG) || {};
 const MODEL_BUCKET = 'furniture-models';
 const MAX_MODEL_BYTES = 50 * 1024 * 1024; // matches the bucket's file_size_limit
+const SESSION_KEY = 'furnishar-sb-session';
 
-let client = null;
+let mode = null;          // 'proxy' | 'direct' | null
+let client = null;        // supabase-js client, direct mode only
 let loading = null;
+let session = readStoredSession();
 
-export function isConfigured() {
-  return Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey);
+/* ------------------------------------------------------------- transport --- */
+
+function readStoredSession() {
+  try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null'); } catch { return null; }
 }
 
-async function getClient() {
+function storeSession(next) {
+  session = next;
+  try {
+    if (next) sessionStorage.setItem(SESSION_KEY, JSON.stringify(next));
+    else sessionStorage.removeItem(SESSION_KEY);
+  } catch { /* private mode */ }
+}
+
+/**
+ * Decides which transport to use. The proxy is asked first: if the server holds
+ * credentials, the browser never needs any.
+ */
+export async function prepare() {
+  if (mode) return mode;
+  try {
+    const response = await fetch('/api/sb/status', { headers: { Accept: 'application/json' } });
+    if (response.ok && (await response.json()).configured) {
+      mode = 'proxy';
+      return mode;
+    }
+  } catch { /* no server route — fall through */ }
+
+  if (CONFIG.supabaseUrl && CONFIG.supabaseAnonKey) {
+    await getDirectClient();
+    mode = 'direct';
+    return mode;
+  }
+  throw new Error('No Supabase backend is configured for this deployment.');
+}
+
+export function isConfigured() {
+  // The server may hold the credentials, so this cannot be answered from the
+  // page alone; prepare() settles it. Returning true lets the caller try.
+  return Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey) || typeof fetch === 'function';
+}
+
+export function activeMode() {
+  return mode;
+}
+
+async function getDirectClient() {
   if (client) return client;
-  if (!isConfigured()) throw new Error('Supabase is not configured for this deployment.');
   loading ||= import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
   const { createClient } = await loading;
   client = createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey, {
@@ -33,20 +84,57 @@ async function getClient() {
   return client;
 }
 
-/**
- * Forces the client library to load so a CDN or network failure is discovered
- * at start-up, while there is still time to fall back to the bundled
- * catalogue, rather than halfway through a query.
- */
-export async function prepare() {
-  await getClient();
-  return true;
+/** One PostgREST call through the proxy, as the signed-in user when there is one. */
+async function restCall(path, options = {}) {
+  const headers = { Accept: 'application/json', ...(options.headers || {}) };
+  if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
+  if (options.body) headers['Content-Type'] = 'application/json';
+
+  const response = await fetch(`/api/sb/rest/${path}`, { ...options, headers });
+  const text = await response.text();
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+
+  if (response.status === 401 && session?.refresh_token) {
+    // The access token expired mid-session; renew once and retry.
+    const renewed = await refreshSession();
+    if (renewed) return restCall(path, options);
+  }
+  if (!response.ok) throw new Error(friendlyError(body || { message: `Request failed (${response.status})` }));
+  return body;
 }
+
+async function authCall(action, payload) {
+  const response = await fetch(`/api/sb/auth/${action}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(friendlyError(body));
+  return body;
+}
+
+async function refreshSession() {
+  if (!session?.refresh_token) return false;
+  try {
+    const renewed = await authCall('refresh', { refreshToken: session.refresh_token });
+    if (renewed?.access_token) { storeSession(renewed); return true; }
+  } catch { /* fall through */ }
+  storeSession(null);
+  return false;
+}
+
+/* ------------------------------------------------------------- mapping ----- */
 
 /** Public URL for an uploaded model. The bucket is public, so no signing. */
 export function modelUrl(objectPath) {
   if (!objectPath) return undefined;
-  return `${CONFIG.supabaseUrl}/storage/v1/object/public/${MODEL_BUCKET}/${objectPath}`;
+  const base = CONFIG.supabaseUrl || CONFIG.storageBaseUrl || '';
+  if (base) return `${base}/storage/v1/object/public/${MODEL_BUCKET}/${objectPath}`;
+  // In proxy mode the project URL is not published to the page, so models are
+  // fetched through the app's own origin.
+  return `/api/sb/model/${objectPath}`;
 }
 
 /** A row of public.catalog in the shape the rest of the app already uses. */
@@ -117,24 +205,19 @@ export function slugify(value) {
 /* ----------------------------------------------------------------- data --- */
 
 export async function listProducts() {
-  const supabase = await getClient();
-  const { data, error } = await supabase
-    .from('catalog')
-    .select('*')
-    .order('featured', { ascending: false })
-    .order('updated_at', { ascending: false });
-  if (error) throw new Error(error.message);
-  return data.map(toProduct);
+  if (mode === 'direct') {
+    const supabase = await getDirectClient();
+    const { data, error } = await supabase.from('catalog').select('*')
+      .order('featured', { ascending: false }).order('updated_at', { ascending: false });
+    if (error) throw new Error(error.message);
+    return data.map(toProduct);
+  }
+  const rows = await restCall('catalog?select=*&order=featured.desc,updated_at.desc');
+  return (rows || []).map(toProduct);
 }
 
 export async function listStores() {
-  const supabase = await getClient();
-  const { data, error } = await supabase
-    .from('stores')
-    .select('id, slug, name, address, contact_number, hours, plan')
-    .eq('status', 'active');
-  if (error) throw new Error(error.message);
-  return data.map(store => ({
+  const shape = store => ({
     id: store.slug,
     uuid: store.id,
     name: store.name,
@@ -142,49 +225,77 @@ export async function listStores() {
     contactNumber: store.contact_number,
     hours: store.hours,
     plan: store.plan
-  }));
+  });
+  if (mode === 'direct') {
+    const supabase = await getDirectClient();
+    const { data, error } = await supabase.from('stores')
+      .select('id, slug, name, address, contact_number, hours, plan').eq('status', 'active');
+    if (error) throw new Error(error.message);
+    return data.map(shape);
+  }
+  const rows = await restCall('stores?select=id,slug,name,address,contact_number,hours,plan&status=eq.active');
+  return (rows || []).map(shape);
 }
 
 /** Everything the signed-in owner can edit, drafts included. */
 export async function listOwnProducts(storeUuid) {
-  const supabase = await getClient();
-  const { data, error } = await supabase
-    .from('products')
-    .select('*, product_assets(kind, object_path)')
-    .eq('store_id', storeUuid)
-    .neq('status', 'archived')
-    .order('updated_at', { ascending: false });
-  if (error) throw new Error(error.message);
-  return data.map(row => toProduct({
+  const merge = row => toProduct({
     ...row,
-    store_slug: row.store_slug,
     model_glb_path: row.product_assets?.find(a => a.kind === 'glb')?.object_path,
     model_usdz_path: row.product_assets?.find(a => a.kind === 'usdz')?.object_path
-  }));
+  });
+  if (mode === 'direct') {
+    const supabase = await getDirectClient();
+    const { data, error } = await supabase.from('products').select('*, product_assets(kind, object_path)')
+      .eq('store_id', storeUuid).neq('status', 'archived').order('updated_at', { ascending: false });
+    if (error) throw new Error(error.message);
+    return data.map(merge);
+  }
+  const rows = await restCall(
+    `products?select=*,product_assets(kind,object_path)&store_id=eq.${storeUuid}&status=neq.archived&order=updated_at.desc`
+  );
+  return (rows || []).map(merge);
 }
 
 export async function saveProduct(product, storeUuid) {
-  const supabase = await getClient();
   const row = toRow(product, storeUuid);
-  const query = product.id
-    ? supabase.from('products').update(row).eq('id', product.id).select().single()
-    : supabase.from('products').insert(row).select().single();
-  const { data, error } = await query;
-  if (error) throw new Error(friendlyError(error));
-  return data;
+  if (mode === 'direct') {
+    const supabase = await getDirectClient();
+    const query = product.id
+      ? supabase.from('products').update(row).eq('id', product.id).select().single()
+      : supabase.from('products').insert(row).select().single();
+    const { data, error } = await query;
+    if (error) throw new Error(friendlyError(error));
+    return data;
+  }
+  const result = await restCall(
+    product.id ? `products?id=eq.${product.id}` : 'products',
+    {
+      method: product.id ? 'PATCH' : 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify(row)
+    }
+  );
+  return Array.isArray(result) ? result[0] : result;
 }
 
 export async function deleteProduct(id) {
-  const supabase = await getClient();
-  const { error } = await supabase.from('products').delete().eq('id', id);
-  if (error) throw new Error(friendlyError(error));
+  if (mode === 'direct') {
+    const supabase = await getDirectClient();
+    const { error } = await supabase.from('products').delete().eq('id', id);
+    if (error) throw new Error(friendlyError(error));
+    return;
+  }
+  await restCall(`products?id=eq.${id}`, { method: 'DELETE' });
 }
 
 /**
- * Uploads a .glb/.usdz for a product. The path is always
- * <store_id>/<product_id>/<file>, which is exactly what the storage policy and
- * the product_assets check constraint require, so a file can never land in
- * another shop's folder.
+ * Uploads a .glb/.usdz for a product to <store_id>/<product_id>/<file>.
+ *
+ * In proxy mode the server issues a one-time signed URL and the browser uploads
+ * straight to Storage with it. The file never passes through the serverless
+ * function — which would cap it at 4.5 MB, far below the 50 MB model limit —
+ * and the key still never reaches the page.
  */
 export async function uploadModel(file, { storeUuid, productId, kind = 'glb' }) {
   if (!file) throw new Error('Choose a file first.');
@@ -195,14 +306,32 @@ export async function uploadModel(file, { storeUuid, productId, kind = 'glb' }) 
   const mime = kind === 'glb' ? 'model/gltf-binary' : kind === 'usdz' ? 'model/vnd.usdz+zip' : file.type;
   const objectPath = `${storeUuid}/${productId}/model.${extension}`;
 
-  const supabase = await getClient();
-  const { error: uploadError } = await supabase.storage
-    .from(MODEL_BUCKET)
-    .upload(objectPath, file, { contentType: mime, upsert: true, cacheControl: '3600' });
-  if (uploadError) throw new Error(friendlyError(uploadError));
+  if (mode === 'direct') {
+    const supabase = await getDirectClient();
+    const { error: uploadError } = await supabase.storage.from(MODEL_BUCKET)
+      .upload(objectPath, file, { contentType: mime, upsert: true, cacheControl: '3600' });
+    if (uploadError) throw new Error(friendlyError(uploadError));
+  } else {
+    const signed = await fetch('/api/sb/storage/sign', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {})
+      },
+      body: JSON.stringify({ bucket: MODEL_BUCKET, objectPath })
+    }).then(r => r.json().then(body => ({ ok: r.ok, body })));
+    if (!signed.ok) throw new Error(friendlyError(signed.body));
+
+    const upload = await fetch(signed.body.uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': mime, 'x-upsert': 'true' },
+      body: file
+    });
+    if (!upload.ok) throw new Error(`The model could not be uploaded (${upload.status}).`);
+  }
 
   // store_id is set by a trigger from the product, so it cannot be spoofed here.
-  const { error } = await supabase.from('product_assets').upsert({
+  const assetRow = {
     product_id: productId,
     store_id: storeUuid,
     kind,
@@ -210,103 +339,149 @@ export async function uploadModel(file, { storeUuid, productId, kind = 'glb' }) 
     object_path: objectPath,
     byte_size: file.size,
     mime_type: mime
-  }, { onConflict: 'product_id,kind' });
-  if (error) throw new Error(friendlyError(error));
+  };
+  if (mode === 'direct') {
+    const supabase = await getDirectClient();
+    const { error } = await supabase.from('product_assets').upsert(assetRow, { onConflict: 'product_id,kind' });
+    if (error) throw new Error(friendlyError(error));
+  } else {
+    await restCall('product_assets?on_conflict=product_id,kind', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates' },
+      body: JSON.stringify(assetRow)
+    });
+  }
   return { objectPath, url: modelUrl(objectPath) };
 }
 
 /* ----------------------------------------------------------------- auth --- */
 
 export async function signUp({ email, password, storeName, phone, message }) {
-  const supabase = await getClient();
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: { data: { store_name: storeName, contact_phone: phone } }
-  });
-  if (error) throw new Error(friendlyError(error));
-
-  // The account exists but owns nothing yet. The application is what an admin
-  // reviews before linking it to a store.
-  const { error: applicationError } = await supabase.from('store_applications').insert({
-    store_name: storeName,
-    contact_email: email,
-    contact_phone: phone || null,
-    message: message || null
-  });
-  if (applicationError && !/duplicate key/i.test(applicationError.message)) {
-    throw new Error(friendlyError(applicationError));
+  if (mode === 'direct') {
+    const supabase = await getDirectClient();
+    const { data, error } = await supabase.auth.signUp({
+      email, password, options: { data: { store_name: storeName, contact_phone: phone } }
+    });
+    if (error) throw new Error(friendlyError(error));
+    await supabase.from('store_applications').insert({
+      store_name: storeName, contact_email: email, contact_phone: phone || null, message: message || null
+    });
+    return { user: data.user, needsEmailConfirmation: Boolean(data.user && !data.session) };
   }
-  return {
-    user: data.user,
-    needsEmailConfirmation: Boolean(data.user && !data.session)
-  };
+
+  const result = await authCall('signup', { email, password, storeName, phone });
+  if (result.access_token) storeSession(result);
+  // The account exists but owns nothing yet; the application is what an admin
+  // reviews before linking it to a store.
+  try {
+    await restCall('store_applications', {
+      method: 'POST',
+      body: JSON.stringify({
+        store_name: storeName, contact_email: email,
+        contact_phone: phone || null, message: message || null
+      })
+    });
+  } catch (error) {
+    if (!/duplicate key/i.test(error.message)) throw error;
+  }
+  return { user: result.user, needsEmailConfirmation: Boolean(result.user && !result.access_token) };
 }
 
 export async function signIn({ email, password }) {
-  const supabase = await getClient();
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) throw new Error(friendlyError(error));
-  return data;
+  if (mode === 'direct') {
+    const supabase = await getDirectClient();
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw new Error(friendlyError(error));
+    return data;
+  }
+  const result = await authCall('login', { email, password });
+  storeSession(result);
+  return result;
 }
 
 export async function signOut() {
-  const supabase = await getClient();
-  await supabase.auth.signOut();
+  if (mode === 'direct') {
+    const supabase = await getDirectClient();
+    await supabase.auth.signOut();
+    return;
+  }
+  try { await authCall('logout', { accessToken: session?.access_token }); } catch { /* already gone */ }
+  storeSession(null);
 }
 
 export async function getSession() {
-  const supabase = await getClient();
-  const { data } = await supabase.auth.getSession();
-  return data.session || null;
+  if (mode === 'direct') {
+    const supabase = await getDirectClient();
+    const { data } = await supabase.auth.getSession();
+    return data.session || null;
+  }
+  if (!session) return null;
+  // Renew a session that is within a minute of expiring.
+  const expiresAt = (session.expires_at || 0) * 1000;
+  if (expiresAt && expiresAt - Date.now() < 60_000) await refreshSession();
+  return session;
 }
 
 /** The store this signed-in user may act for, or null while unapproved. */
 export async function getMembership() {
-  const supabase = await getClient();
-  const { data, error } = await supabase
-    .from('store_members')
-    .select('role, stores(id, slug, name, plan)')
-    .limit(1)
-    .maybeSingle();
-  if (error) throw new Error(friendlyError(error));
-  if (!data) return null;
-  return {
-    role: data.role,
-    storeUuid: data.stores.id,
-    storeId: data.stores.slug,
-    store: data.stores.name,
-    plan: data.stores.plan
+  const shape = row => row && {
+    role: row.role,
+    storeUuid: row.stores.id,
+    storeId: row.stores.slug,
+    store: row.stores.name,
+    plan: row.stores.plan
   };
+  if (mode === 'direct') {
+    const supabase = await getDirectClient();
+    const { data, error } = await supabase.from('store_members')
+      .select('role, stores(id, slug, name, plan)').limit(1).maybeSingle();
+    if (error) throw new Error(friendlyError(error));
+    return shape(data);
+  }
+  if (!session) return null;
+  const rows = await restCall('store_members?select=role,stores(id,slug,name,plan)&limit=1');
+  return shape((rows || [])[0]);
 }
 
 export async function onAuthChange(handler) {
-  const supabase = await getClient();
-  supabase.auth.onAuthStateChange((event, session) => handler(event, session));
+  if (mode === 'direct') {
+    const supabase = await getDirectClient();
+    supabase.auth.onAuthStateChange((event, next) => handler(event, next));
+    return;
+  }
+  // Proxy mode keeps the session in this tab; mirror sign-in/out across tabs.
+  window.addEventListener('storage', event => {
+    if (event.key !== SESSION_KEY) return;
+    session = readStoredSession();
+    handler(session ? 'SIGNED_IN' : 'SIGNED_OUT', session);
+  });
 }
 
 /* ------------------------------------------------------------- realtime --- */
 
 /**
- * Live catalogue. Any insert, update or delete a shop makes is pushed to every
- * open browser, so a shopper's list stays current without a refresh.
- * Requires Realtime to be enabled for public.products in the dashboard.
+ * Live catalogue. Realtime needs a direct websocket to Supabase, which would
+ * require the key in the page — so in proxy mode the catalogue is polled
+ * instead. Slower to update, but the key stays hidden.
  */
 export async function subscribeToCatalog(handler) {
-  const supabase = await getClient();
-  const channel = supabase
-    .channel('catalog-changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, handler)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'product_assets' }, handler)
-    .subscribe();
-  return () => supabase.removeChannel(channel);
+  if (mode === 'direct') {
+    const supabase = await getDirectClient();
+    const channel = supabase.channel('catalog-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, handler)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'product_assets' }, handler)
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }
+  const timer = setInterval(() => handler({ source: 'poll' }), 60_000);
+  return () => clearInterval(timer);
 }
 
 /* ---------------------------------------------------------------- errors --- */
 
 /** Turns Postgres and GoTrue errors into something a shop owner can act on. */
 export function friendlyError(error) {
-  const message = error?.message || String(error);
+  const message = error?.message || error?.error_description || error?.msg || error?.error || String(error);
   if (/Freemium plan limited/i.test(message)) return message;
   if (/premium plan feature/i.test(message)) return 'Featured placement is available on the premium plan.';
   if (/duplicate key.*products_store_id_slug/i.test(message)) return 'You already have a product with that name.';
