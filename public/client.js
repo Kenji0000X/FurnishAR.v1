@@ -71,7 +71,10 @@ const state = {
   arMode: null,
   placementConfirmed: false,
   viewerYaw: 0,
-  pixelsPerCm: null
+  pixelsPerCm: null,
+  ownProducts: [],
+  membership: null,
+  unsubscribeCatalog: null
 };
 
 const $ = (selector, parent = document) => parent.querySelector(selector);
@@ -359,6 +362,39 @@ function furniture(product, extra = '') {
     <span class="piece leg leg-a"></span><span class="piece leg leg-b"></span><span class="piece leg leg-c"></span><span class="piece leg leg-d"></span>
     <span class="piece side side-a"></span><span class="piece side side-b"></span><span class="piece shelf-line shelf-one"></span><span class="piece shelf-line shelf-two"></span><span class="piece shelf-line shelf-three"></span>
   </div>`;
+}
+
+
+/* ---------------------------------------------------------------------------
+   Backend
+   Supabase when the deployment is configured for it, otherwise the bundled
+   JSON catalogue and demo sign-in that shipped with the app. Everything below
+   this block is written against `backend`, not against either one directly.
+--------------------------------------------------------------------------- */
+
+let sb = null;             // the Supabase module, imported on demand
+const backend = { kind: 'local' };
+
+async function initBackend() {
+  try {
+    const module = await import('./supabase.js');
+    if (!module.isConfigured()) return;
+    // Load the client library up front: if it cannot be fetched, this
+    // deployment falls back to the bundled catalogue instead of showing an
+    // empty shop.
+    await module.prepare();
+    sb = module;
+    backend.kind = 'supabase';
+    console.log('[FurnishAR] Supabase backend active');
+  } catch (error) {
+    backend.kind = 'local';
+    sb = null;
+    console.warn('[FurnishAR] Supabase unavailable, using the bundled catalogue:', error?.message);
+  }
+}
+
+function usingSupabase() {
+  return backend.kind === 'supabase' && sb;
 }
 
 async function api(path, options = {}) {
@@ -1275,24 +1311,75 @@ function cleanupAR() {
 async function login(event) {
   event.preventDefault();
   $('#login-error').textContent = '';
-  event.currentTarget.querySelector('[name="email"]')?.removeAttribute('aria-invalid');
-  // Hold on to the form: event.currentTarget is null once the await resumes.
   const form = event.currentTarget;
+  form.querySelector('[name="email"]')?.removeAttribute('aria-invalid');
   const fields = Object.fromEntries(new FormData(form));
+  const button = form.querySelector('button[type="submit"]');
+  button.disabled = true;
+
   try {
-    const response = await api('/api/auth/login', { method: 'POST', body: JSON.stringify(fields) });
-    state.token = response.token;
-    state.user = response.user;
-    sessionStorage.setItem('furnishar-token', state.token);
-    sessionStorage.setItem('furnishar-user', JSON.stringify(state.user));
-    form.reset();
-    renderAdmin();
-    toast(`Signed in to ${state.user.store}.`);
+    if (usingSupabase()) {
+      await sb.signIn({ email: fields.email, password: fields.password });
+      await applySupabaseSession();
+      form.reset();
+      toast(state.user?.store ? `Signed in to ${state.user.store}.` : 'Signed in.');
+    } else {
+      const response = await api('/api/auth/login', { method: 'POST', body: JSON.stringify(fields) });
+      state.token = response.token;
+      state.user = response.user;
+      sessionStorage.setItem('furnishar-token', state.token);
+      sessionStorage.setItem('furnishar-user', JSON.stringify(state.user));
+      form.reset();
+      renderAdmin();
+      toast(`Signed in to ${state.user.store}.`);
+    }
   } catch (error) {
     $('#login-error').textContent = error.message;
     form.querySelector('[name="email"]')?.setAttribute('aria-invalid', 'true');
     form.querySelector('[name="email"]')?.focus();
+  } finally {
+    button.disabled = false;
   }
+}
+
+/* Reads the Supabase session and the store it may act for. A brand new account
+   has no store until an admin approves its application, so the portal shows a
+   pending state rather than an empty dashboard. */
+async function applySupabaseSession() {
+  const session = await sb.getSession();
+  if (!session) {
+    state.user = null;
+    state.token = '';
+    state.membership = null;
+    state.ownProducts = [];
+    renderAdmin();
+    return;
+  }
+  const membership = await sb.getMembership();
+  state.membership = membership;
+  state.token = session.access_token;
+  state.user = membership
+    ? { email: session.user.email, storeId: membership.storeId, storeUuid: membership.storeUuid, store: membership.store, plan: membership.plan }
+    : { email: session.user.email, storeId: null, storeUuid: null, store: null, plan: null };
+  renderAdmin();
+  if (membership) await loadOwnProducts();
+}
+
+async function logout() {
+  if (usingSupabase()) {
+    await sb.signOut();
+    state.user = null;
+    state.membership = null;
+    state.ownProducts = [];
+    state.token = '';
+  } else {
+    state.token = '';
+    state.user = null;
+    sessionStorage.removeItem('furnishar-token');
+    sessionStorage.removeItem('furnishar-user');
+  }
+  renderAdmin();
+  toast('Signed out.');
 }
 
 function showSignup() {
@@ -1306,25 +1393,70 @@ function showLogin() {
   $('#signup-panel').hidden = true;
 }
 
-function signup(event) {
+async function signup(event) {
   event.preventDefault();
-  $('#signup-message').textContent = "Thanks — store sign-ups aren't open yet. We'll reach out to onboard your store manually.";
+  const form = event.currentTarget;
+  const fields = Object.fromEntries(new FormData(form));
+  const message = $('#signup-message');
+  message.textContent = '';
+  message.classList.remove('is-ok');
+
+  if (!usingSupabase()) {
+    message.textContent = "Store sign-ups open once the live database is connected. We'll onboard your store manually in the meantime.";
+    return;
+  }
+
+  const button = form.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    const result = await sb.signUp({
+      email: fields.email,
+      password: fields.password,
+      storeName: fields.storeName,
+      phone: fields.phone,
+      message: fields.message
+    });
+    form.reset();
+    message.classList.add('is-ok');
+    message.textContent = result.needsEmailConfirmation
+      ? 'Account created. Confirm your email address, then sign in — your store is queued for review.'
+      : 'Account created and your store is queued for review. You can sign in now.';
+    toast('Application received.');
+  } catch (error) {
+    message.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function renderAdmin() {
   const loggedIn = Boolean(state.token && state.user);
-  $('#login-panel').hidden = loggedIn; $('#dashboard').hidden = !loggedIn;
+  const awaitingApproval = loggedIn && usingSupabase() && !state.user.storeUuid;
+  $('#login-panel').hidden = loggedIn;
+  $('#pending-panel').hidden = !awaitingApproval;
+  $('#dashboard').hidden = !loggedIn || awaitingApproval;
   if (!loggedIn) return;
-  const own = state.products.filter(product => product.storeId === state.user.storeId);
-  const store = state.products.length > 0 && own.length > 0 ? own[0] : null;
-  // Determine plan from first product or default to freemium
-  const plan = store && state.products.find(p => p.storeId === state.user.storeId) ? 'Premium' : 'Freemium';
+
+  // A brand new account owns nothing until an admin approves its application.
+  if (awaitingApproval) {
+    $('#pending-email').textContent = state.user.email || '';
+    return;
+  }
+
+  // Supabase owners edit their own rows, drafts included; the bundled
+  // catalogue only has the published list to work from.
+  const own = usingSupabase()
+    ? (state.ownProducts || [])
+    : state.products.filter(product => product.storeId === state.user.storeId);
+  const plan = usingSupabase()
+    ? (state.user.plan === 'premium' ? 'Premium' : 'Freemium')
+    : (own.length > 0 ? 'Premium' : 'Freemium');
   const FREEMIUM_LIMIT = 8;
   const isFree = plan === 'Freemium';
-  const slotsRemaining = isFree ? Math.max(0, FREEMIUM_LIMIT - own.length) : null;
+
   $('#owner-store').textContent = state.user.store;
   $('#inventory-summary').innerHTML = `<div class="inventory-stat"><span>Plan</span><strong>${plan}</strong></div><div class="inventory-stat"><span>Listed products</span><strong>${own.length}${isFree ? `/${FREEMIUM_LIMIT}` : ''}</strong></div><div class="inventory-stat"><span>Units available</span><strong>${own.reduce((sum, product) => sum + product.stock, 0)}</strong></div><div class="inventory-stat"><span>Catalog value</span><strong>${peso(own.reduce((sum, product) => sum + product.price * product.stock, 0))}</strong></div>`;
-  $('#inventory-body').innerHTML = own.length ? own.map(product => `<tr><td>${escapeHtml(product.name)}<small>${escapeHtml(product.category)} · ${escapeHtml(product.color)}</small></td><td>${product.dimensions.width} × ${product.dimensions.depth} × ${product.dimensions.height} cm</td><td>${peso(product.price)}</td><td>${product.stock}</td><td><small>${relativeTime(product.updatedAt)}</small></td><td><div class="table-actions"><button class="icon-button" data-edit-product="${product.id}">Edit</button><button class="icon-button delete" data-delete-product="${product.id}">Delete</button></div></td></tr>`).join('') : '<tr><td colspan="6">No products listed yet. Add your first product above.</td></tr>';
+  $('#inventory-body').innerHTML = own.length ? own.map(product => `<tr><td>${escapeHtml(product.name)}<small>${escapeHtml(product.category)} · ${escapeHtml(product.color)}${product.modelGlb ? ' · 3D model' : ''}</small></td><td>${product.dimensions.width} × ${product.dimensions.depth} × ${product.dimensions.height} cm</td><td>${peso(product.price)}</td><td>${product.stock}</td><td><small>${relativeTime(product.updatedAt)}</small></td><td><div class="table-actions"><button class="icon-button" data-edit-product="${product.id}">Edit</button><button class="icon-button delete" data-delete-product="${product.id}">Delete</button></div></td></tr>`).join('') : '<tr><td colspan="6">No products listed yet. Add your first product above.</td></tr>';
 }
 
 function openProductForm(product = null) {
@@ -1343,7 +1475,14 @@ function openProductForm(product = null) {
 }
 
 async function saveProduct(event) {
-  event.preventDefault(); const form = event.currentTarget; const values = Object.fromEntries(new FormData(form)); $('#product-form-error').textContent = '';
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = Object.fromEntries(new FormData(form));
+  const errorBox = $('#product-form-error');
+  errorBox.textContent = '';
+  const modelFile = form.elements.modelFile?.files?.[0] || null;
+  const submit = form.querySelector('button[type="submit"]');
+
   const product = {
     ...values,
     price: Number(values.price),
@@ -1357,14 +1496,52 @@ async function saveProduct(event) {
       depth: Number(values.modelDepth || values.depth)
     }
   };
-  try { await api(values.id ? `/api/products/${values.id}` : '/api/products', { method: values.id ? 'PUT' : 'POST', body: JSON.stringify(product) }); await loadProducts(); $('#product-form-dialog').close(); toast(values.id ? 'Product updated.' : 'Product added to the catalog.'); }
-  catch (error) { $('#product-form-error').textContent = error.message; }
+
+  submit.disabled = true;
+  try {
+    if (usingSupabase()) {
+      if (!state.user?.storeUuid) throw new Error('Your store is still awaiting approval.');
+      const saved = await sb.saveProduct({ ...product, id: values.id || undefined }, state.user.storeUuid);
+      if (modelFile) {
+        submit.textContent = 'Uploading model…';
+        await sb.uploadModel(modelFile, { storeUuid: state.user.storeUuid, productId: saved.id, kind: 'glb' });
+      }
+      await Promise.all([loadOwnProducts(), loadProducts()]);
+    } else {
+      if (modelFile) throw new Error('Model uploads need the Supabase backend. Set SUPABASE_URL and SUPABASE_ANON_KEY.');
+      await api(values.id ? `/api/products/${values.id}` : '/api/products', {
+        method: values.id ? 'PUT' : 'POST',
+        body: JSON.stringify(product)
+      });
+      await loadProducts();
+    }
+    $('#product-form-dialog').close();
+    toast(values.id ? 'Product updated.' : 'Product added to the catalog.');
+  } catch (error) {
+    errorBox.textContent = error.message;
+  } finally {
+    submit.disabled = false;
+    submit.textContent = 'Save product';
+  }
 }
 
 async function deleteProduct(id) {
-  const product = state.products.find(item => item.id === id); if (!product || !confirm(`Remove “${product.name}” from your catalog?`)) return;
-  try { await api(`/api/products/${id}`, { method: 'DELETE' }); if (state.selected?.id === id) state.selected = null; await loadProducts(); toast('Product removed from the catalog.'); }
-  catch (error) { toast(error.message); }
+  const list = usingSupabase() ? (state.ownProducts || []) : state.products;
+  const product = list.find(item => item.id === id);
+  if (!product || !confirm(`Remove “${product.name}” from your catalog?`)) return;
+  try {
+    if (usingSupabase()) {
+      await sb.deleteProduct(id);
+      await Promise.all([loadOwnProducts(), loadProducts()]);
+    } else {
+      await api(`/api/products/${id}`, { method: 'DELETE' });
+      await loadProducts();
+    }
+    if (state.selected?.id === id) state.selected = null;
+    toast('Product removed from the catalog.');
+  } catch (error) {
+    toast(error.message);
+  }
 }
 
 const SKELETON_CARD = `<article class="skeleton-card" aria-hidden="true"><div class="skeleton-image"></div><div class="skeleton-info"><span class="skeleton-line is-short"></span><span class="skeleton-line is-title"></span><span class="skeleton-line is-short"></span></div></article>`;
@@ -1378,23 +1555,37 @@ function showCatalogSkeleton(count = 6) {
 }
 
 async function loadProducts() {
-  const data = await api('/api/products'); 
-  state.products = data.products;
-  // Load store information
-  try {
-    const storesData = await api('/api/stores');
-    state.stores = {};
-    storesData.stores.forEach(store => {
-      state.stores[store.id] = store;
-    });
-  } catch (error) {
-    console.warn('Could not load store information:', error);
+  if (usingSupabase()) {
+    const [products, stores] = await Promise.all([sb.listProducts(), sb.listStores()]);
+    state.products = products;
+    state.stores = Object.fromEntries(stores.map(store => [store.id, store]));
+  } else {
+    const data = await api('/api/products');
+    state.products = data.products;
+    try {
+      const storesData = await api('/api/stores');
+      state.stores = Object.fromEntries(storesData.stores.map(store => [store.id, store]));
+    } catch (error) {
+      console.warn('Could not load store information:', error);
+    }
   }
   if (!state.selected || !state.products.some(product => product.id === state.selected.id)) state.selected = state.products[0] || null;
   const grid = $('#product-grid');
   grid.classList.remove('is-loading');
   grid.removeAttribute('aria-busy');
   renderColors(); renderCatalog(); renderPlanner(); renderAdmin();
+}
+
+/* The owner's own list, drafts included. Only Supabase distinguishes the two;
+   the bundled catalogue has no draft state. */
+async function loadOwnProducts() {
+  if (!usingSupabase() || !state.user?.storeUuid) return;
+  try {
+    state.ownProducts = await sb.listOwnProducts(state.user.storeUuid);
+    renderAdmin();
+  } catch (error) {
+    console.warn('Could not load store inventory:', error.message);
+  }
 }
 
 function bindEvents() {
@@ -1417,7 +1608,7 @@ function bindEvents() {
   $('#clear-filters').addEventListener('click', () => { state.filters = { search: '', category: '', store: '', width: 240, color: '' }; $('#search').value = ''; $('#filter-category').value = ''; $('#filter-store').value = ''; $('#filter-width').value = 240; $('#width-output').textContent = 'No limit'; renderColors(); renderCatalog(); });
   $$('#point-a, #point-b').forEach(input => input.addEventListener('input', updateFitVerdict));
   $('#ar-button').addEventListener('click', () => startExperience('measurement'));
-  $('#login-form').addEventListener('submit', login); $('#logout').addEventListener('click', () => { state.token = ''; state.user = null; sessionStorage.removeItem('furnishar-token'); sessionStorage.removeItem('furnishar-user'); renderAdmin(); toast('Signed out.'); });
+  $('#login-form').addEventListener('submit', login); $('#logout').addEventListener('click', logout);
   $('#show-signup').addEventListener('click', showSignup); $('#show-login').addEventListener('click', showLogin); $('#signup-form').addEventListener('submit', signup);
   $('#add-product').addEventListener('click', () => openProductForm()); $('#product-form').addEventListener('submit', saveProduct);
 }
@@ -1425,18 +1616,46 @@ function bindEvents() {
 async function init() {
   bindEvents();
   showCatalogSkeleton();
+  await initBackend();
+
   try {
-    // Pre-load THREE.js in parallel with products
     await Promise.all([
       loadProducts(),
       loadThreeJS(),
       checkARSupport()
     ]);
   } catch (error) {
-    $('#product-grid').innerHTML = `<div class="no-results"><b>FurnishAR could not reach its local catalog.</b><br /><small>Start the app with <code>npm run local</code> and refresh this page.</small></div>`;
+    $('#product-grid').classList.remove('is-loading');
+    $('#product-grid').removeAttribute('aria-busy');
+    $('#product-grid').innerHTML = usingSupabase()
+      ? `<div class="no-results"><b>FurnishAR could not reach the catalog database.</b><br /><small>${escapeHtml(error.message)}</small></div>`
+      : `<div class="no-results"><b>FurnishAR could not reach its local catalog.</b><br /><small>Start the app with <code>npm run local</code> and refresh this page.</small></div>`;
     toast(error.message);
   }
+
+  if (!usingSupabase()) return;
+
+  // Restore an existing session, and follow sign-ins and sign-outs made in
+  // another tab.
+  await applySupabaseSession();
+  await sb.onAuthChange(async (event) => {
+    if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
+      await applySupabaseSession();
+    }
+  });
+
+  // Live catalogue: another shop publishing a piece updates this page without
+  // a refresh.
+  try {
+    state.unsubscribeCatalog = await sb.subscribeToCatalog(() => {
+      clearTimeout(state.catalogRefresh);
+      state.catalogRefresh = setTimeout(() => loadProducts().catch(() => {}), 250);
+    });
+  } catch (error) {
+    console.warn('[FurnishAR] Realtime unavailable:', error?.message);
+  }
 }
+
 // Only initialize on browser, not on server
 if (typeof document !== 'undefined') {
   window.addEventListener('popstate', () => {
