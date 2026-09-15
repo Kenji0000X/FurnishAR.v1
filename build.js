@@ -27,13 +27,24 @@ function copyDir(src, dst) {
 
 copyDir(publicDir, distDir);
 
-// Runtime config comes from the deployment's environment, never from the repo.
-// Without these variables the app keeps its bundled-catalogue behaviour.
-const supabaseUrl = process.env.SUPABASE_URL || '';
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
-if (supabaseAnonKey.includes('service_role')) {
-  throw new Error('SUPABASE_ANON_KEY looks like a service role key. That key must never reach the browser.');
+// ---------------------------------------------------------------- config ---
+// Credentials resolve through lib/env.js, which also reads .env.local, so the
+// file Supabase's dashboard tells you to create works without being copied
+// anywhere. A deployment's own environment always wins over that file.
+const { loadSupabaseEnv, assertPublishableKey } = require('./lib/env.js');
+const { supabaseUrl, supabaseAnonKey, urlFrom, keyFrom } = loadSupabaseEnv();
+
+assertPublishableKey(supabaseAnonKey);
+if (supabaseUrl && !/^https:\/\/[a-z0-9-]+\.supabase\.(co|in)$/.test(supabaseUrl)) {
+  console.warn(`! ${urlFrom} does not look like a Supabase project URL: ${supabaseUrl}`);
 }
+if (supabaseUrl && !supabaseAnonKey) {
+  throw new Error('A Supabase URL is set but no key. Set SUPABASE_ANON_KEY or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.');
+}
+if (supabaseAnonKey && !supabaseUrl) {
+  throw new Error('A Supabase key is set but no URL. Set SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL.');
+}
+
 // A build stamp so a maintainer can tell exactly what is deployed. Vercel
 // exposes the commit SHA; locally we fall back to "dev".
 const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
@@ -49,5 +60,5 @@ fs.writeFileSync(
   }, null, 2)};\n`
 );
 console.log(supabaseUrl
-  ? `✓ Build complete: public/ copied to dist/ (Supabase backend: ${new URL(supabaseUrl).host})`
-  : '✓ Build complete: public/ copied to dist/ (bundled catalogue — no SUPABASE_URL set)');
+  ? `✓ Build complete: public/ → dist/ (Supabase: ${new URL(supabaseUrl).host}, key from ${keyFrom})`
+  : '✓ Build complete: public/ → dist/ (bundled catalogue — no Supabase URL found)');
