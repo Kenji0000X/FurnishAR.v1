@@ -13,6 +13,13 @@ import { peso, cm } from '../../format.js';
  * is server-rendered for exactly that reason.
  */
 
+// Prebuilt product pages must be allowed to render again: the build machine has
+// no Supabase credentials, so anything generated at build time came from the
+// bundled catalogue and would otherwise show stale prices and stock forever.
+// Slugs that did not exist at build time are rendered on demand, which already
+// reads the live database.
+export const revalidate = 60;
+
 export async function generateStaticParams() {
   const { products } = await getCatalog();
   return products.map(product => ({ slug: product.slug || product.id }));
