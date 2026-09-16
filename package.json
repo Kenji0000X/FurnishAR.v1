@@ -11,7 +11,9 @@
     "test:db": "node --test tests/db.test.js",
     "check:supabase": "node scripts/check-supabase.js",
     "check:planner": "node scripts/check-planner.mjs",
-    "check:portal": "node scripts/check-portal.mjs"
+    "check:portal": "node scripts/check-portal.mjs",
+    "check:auth": "node scripts/check-auth-errors.mjs",
+    "check:mobile": "node scripts/check-mobile.mjs"
   },
   "engines": {
     "node": ">=20"

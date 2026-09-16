@@ -81,7 +81,13 @@ function PlanPanel({ plan, used }) {
   );
 }
 
-function LoginPanel({ onSubmit, error, busy, onShowSignup }) {
+/** Label for a submit button that may be busy or held shut by a rate limit. */
+function submitLabel({ busy, cooldown, busyText, idle }) {
+  if (cooldown > 0) return `Try again in ${cooldown}s`;
+  return busy ? busyText : idle;
+}
+
+function LoginPanel({ onSubmit, error, busy, cooldown, onShowSignup }) {
   return (
     <div className="login-panel">
       <div className="login-copy">
@@ -105,8 +111,10 @@ function LoginPanel({ onSubmit, error, busy, onShowSignup }) {
           Password
           <input name="password" type="password" required autoComplete="current-password" defaultValue="furnishar" />
         </label>
-        <button className="button button-primary" type="submit" disabled={busy}>
-          {busy ? 'Signing in…' : <>Sign in securely <span aria-hidden="true">→</span></>}
+        <button className="button button-primary" type="submit" disabled={busy || cooldown > 0}>
+          {cooldown > 0 || busy
+            ? submitLabel({ busy, cooldown, busyText: 'Signing in…' })
+            : <>Sign in securely <span aria-hidden="true">→</span></>}
         </button>
         <p className="form-error" role="alert" aria-live="assertive">{error}</p>
         <button className="text-button" type="button" onClick={onShowSignup}>New store? Sign up</button>
@@ -115,7 +123,7 @@ function LoginPanel({ onSubmit, error, busy, onShowSignup }) {
   );
 }
 
-function SignupPanel({ onSubmit, message, busy, onShowLogin }) {
+function SignupPanel({ onSubmit, message, busy, cooldown, onShowLogin }) {
   return (
     <div className="login-panel">
       <div className="login-copy">
@@ -132,8 +140,10 @@ function SignupPanel({ onSubmit, message, busy, onShowLogin }) {
           What will you list?
           <textarea name="message" rows={2} maxLength={1000} placeholder="e.g. 40 pieces, mostly cabinets and dining sets" />
         </label>
-        <button className="button button-primary" type="submit" disabled={busy}>
-          {busy ? 'Creating…' : <>Create account <span aria-hidden="true">→</span></>}
+        <button className="button button-primary" type="submit" disabled={busy || cooldown > 0}>
+          {cooldown > 0 || busy
+            ? submitLabel({ busy, cooldown, busyText: 'Creating…' })
+            : <>Create account <span aria-hidden="true">→</span></>}
         </button>
         <p className={`form-error${message?.ok ? ' is-ok' : ''}`} role="status" aria-live="polite">
           {message?.text}
@@ -178,6 +188,17 @@ export default function Portal({ initialProducts }) {
   const [signupMessage, setSignupMessage] = useState(null);
   const [editing, setEditing] = useState(undefined); // undefined = closed
   const [notice, setNotice] = useState('');
+  const [cooldown, setCooldown] = useState(0);       // seconds left after a 429
+
+  // Counts the rate-limit wait down so the button can say how long is left
+  // rather than just refusing.
+  useEffect(() => {
+    if (cooldown <= 0) return undefined;
+    const timer = setTimeout(() => setCooldown(seconds => seconds - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [cooldown]);
+
+  const startCooldown = seconds => setCooldown(Math.min(Math.ceil(seconds), 3600));
 
   const toast = message => {
     setNotice(message);
@@ -262,6 +283,9 @@ export default function Portal({ initialProducts }) {
       toast('Signed in.');
     } catch (error) {
       setLoginError(error.message);
+      // Sign-in is rate-limited by Supabase too, and had exactly the same
+      // "[object Object]" problem on an empty error body.
+      if (error.retryAfter) startCooldown(error.retryAfter);
       form.querySelector('[name="email"]')?.focus();
     } finally {
       setBusy(false);
@@ -292,15 +316,22 @@ export default function Portal({ initialProducts }) {
         message: fields.message
       });
       form.reset();
+
+      const confirm = result.needsEmailConfirmation
+        ? 'Account created. Confirm your email address, then sign in'
+        : 'Account created. You can sign in now';
       setSignupMessage({
         ok: true,
-        text: result.needsEmailConfirmation
-          ? 'Account created. Confirm your email address, then sign in — your store is queued for review.'
-          : 'Account created and your store is queued for review. You can sign in now.'
+        text: result.applicationFiled
+          ? `${confirm} — your store is queued for review.`
+          : `${confirm}. We could not file your store application automatically, so email hello@furnishar.ph with your store name and we will add it by hand. Do not sign up again; the account already exists.`
       });
       toast('Application received.');
     } catch (error) {
       setSignupMessage({ ok: false, text: error.message });
+      // Supabase rate-limits sign-ups hard. Holding the button shut for the
+      // stated interval is the difference between one 429 and four.
+      if (error.retryAfter) startCooldown(error.retryAfter);
     } finally {
       setBusy(false);
     }
@@ -359,6 +390,7 @@ export default function Portal({ initialProducts }) {
           onSubmit={handleSignup}
           message={signupMessage}
           busy={busy}
+          cooldown={cooldown}
           onShowLogin={() => { setMode('login'); setSignupMessage(null); }}
         />
       )
@@ -367,6 +399,7 @@ export default function Portal({ initialProducts }) {
           onSubmit={handleLogin}
           error={loginError}
           busy={busy}
+          cooldown={cooldown}
           onShowSignup={() => { setMode('signup'); setLoginError(''); }}
         />
       );

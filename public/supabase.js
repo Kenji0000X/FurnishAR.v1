@@ -113,9 +113,37 @@ async function authCall(action, payload) {
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(payload)
   });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(friendlyError(body));
+
+  const text = await response.text();
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+
+  if (!response.ok) {
+    // An empty or non-JSON error body used to reach friendlyError as `{}` and
+    // come back out as the string "[object Object]", which is what a rate-limited
+    // sign-up actually showed people. Anything without a message of its own now
+    // falls back to the status code.
+    const detail = (body && typeof body === 'object') ? body : { message: body || '' };
+    const error = new Error(friendlyError({
+      ...detail,
+      status: response.status,
+      message: detail.message || detail.msg || detail.error_description || detail.error
+        || `Request failed (${response.status}).`
+    }));
+    error.status = response.status;
+    // GoTrue sends Retry-After on 429; seconds, so the form can count down.
+    const retryAfter = Number(response.headers.get('retry-after'));
+    if (Number.isFinite(retryAfter) && retryAfter > 0) error.retryAfter = retryAfter;
+    else if (response.status === 429) error.retryAfter = secondsFromMessage(error.message) || 60;
+    throw error;
+  }
   return body;
+}
+
+/** "you can only request this after 51 seconds" -> 51. */
+function secondsFromMessage(message) {
+  const match = /after (\d+) seconds?/i.exec(String(message || ''));
+  return match ? Number(match[1]) : 0;
 }
 
 async function refreshSession() {
@@ -374,8 +402,18 @@ export async function signUp({ email, password, storeName, phone, message }) {
 
   const result = await authCall('signup', { email, password, storeName, phone });
   if (result.access_token) storeSession(result);
+
   // The account exists but owns nothing yet; the application is what an admin
   // reviews before linking it to a store.
+  //
+  // Crucially this must not throw. Sign-up is two writes, and the account is
+  // already created by the time we get here — reporting a failed second write
+  // as a failed sign-up sends people round again, where Supabase answers
+  // "already registered" or rate-limits them. That is the 400-then-429 loop
+  // this endpoint used to produce. Report it instead, and let the portal say
+  // the account is fine and the application needs a follow-up.
+  let applicationFiled = true;
+  let applicationError = null;
   try {
     await restCall('store_applications', {
       method: 'POST',
@@ -385,9 +423,20 @@ export async function signUp({ email, password, storeName, phone, message }) {
       })
     });
   } catch (error) {
-    if (!/duplicate key/i.test(error.message)) throw error;
+    // A duplicate means a previous attempt already filed it, which is fine.
+    if (!/duplicate key/i.test(error.message)) {
+      applicationFiled = false;
+      applicationError = error.message;
+      console.warn('[FurnishAR] the account was created but its store application was not filed:', error.message);
+    }
   }
-  return { user: result.user, needsEmailConfirmation: Boolean(result.user && !result.access_token) };
+
+  return {
+    user: result.user,
+    needsEmailConfirmation: Boolean(result.user && !result.access_token),
+    applicationFiled,
+    applicationError
+  };
 }
 
 export async function signIn({ email, password }) {
@@ -485,6 +534,29 @@ export async function subscribeToCatalog(handler) {
 /** Turns Postgres and GoTrue errors into something a shop owner can act on. */
 export function friendlyError(error) {
   const message = error?.message || error?.error_description || error?.msg || error?.error || String(error);
+  const code = error?.error_code || error?.code || '';
+
+  // Rate limits first: Supabase is strict about auth, and a person who is told
+  // only "400" will click again and make it worse.
+  if (error?.status === 429 || /rate.?limit|too many requests/i.test(`${code} ${message}`)) {
+    const wait = /after (\d+) seconds?/i.exec(message);
+    const when = wait ? `about ${wait[1]} seconds` : 'a few minutes';
+    if (/email/i.test(`${code} ${message}`)) {
+      return `Supabase is limiting confirmation emails to this address. Wait ${when} and try again — your account may already have been created, so try signing in first.`;
+    }
+    return `Too many attempts. Wait ${when} and try again.`;
+  }
+
+  if (/email_address_invalid|invalid format/i.test(`${code} ${message}`)) {
+    return 'That email address was rejected. Check it for typos.';
+  }
+  if (/weak_password/i.test(code)) return 'Use a longer password — at least 6 characters.';
+  if (/signup_disabled|Signups not allowed/i.test(`${code} ${message}`)) {
+    return 'Sign-ups are turned off for this project. Enable email sign-ups in Supabase → Authentication → Providers.';
+  }
+  if (/user_already_exists/i.test(code)) {
+    return 'An account already exists for that email. Sign in instead.';
+  }
   if (/Freemium plan limited/i.test(message)) return message;
   if (/premium plan feature/i.test(message)) return 'Featured placement is available on the premium plan.';
   if (/duplicate key.*products_store_id_slug/i.test(message)) return 'You already have a product with that name.';
