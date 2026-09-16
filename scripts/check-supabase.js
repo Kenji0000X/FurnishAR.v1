@@ -25,14 +25,19 @@ function report(state, title, detail) {
 }
 
 async function request(url, key, path, options = {}) {
+  const headers = {
+    apikey: key,
+    Accept: 'application/json',
+    ...(options.headers || {})
+  };
+  // sb_publishable_* values are API keys, not JWTs. Sending one as a bearer
+  // token makes Supabase report a misleading "Secret API key required" error.
+  if (!/^sb_publishable_/i.test(key) && !headers.Authorization) {
+    headers.Authorization = `Bearer ${key}`;
+  }
   const response = await fetch(`${url}${path}`, {
     ...options,
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-      Accept: 'application/json',
-      ...(options.headers || {})
-    }
+    headers
   });
   const text = await response.text();
   let body = null;
@@ -133,12 +138,21 @@ function looksLikeSupabase(result) {
     report(PASS, 'Drafts hidden from the public', 'Anonymous requests see published rows only.');
   }
 
-  // 7. The application queue must be closed to readers
+  // 7. The application queue must exist and be closed to readers
   const queue = await request(supabaseUrl, supabaseAnonKey, '/rest/v1/store_applications?select=id&limit=1');
-  if (queue.ok && Array.isArray(queue.body)) {
+  if (queue.status === 404 || queue.body?.code === '42P01') {
+    report(FAIL, 'Sign-up queue exists', 'Run supabase/migrations/0001_init.sql in the Supabase SQL editor, then run NOTIFY pgrst, \'reload schema\';');
+  } else if (queue.ok && Array.isArray(queue.body)) {
     report(FAIL, 'Sign-up queue is private', 'Anonymous requests can read store_applications. Re-run the migration — the public should only be able to insert.');
   } else {
     report(PASS, 'Sign-up queue is private', `HTTP ${queue.status} — reads refused, as intended.`);
+  }
+
+  const members = await request(supabaseUrl, supabaseAnonKey, '/rest/v1/store_members?select=store_id&limit=1');
+  if (members.status === 404 || members.body?.code === '42P01') {
+    report(FAIL, 'Store membership table exists', 'Run supabase/migrations/0001_init.sql in the Supabase SQL editor, then reload the PostgREST schema.');
+  } else {
+    report(PASS, 'Store membership table exists', `HTTP ${members.status}.`);
   }
 
   // 8. Storage bucket for the 3D models
