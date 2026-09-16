@@ -108,6 +108,11 @@ server API. Generate the token with:
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
+`SUPABASE_SECRET_KEY` is not accepted as an alias. Copy the actual
+`service_role` key from Supabase Dashboard -> Settings -> API and save it as
+`SUPABASE_SERVICE_ROLE_KEY`. Never use the database password, JWT signing
+secret, publishable key, or a value beginning with `sb_publishable_` here.
+
 Open `/admin`, enter the admin token, and approve an application. Approval
 finds the applicant's Auth account, creates the store, links `store_members`,
 and marks the application approved. Reject only removes the pending item from
