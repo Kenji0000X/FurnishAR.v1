@@ -15,7 +15,6 @@ service down. This is deliberate, and each fallback is verified.
 
 | If this fails | What happens | Verified |
 | --- | --- | --- |
-| The Supabase project | The app serves the catalogue bundled with the deployment. Browsing and AR still work; only owner edits stop. | Yes — with keys set but the library unreachable |
 | three.js failing to load | AR still runs, drawing the piece as a true-scale box instead of the model. Less likely than it was: three.js now ships with the deployment instead of being fetched from a CDN at run time. | Yes — the no-THREE path renders and places |
 | WebXR / ARCore missing | Untracked camera preview with a scale-reference ruler, labelled as an estimate. | Yes |
 | The camera is refused | Manual measurement fields, and the fit verdict still works. | Yes |
@@ -33,23 +32,40 @@ they are as published at the time of writing and providers change them.**
 | Resource | Free-tier allowance | Pilot's expected use | Headroom |
 | --- | --- | --- | --- |
 | Vercel bandwidth | 100 GB / month (Hobby) | A page load is ~150 KB plus a ~1.4 MB model. 1 000 sessions ≈ 1.6 GB | ~60× |
+
+There is no database, so Vercel's allowance is the only one that applies today.
+Models ship with the deployment, which means they count against Vercel bandwidth
+rather than a storage tier — and against the repository's size, which is the
+real ceiling on how many products this arrangement can hold.
+
+**The binding constraint is model size.** The practical ceiling without a
+database is roughly what is comfortable to keep in git — a few dozen models —
+after which a storage backend becomes necessary. See `docs/DATABASE-LATER.md`.
+
+<details>
+<summary>The figures that applied when a database was connected (kept for when one is again)</summary>
+
+| Resource | Free-tier allowance | Expected use | Headroom |
+| --- | --- | --- | --- |
 | Supabase database | 500 MB | A product row is well under 1 KB. 10 000 products ≈ 10 MB | very large |
 | Supabase storage | 1 GB | At 1.4 MB per model, ≈ 700 models | ~700 products |
 | Supabase monthly active users | 50 000 | Shop owners only — tens | very large |
 | Supabase egress | 5 GB / month | Models served from Storage; 1 000 model views ≈ 1.4 GB | ~3× |
 
-**The binding constraint is model storage and egress, not the database.** The
-practical ceiling on the free tier is roughly 700 products and a few thousand
-model views a month. Beyond that, the first bill arrives — which is exactly
-what the subscription tiers in `docs/BUSINESS-PLAN.md` are sized to cover.
+The binding constraint there was model storage and egress, not the database: a
+practical ceiling of roughly 700 products and a few thousand model views a
+month. Beyond that the first bill arrives — which is what the subscription tiers
+in `docs/BUSINESS-PLAN.md` are sized to cover.
+</details>
 
 **Cost control levers, cheapest first:**
 
-1. Compress models before upload (Draco/meshopt typically cut a `.glb` by
-   70–90%). The armchair at 1.4 MB could be ~200 KB.
-2. Cache aggressively — models are immutable once uploaded; `cacheControl` is
-   already set to an hour and could be far longer.
-3. Archive products instead of deleting, and delete their files.
+1. Compress models (Draco/meshopt typically cut a `.glb` by 70–90%). The
+   armchair at 1.4 MB could be ~200 KB. This matters more now, not less: models
+   ship with the deployment.
+2. Cache aggressively — models never change in place, and `next.config.mjs`
+   already serves `/models/*` as immutable for a year.
+3. Remove products that are no longer stocked, and delete their files with them.
 4. Only then, pay for a larger tier.
 
 ## 3. Can it keep being maintained?
@@ -77,7 +93,7 @@ what the subscription tiers in `docs/BUSINESS-PLAN.md` are sized to cover.
 - **The design system is documented** in `BRAND.md` with measured contrast
   ratios, so a later contributor can extend the interface without guessing.
 - **The schema is a migration file**, not a hand-made database. A new
-  environment is one `supabase db push` away.
+  environment is one migration run away.
 
 ## 4. Can it survive the team leaving?
 
@@ -90,16 +106,14 @@ service from nothing — schema, seed data, deployment steps, brand, maintenance
 protocol — is committed alongside the code, not in a chat thread or someone's
 laptop.
 
-**Data durability.** Supabase's free tier does not include point-in-time
-recovery. Until the project is on a paid plan, take a manual backup at least
-monthly and before any schema change:
+**Data durability.** With no database, git is the backup: the catalogue, the
+models and the schema are all committed, so any clone is a complete copy. That
+is the one genuine advantage of the current arrangement.
 
-```bash
-supabase db dump -f backup-$(date +%F).sql     # schema + data
-```
-
-Keep the last three, off the platform. A catalogue is cheap to re-enter; a year
-of a store's uploaded models is not.
+When a database is reconnected this stops being true, and a backup routine
+becomes necessary again — a free tier typically has no point-in-time recovery,
+so a monthly dump kept off the platform is the minimum. A catalogue is cheap to
+re-enter; a year of a store's uploaded models is not.
 
 ## 5. What is not sustainable yet
 

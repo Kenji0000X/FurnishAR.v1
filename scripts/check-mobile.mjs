@@ -95,7 +95,7 @@ for (const device of DEVICES) {
     const box = document.querySelector('form.login-form .form-error');
     if (box) {
       box.textContent =
-        'Supabase is limiting confirmation emails to this address. Wait about 51 seconds and try again — your account may already have been created, so try signing in first.';
+        'Store sign-ups are closed while the catalogue database is disconnected. Email hello@furnishar.ph and we will add your store by hand.';
     }
   });
   await page.waitForTimeout(300);

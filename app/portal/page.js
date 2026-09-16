@@ -1,12 +1,8 @@
 import { getCatalog } from '../../lib/catalog.mjs';
 import Portal from './Portal.js';
 
-// The build machine has no Supabase credentials, so the first render of this
-// page falls back to the bundled catalogue. Without a revalidate window that
-// fallback would be baked in permanently and a shop's real products would
-// never appear — the page must be allowed to render again once the deployment
-// has its credentials. Sixty seconds is the same window lib/catalog.mjs uses
-// for the query itself.
+// The catalogue is a file the owner portal can write to, so pages are allowed
+// to render again rather than being frozen at build time.
 export const revalidate = 60;
 
 export const metadata = {
@@ -17,9 +13,8 @@ export const metadata = {
 };
 
 export default async function PortalPage() {
-  // Only used by the demo backend, which has no per-store endpoint: the
-  // owner's rows are filtered out of this list. A Supabase deployment reads
-  // the store's own inventory, drafts included, from the database.
+  // There is no per-store endpoint, so an owner's rows are filtered out of
+  // this list.
   const { products } = await getCatalog();
 
   return (

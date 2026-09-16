@@ -4,7 +4,7 @@ README.md
 .git
 supabase
 BRAND.md
-SUPABASE.md
+docs/DATABASE-LATER.md
 
 .env
 .env.local

@@ -13,7 +13,6 @@ bottom of any page: `v1.1.0 · a7385ea`.
 - **Version** comes from `package.json`.
 - **Commit** is the first seven characters of `VERCEL_GIT_COMMIT_SHA`, or `dev`
   for a local build.
-- **`live catalog`** appears only when the Supabase backend is active.
 
 `GET /api/health` returns `{"status":"ok"}` and is the endpoint to point an
 uptime checker at.
@@ -24,17 +23,15 @@ uptime checker at.
 | --- | --- | --- |
 | Every change | Run the suite before pushing | `npm test` — 50 tests, must be green |
 | Every change | Check the diff renders at 390 px | Open the planner and catalogue on a phone or a 390 px window |
-| Monthly | Check dependency advisories | `npm audit` (the app has no runtime npm dependencies; this covers tooling) |
-| Monthly | Confirm the CDN pins still resolve | Load a page and watch the console for `THREE.js unavailable` / `Supabase unavailable` |
+| Monthly | Check dependency advisories | `npm audit` — four runtime dependencies: Next, React, React DOM, three.js |
 | Quarterly | Re-run the accuracy validation (§5) | The protocol below |
-| Quarterly | Review the store application queue | `SUPABASE.md` §5 |
 | Before each defence or demo | Full pass: tests, both AR paths on a real phone, a fresh sign-up | — |
 
 ## 3. Making a change safely
 
 1. Work on a branch; never commit straight to `main` (Vercel deploys `main`).
 2. `npm test` must pass. If you changed the schema, `npm run test:db` needs a
-   local Postgres — see `SUPABASE.md`.
+   local Postgres — see `docs/DATABASE-LATER.md`.
 3. `npm run build`, then `npm start` and check the pages. For anything touching
    the planner or the portal, run `npm run check:planner` and
    `npm run check:portal` against it — a green build does not exercise either.
@@ -46,15 +43,11 @@ stamp changes with it. Record it in `CHANGELOG.md`.
 
 ## 4. The pinned third-party code
 
-Two libraries load from a CDN at fixed versions. Both have a fallback, so a CDN
-outage degrades the app instead of breaking it.
+three.js is pinned at `0.170.0` in `package-lock.json` and ships with the
+deployment; nothing is fetched from a CDN at run time. If it fails to load at
+all, AR falls back to drawing the piece as a box at true scale.
 
-| Library | Pin | Used for | If it fails |
-| --- | --- | --- | --- |
-| three.js | `0.170.0` | Loading and rendering the `.glb` | AR falls back to a box at true scale |
-| supabase-js | `2` | Database, auth, storage | The app serves the bundled catalogue |
-
-three.js is a normal dependency now, so upgrade it with npm and re-run the AR
+Upgrade it with npm and re-run the AR
 checks rather than editing a CDN URL. After any bump, run
 `npm run check:planner` and place a piece on a real Android device — a
 three.js major version can change material and colour-space behaviour, which is
@@ -119,22 +112,18 @@ Chrome version, ARCore version, and the build stamp from the footer.
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| Catalogue empty, console shows `Supabase unavailable` | CDN blocked or keys wrong | Check `SUPABASE_URL` / `SUPABASE_ANON_KEY` in Vercel; the app is serving the bundled catalogue meanwhile |
 | Model renders black | three.js upgrade changed material handling | See §4; the vertex-colour guard in `loadScaledModel` |
 | "Place in your room" gives the camera preview on Android | No ARCore, or the page is not HTTPS | WebXR needs a secure context and ARCore |
-| Owner sees "your store is in review" forever | Account not linked to a store | `SUPABASE.md` §5 |
-| Inventory edits return 503 | Supabase not configured; the JSON catalogue is read-only on Vercel | Configure Supabase |
+| Inventory edits return 503 on the deployed site | Vercel's filesystem is read-only, so `data/catalog.json` cannot be written | Edit the file and push, or reconnect a database (`docs/DATABASE-LATER.md`) |
 | Area scan keeps asking to rescan | Points not on one plane, or the two scans disagree | Bright, textured floor; tap only the floor |
 
 ## 7. Handover checklist
 
 Before the project changes hands:
 
-- [ ] Vercel and Supabase accounts transferred, or the new maintainer added as
-      an owner.
-- [ ] `SUPABASE_URL` and `SUPABASE_ANON_KEY` re-issued if anyone who should no
-      longer have access has seen them.
-- [ ] Database password rotated; a fresh backup downloaded (§`SUSTAINABILITY.md`).
+- [ ] Vercel account transferred, or the new maintainer added as an owner.
+- [ ] Any Supabase keys that were ever committed rotated before that project is
+      reused (`docs/DATABASE-LATER.md`).
 - [ ] Store addresses and contact numbers replaced with the real ones.
 - [ ] Demo accounts in `lib/handler.js` removed or their passwords changed.
 - [ ] `FURNISHAR_JWT_SECRET` set to a fresh random value.

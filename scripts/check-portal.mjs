@@ -6,8 +6,8 @@
  * fails loudly if any step does not land.
  *
  * Usage: node scripts/check-portal.mjs [baseUrl]
- * Needs the demo backend (no Supabase configured) and a writable catalogue,
- * so run it against `next start` locally, never against production.
+ * Needs a writable catalogue, so run it against `next start` locally, never
+ * against production.
  */
 import { chromium } from 'playwright';
 

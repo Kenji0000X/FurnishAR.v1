@@ -2,14 +2,11 @@
  * The demo API (/api/health, /api/stores, /api/products, /api/auth/login),
  * as a Route Handler.
  *
- * This is the fallback the app runs on when no Supabase project is configured:
- * the bundled catalogue and the demo shop sign-ins. Rather than reimplement it
+ * This is the app's only backend: the bundled catalogue and the demo shop
+ * sign-ins. Rather than reimplement it here
  * — and risk the token format or the product validation drifting from the
  * version tests/api.test.js covers — lib/handler.js is reused as-is behind a
  * small adapter from a Web Request to the Node req/res pair it expects.
- *
- * /api/sb/* is matched by the more specific route next door and never reaches
- * this file.
  *
  * lib/handler.js also serves static files; that branch is unreachable here
  * because this route only ever receives /api/* paths.

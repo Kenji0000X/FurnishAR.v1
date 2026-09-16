@@ -13,11 +13,8 @@ import { peso, cm } from '../../format.js';
  * is server-rendered for exactly that reason.
  */
 
-// Prebuilt product pages must be allowed to render again: the build machine has
-// no Supabase credentials, so anything generated at build time came from the
-// bundled catalogue and would otherwise show stale prices and stock forever.
-// Slugs that did not exist at build time are rendered on demand, which already
-// reads the live database.
+// Prebuilt product pages must be allowed to render again, so an edit made in
+// the owner portal is not hidden behind a build-time snapshot.
 export const revalidate = 60;
 
 export async function generateStaticParams() {
