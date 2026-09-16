@@ -65,7 +65,10 @@ export async function prepare() {
     const response = await fetch('/api/sb/status?probe=1', { headers: { Accept: 'application/json' } });
     if (response.ok) {
       const status = await response.json();
-      if (status.configured && status.reachable !== false) {
+      // A project that answers but rejects the key is as unusable as one that
+      // does not answer at all, and failing here gives a readable message
+      // instead of an authentication error on the first sign-up.
+      if (status.configured && status.reachable !== false && status.keyAccepted !== false) {
         mode = 'proxy';
         return mode;
       }
