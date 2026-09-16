@@ -15,7 +15,9 @@
  */
 import proxy from '../../../../lib/supabase-proxy.js';
 
-const { isConfigured, proxyRest, proxyAuth, createSignedUpload, publicObjectUrl } = proxy;
+const {
+  isConfigured, serverCredentials, proxyRest, proxyAuth, createSignedUpload, publicObjectUrl
+} = proxy;
 
 // These read request-specific credentials and must never be prerendered.
 export const dynamic = 'force-dynamic';
@@ -45,6 +47,40 @@ function isConfigurationError(error) {
     .test(error?.message || '');
 }
 
+/**
+ * Does the configured project actually answer?
+ *
+ * This exists because of a real outage: SUPABASE_URL was left pointing at a
+ * deleted project, so every page silently served the bundled catalogue and
+ * every sign-in returned 502, while /api/sb/status still cheerfully reported
+ * `configured: true`. Well-formed credentials and a reachable project are two
+ * different questions and this endpoint now answers both.
+ *
+ * Never returns the key, only the host it is pointed at.
+ */
+async function probeProject() {
+  const { url } = serverCredentials();
+  if (!url) return { reachable: false, project: null };
+  const host = (() => { try { return new URL(url).host; } catch { return url; } })();
+  try {
+    const response = await fetch(`${url}/auth/v1/health`, {
+      signal: AbortSignal.timeout(5000),
+      cache: 'no-store'
+    });
+    return { reachable: true, project: host, projectStatus: response.status };
+  } catch (error) {
+    const code = error?.cause?.code || error?.name || 'network error';
+    return {
+      reachable: false,
+      project: host,
+      error:
+        code === 'ENOTFOUND'
+          ? `No such Supabase project: ${host} does not resolve. SUPABASE_URL is pointing at a project that has been deleted or renamed.`
+          : `Could not reach ${host} (${code}). The project may be paused.`
+    };
+  }
+}
+
 async function route(request, context) {
   const { path = [] } = await context.params;
   const [section, ...rest] = path;
@@ -54,6 +90,14 @@ async function route(request, context) {
     // Reports a misconfiguration rather than throwing, so the portal can say
     // what is wrong instead of silently falling back to the demo backend.
     try {
+      // ?probe=1 also checks the project answers. "Configured" only means the
+      // variables are present and well formed — a URL pointing at a deleted
+      // project passes that and then fails on every real call, which is a
+      // genuinely confusing way to be broken. Off by default so the portal's
+      // start-up check stays fast.
+      if (url.searchParams.get('probe') === '1') {
+        return json(200, { configured: isConfigured(), ...(await probeProject()) });
+      }
       return json(200, { configured: isConfigured() });
     } catch (error) {
       if (!isConfigurationError(error)) throw error;
