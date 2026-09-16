@@ -30,6 +30,22 @@ function timeAgo(iso) {
   return formatter.format(seconds, 'second');
 }
 
+/**
+ * The bucket's own limit is 50 MB, but a model that big will stall on the
+ * 3G-ish connections this is built for, so the console flags well before it.
+ */
+const OVERSIZED_BYTES = 15 * 1024 * 1024;
+const isOversized = bytes => Number(bytes) > OVERSIZED_BYTES;
+
+function formatBytes(bytes) {
+  const size = Number(bytes);
+  if (!Number.isFinite(size) || size <= 0) return '—';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const power = Math.min(Math.floor(Math.log(size) / Math.log(1024)), units.length - 1);
+  const value = size / 1024 ** power;
+  return `${value < 10 && power > 0 ? value.toFixed(1) : Math.round(value)} ${units[power]}`;
+}
+
 /** Turns a store name into the slug the shop will live at. */
 const slugify = value =>
   String(value || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -165,20 +181,26 @@ export default function AdminConsole() {
   const [stores, setStores] = useState([]);
   const [accounts, setAccounts] = useState({});
   const [audit, setAudit] = useState([]);
+  const [models, setModels] = useState([]);
+  const [missingModels, setMissingModels] = useState([]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
     const sb = supabase();
-    const [queue, allStores, recent] = await Promise.all([
+    const [queue, allStores, recent, uploads, missing] = await Promise.all([
       sb.listApplications(tab === 'pending' ? 'pending' : null).catch(() => []),
       sb.listAllStores().catch(() => []),
-      sb.listAudit(25).catch(() => [])
+      sb.listAudit(25).catch(() => []),
+      sb.listUploadedModels(200).catch(() => []),
+      sb.listMissingModels(200).catch(() => [])
     ]);
     setApplications(queue);
     setStores(allStores);
     setAudit(recent);
+    setModels(uploads);
+    setMissingModels(missing);
 
     // One lookup per pending application. They are separate calls because each
     // is a separate security-definer check; there are only ever a handful.
@@ -281,6 +303,7 @@ export default function AdminConsole() {
   }
 
   const pending = applications.filter(a => a.status === 'pending');
+  const totalBytes = models.reduce((sum, asset) => sum + (Number(asset.byte_size) || 0), 0);
 
   return (
     <section className="admin-console">
@@ -348,6 +371,70 @@ export default function AdminConsole() {
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section className="plan-section" aria-labelledby="models-title">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Uploaded across every store</p>
+            <h2 id="models-title">3D files</h2>
+          </div>
+          <p className="card-copy">
+            {models.length} file{models.length === 1 ? '' : 's'}, {formatBytes(totalBytes)} in total
+          </p>
+        </div>
+
+        {/* Read-only on purpose. Removing or replacing a model is the owning
+            shop's job — this is here so an oversized or missing file can be
+            noticed, not so one shop's inventory can be edited from another. */}
+        <div className="inventory-table-wrap">
+          <table>
+            <thead>
+              <tr><th>Store</th><th>Product</th><th>Kind</th><th>Size</th><th>Uploaded</th></tr>
+            </thead>
+            <tbody>
+              {models.length ? models.map(asset => (
+                <tr key={asset.id}>
+                  <td>{asset.product?.store?.name || '—'}</td>
+                  <td>
+                    {asset.product?.name || '—'}
+                    {asset.product?.status !== 'published' && (
+                      <small> ({asset.product?.status})</small>
+                    )}
+                  </td>
+                  <td><code>{asset.kind}</code></td>
+                  <td className={isOversized(asset.byte_size) ? 'verification-warning' : undefined}>
+                    {formatBytes(asset.byte_size)}
+                  </td>
+                  <td><small>{timeAgo(asset.created_at)}</small></td>
+                </tr>
+              )) : <tr><td colSpan={5}>Nothing uploaded yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+
+        {missingModels.length > 0 && (
+          <>
+            <p className="card-copy verification-warning">
+              {missingModels.length} listing{missingModels.length === 1 ? '' : 's'} with no 3D model
+              attached — these cannot be placed in AR.
+            </p>
+            <div className="inventory-table-wrap">
+              <table>
+                <thead><tr><th>Store</th><th>Product</th><th>Status</th></tr></thead>
+                <tbody>
+                  {missingModels.map(product => (
+                    <tr key={product.id}>
+                      <td>{product.store?.name || '—'}</td>
+                      <td>{product.name}</td>
+                      <td>{product.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </section>
 
       <section className="plan-section" aria-labelledby="audit-title">

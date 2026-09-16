@@ -669,6 +669,51 @@ export async function listAllStores() {
   return (await restCall('stores?select=id,slug,name,plan,status,created_at&order=name.asc')) || [];
 }
 
+/**
+ * Every 3D model uploaded, across every store, newest first — so the operator
+ * can spot an oversized file or a listing nobody attached a model to, without
+ * going shop by shop with database credentials.
+ *
+ * Read-only, and stays that way: 0004_admin_model_visibility.sql adds only a
+ * SELECT policy. This function has no counterpart that writes someone else's
+ * product; removing or replacing a model is still the owning store's job.
+ */
+export async function listUploadedModels(limit = 200) {
+  const query =
+    'product_assets?select=id,kind,object_path,byte_size,mime_type,created_at,' +
+    'product:products(name,slug,status,store:stores(name,slug))' +
+    `&order=created_at.desc&limit=${Number(limit) || 200}`;
+  if (mode === 'direct') {
+    const supabase = await getDirectClient();
+    const { data, error } = await supabase.from('product_assets')
+      .select('id,kind,object_path,byte_size,mime_type,created_at,product:products(name,slug,status,store:stores(name,slug))')
+      .order('created_at', { ascending: false })
+      .limit(Number(limit) || 200);
+    if (error) throw new Error(friendlyError(error));
+    return data || [];
+  }
+  return (await restCall(query)) || [];
+}
+
+/** Every product with no model file attached — the gap the queue above can't show. */
+export async function listMissingModels(limit = 200) {
+  const query =
+    'products?select=id,name,slug,status,store:stores(name,slug),product_assets(kind)' +
+    `&order=created_at.desc&limit=${Number(limit) || 200}`;
+  const rows = mode === 'direct'
+    ? await (async () => {
+        const supabase = await getDirectClient();
+        const { data, error } = await supabase.from('products')
+          .select('id,name,slug,status,store:stores(name,slug),product_assets(kind)')
+          .order('created_at', { ascending: false })
+          .limit(Number(limit) || 200);
+        if (error) throw new Error(friendlyError(error));
+        return data || [];
+      })()
+    : (await restCall(query)) || [];
+  return rows.filter(row => !(row.product_assets || []).some(asset => asset.kind === 'glb'));
+}
+
 /** Recent administrative decisions, newest first. */
 export async function listAudit(limit = 25) {
   return (await restCall(`admin_audit?order=at.desc&limit=${Number(limit) || 25}`)) || [];

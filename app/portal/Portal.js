@@ -120,6 +120,15 @@ function LoginPanel({ onSubmit, error, busy, cooldown, onShowSignup }) {
         <p className="form-error" role="alert" aria-live="assertive">{error}</p>
         <button className="text-button" type="button" onClick={onShowSignup}>New store? Sign up</button>
       </form>
+
+      {/* The single way in to the platform console.
+          Showing it to everyone gives nothing away: /admin refuses anyone who
+          is not in platform_admins, and row level security means the server
+          never sends them an applicant's details in the first place. A link
+          nobody can see is not a permission — the database is what says no. */}
+      <p className="superadmin-entry">
+        <Link href="/admin">Superadmin sign-in <span aria-hidden="true">→</span></Link>
+      </p>
     </div>
   );
 }

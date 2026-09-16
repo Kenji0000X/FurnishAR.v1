@@ -1489,6 +1489,22 @@ footer {
   padding-top: .5rem; border-top: 1px solid var(--rule);
 }
 
+/* The one way in to the platform console, under the store sign-in form.
+   Deliberately quiet: it is for the single operator, not for shoppers. */
+.superadmin-entry {
+  grid-column: 1 / -1;
+  margin: 0; padding: 1rem 2rem 1.2rem;
+  border-top: 1px solid var(--rule-strong);
+  background: var(--paper-raised);
+  text-align: center;
+  font-family: var(--mono); font-size: .75rem; letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.superadmin-entry a { color: var(--ink-faint); text-decoration: none; }
+.superadmin-entry a:hover, .superadmin-entry a:focus-visible {
+  color: var(--accent-ink); text-decoration: underline;
+}
+
 @media (max-width: 640px) {
   .review-details > div { grid-template-columns: 1fr; gap: .15rem; }
   .review-head { flex-direction: column; gap: .5rem; }

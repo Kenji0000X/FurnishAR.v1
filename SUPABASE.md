@@ -215,6 +215,11 @@ Owners sign themselves up in the portal. That creates an auth account and a row
 in `store_applications`, but the account owns nothing yet — until it is
 approved, the portal shows them a "your store is in review" screen.
 
+The way in is the **Superadmin sign-in** link at the bottom of the store
+sign-in page — the only entry point, and the same for you as for anyone who
+clicks it out of curiosity. They get "not available to this account"; you get
+the console.
+
 Open `/admin`. Each application shows the store name, contact email, phone and
 what they intend to list — check those against the business before approving,
 which is the point of the queue.
@@ -238,6 +243,21 @@ The audit table is append-only by design: there is no insert or delete policy,
 so entries can only be written by the approve/reject functions and cannot be
 forged or erased through the app.
 
+### Watching the 3D files
+
+Further down the console, **3D files** lists every model uploaded across every
+store — the shop it belongs to, the product, the file size and when it landed —
+including drafts, which a non-member would never be shown. Anything over 15 MB
+is flagged: the storage bucket allows 50 MB, but a file that size will stall on
+a phone in Mamburao. Below it, any listing with no model attached is called out,
+because those cannot be placed in AR at all.
+
+This view is **read-only, deliberately**. `0004_admin_model_visibility.sql` adds
+two SELECT policies and no write policy, so an operator can see a problem but
+cannot edit or delete another shop's furniture — that stays the owner's job in
+their own portal. Seeing everything and owning everything are different powers,
+and only one of them is needed to run the platform.
+
 **If you are locked out** — no admin account, or the console is unreachable —
 the SQL editor still works:
 
@@ -256,11 +276,13 @@ SQL editor's own credentials — it is not a way around the wall.
 Three layers, and only the first one actually protects the data:
 
 1. **Row level security.** Every policy is in
-   `supabase/migrations/0003_platform_admin.sql`, and `tests/admin.test.js`
-   proves them by connecting *as* an anonymous visitor, two different store
-   owners, an admin and a stranger, and trying things that should fail: reading
-   the queue, approving an application, promoting oneself, forging or deleting
-   an audit entry, writing to another shop.
+   `supabase/migrations/0003_platform_admin.sql` and
+   `supabase/migrations/0004_admin_model_visibility.sql`, and
+   `tests/admin.test.js` proves them by connecting *as* an anonymous visitor,
+   two different store owners, an admin and a stranger, and trying things that
+   should fail: reading the queue, approving an application, promoting oneself,
+   forging or deleting an audit entry, reading another shop's draft listings,
+   and — for the admin — writing to a shop they do not belong to.
 2. **The server.** `lib/auth.js` refuses admin requests at the API boundary, so
    an anonymous request for the sign-up queue never reaches Postgres, and a
    non-admin gets a plain 403 instead of an empty list that reads like an empty
