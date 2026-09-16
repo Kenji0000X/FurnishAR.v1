@@ -90,6 +90,27 @@ const supabase = createServer((req, res) => {
     if (req.url.startsWith('/rest/v1/admin_audit')) return send(200, isAdmin(req) ? audit : []);
     if (req.url.startsWith('/rest/v1/store_members')) return send(200, []);
 
+    // Models and listings across every store. RLS (0004) returns these only to
+    // an admin — a store owner sees nothing outside their own shop.
+    if (req.url.startsWith('/rest/v1/product_assets')) {
+      return send(200, isAdmin(req) ? [{
+        id: 'pa1', kind: 'glb', object_path: 's1/p1/armchair.glb',
+        byte_size: 31457280, mime_type: 'model/gltf-binary',
+        created_at: new Date(Date.now() - 86400e3).toISOString(),
+        product: { name: 'Cane Back Armchair', slug: 'armchair-cane-back', status: 'published',
+                   store: { name: 'S&C Variety Store', slug: 'sc-variety' } }
+      }] : []);
+    }
+    if (req.url.startsWith('/rest/v1/products')) {
+      return send(200, isAdmin(req) ? [
+        { id: 'p1', name: 'Cane Back Armchair', slug: 'armchair-cane-back', status: 'published',
+          store: { name: 'S&C Variety Store', slug: 'sc-variety' }, product_assets: [{ kind: 'glb' }] },
+        // No model attached: the console must call this out.
+        { id: 'p2', name: 'Unmodelled Side Table', slug: 'side-table', status: 'draft',
+          store: { name: 'S&C Variety Store', slug: 'sc-variety' }, product_assets: [] }
+      ] : []);
+    }
+
     if (req.url.startsWith('/rest/v1/rpc/approve_store_application')) {
       if (!isAdmin(req)) {
         return send(403, { message: 'Only a platform administrator may decide applications' });
@@ -156,6 +177,24 @@ async function signIn(page, email) {
   await page.waitForTimeout(2000);
 }
 
+console.log('--- the way in ---');
+{
+  // One entry point, on the store sign-in page. It is visible to everyone on
+  // purpose: the page behind it refuses anyone who is not an admin, and a link
+  // nobody can see would not be a permission anyway.
+  const page = await browser.newPage();
+  await page.goto(`http://127.0.0.1:${APP_PORT}/portal`, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('form.login-form', { timeout: 20000 });
+  const entries = page.locator('.superadmin-entry a');
+  check('the store sign-in page offers exactly one superadmin entry', await entries.count() === 1,
+    `${await entries.count()} found`);
+  check('it leads to the console', (await entries.first().getAttribute('href')) === '/admin');
+  await entries.first().click();
+  await page.waitForURL('**/admin', { timeout: 10000 }).catch(() => {});
+  check('clicking it reaches /admin', page.url().endsWith('/admin'));
+  await page.close();
+}
+
 console.log('--- a signed-out visitor ---');
 {
   const page = await browser.newPage();
@@ -177,7 +216,16 @@ console.log('--- a store owner (signed in, but not an admin) ---');
   check('is refused', /not available to this account/i.test(body));
   check('sees no applicant email', !body.includes('rattan@shop.ph'));
   check('sees no applicant phone', !body.includes('+63431234567'));
-  check('portal shows no console link', !(await page.locator('a[href="/admin"]').count()));
+  check('sees no other store\'s 3D files', !body.includes('armchair.glb') && !body.includes('Cane Back Armchair'));
+
+  // Back on their own dashboard, the "Platform console" button must not be
+  // there — that one is rendered from the server's is_platform_admin answer.
+  // (The quiet link on the signed-out login page is a different thing, and is
+  // meant to be visible to everyone.)
+  await page.goto(`http://127.0.0.1:${APP_PORT}/portal`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(2500);
+  check('their dashboard offers no console button',
+    !(await page.locator('.dashboard-top a[href="/admin"]').count()));
   await page.close();
 }
 
@@ -192,6 +240,14 @@ console.log('--- the superadmin ---');
   check('sees the details needed to vet them', body.includes('rattan@shop.ph'));
   check('sees whether the applicant proved they own that address',
     /email confirmed/i.test(body));
+
+  console.log('--- the 3D files across every store ---');
+  check('lists an uploaded model with its store and product',
+    /Cane Back Armchair/.test(body) && /S&C Variety Store/.test(body));
+  check('shows the file size in something readable', /30 MB/.test(body),
+    (body.match(/\d+(\.\d+)? [KMG]B/) || ['none'])[0]);
+  check('flags a listing with no model attached',
+    /Unmodelled Side Table/.test(body) && /no 3D model/i.test(body));
 
   console.log('--- approving ---');
   await page.click('button:has-text("Approve")');

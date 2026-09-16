@@ -19,8 +19,10 @@ const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '..');
+// Same default as tests/db.test.js, so one FURNISHAR_TEST_PG points both suites
+// at the same server. Skips itself when nothing is listening.
 const CONN = process.env.FURNISHAR_TEST_PG
-  || 'postgresql://postgres@/furnishar_admin_test?host=/tmp&port=55440';
+  || 'postgresql://postgres@localhost:55432/postgres?host=/tmp';
 
 function psql(sql, { role = null, user = null } = {}) {
   // Supabase sets request.jwt.claims; auth.uid() and the policies read it.
@@ -186,6 +188,78 @@ describe('the admin roster is invisible to a store owner', () => {
   const rows = readOrDenied('select count(*) from public.platform_admins;',
     { role: 'authenticated', user: IDS.ownerA });
   assert.ok(rows === 'denied' || rows === '0', `an owner enumerated admins: ${rows}`);
+});
+
+/* --------------------------------------------- seeing what has been uploaded -- */
+// 0004: the superadmin can see every store's products and models, including
+// drafts a non-member would never be shown — so they can spot an oversized
+// file or a listing with no model attached without going shop by shop with
+// database credentials. It is still read-only: 0001's write policies, scoped
+// to store membership, are untouched.
+
+describe('an admin can see a draft product in a store they do not belong to', () => {
+  const rows = psql(
+    "select count(*) from public.products where slug = 'test-fixture-draft';",
+    { role: 'authenticated', user: IDS.admin }
+  );
+  assert.equal(rows, '1', 'the admin should see the draft product across stores');
+});
+
+describe('an admin can see the model file attached to it', () => {
+  const path = psql(
+    `select object_path from public.product_assets pa
+       join public.products p on p.id = pa.product_id
+      where p.slug = 'test-fixture-draft';`,
+    { role: 'authenticated', user: IDS.admin }
+  );
+  assert.match(path, /test-fixture-model\.glb$/);
+});
+
+describe('a store owner who is not a member still cannot see that draft or its model', () => {
+  const products = readOrDenied(
+    "select count(*) from public.products where slug = 'test-fixture-draft';",
+    { role: 'authenticated', user: IDS.ownerB }
+  );
+  assert.ok(products === 'denied' || products === '0', `owner B saw the draft: ${products}`);
+
+  const assets = readOrDenied(
+    `select count(*) from public.product_assets pa
+       join public.products p on p.id = pa.product_id
+      where p.slug = 'test-fixture-draft';`,
+    { role: 'authenticated', user: IDS.ownerB }
+  );
+  assert.ok(assets === 'denied' || assets === '0', `owner B saw the model asset: ${assets}`);
+});
+
+describe('a signed-in stranger cannot see it either', () => {
+  const rows = readOrDenied(
+    "select count(*) from public.products where slug = 'test-fixture-draft';",
+    { role: 'authenticated', user: IDS.outsider }
+  );
+  assert.ok(rows === 'denied' || rows === '0', `outsider saw the draft: ${rows}`);
+});
+
+describe('anon cannot see it, and admin visibility grants no write access', () => {
+  const rows = readOrDenied(
+    "select count(*) from public.products where slug = 'test-fixture-draft';",
+    { role: 'anon' }
+  );
+  assert.ok(rows === 'denied' || rows === '0', `anon saw the draft: ${rows}`);
+
+  // Seeing everything is not the same as owning everything: 0004 only ever
+  // adds a SELECT policy, so an admin who is not a store member still has no
+  // UPDATE policy that applies to somebody else's product. RLS expresses that
+  // as "matched zero rows", not an error — so the assertion is on the price
+  // being unchanged, not on an exception being thrown.
+  psql(
+    `update public.products set price_php = 999999 where slug = 'test-fixture-draft';`,
+    { role: 'authenticated', user: IDS.admin }
+  );
+  const price = psql(
+    "select price_php from public.products where slug = 'test-fixture-draft';",
+    { role: 'authenticated', user: IDS.admin }
+  );
+  assert.notEqual(price, '999999.00', 'an admin should not be able to write another store\'s product');
 });
 
 /* ----------------------------------------------------- approval does its job -- */

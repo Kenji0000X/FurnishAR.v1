@@ -2,6 +2,31 @@
 
 Notable changes, newest first. Versions follow the footer build stamp.
 
+## Unreleased — one way in, and eyes on the uploads
+
+- **A single entry point to the platform console.** The store sign-in page now
+  carries one quiet "Superadmin sign-in" link, so the operator does not have to
+  remember a URL. It is visible to everyone on purpose: `/admin` refuses anyone
+  who is not in `platform_admins`, and row level security means the server never
+  sends them an applicant's details in the first place. A link nobody can see
+  would not be a permission.
+- **The console can see every 3D file, across every store.**
+  `0004_admin_model_visibility.sql` adds two SELECT policies so the operator can
+  list uploaded models with their store, product, size and upload date —
+  including drafts a non-member would never be shown — and spot listings with no
+  model attached, which cannot be placed in AR. Files over 15 MB are flagged;
+  the bucket's own ceiling is 50 MB, but that is already too slow on the
+  connections this is built for.
+- **It stays read-only.** 0004 adds no write policy, so seeing everything is not
+  owning everything: removing or replacing a model is still the owning shop's
+  job. There is a test that an admin's `update` on another store's product
+  changes nothing.
+- Five more database tests (20 total) covering the new visibility from all five
+  sides — admin, a member of another store, a signed-in stranger, anon, and the
+  admin's own lack of write access. `tests/admin.test.js` now shares
+  `db.test.js`'s default connection string, so one `FURNISHAR_TEST_PG` runs
+  both suites.
+
 ## Unreleased — two portals, and a wall between them
 
 - **A platform console at `/admin`.** Store sign-ups are now vetted before a

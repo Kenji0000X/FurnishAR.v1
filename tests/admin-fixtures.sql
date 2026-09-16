@@ -15,6 +15,9 @@ delete from public.store_members
 delete from public.stores where slug = 'test-approved-shop';
 delete from public.store_applications
  where contact_email in ('applicant@test.ph', 'unconfirmed@test.ph');
+delete from public.product_assets
+ where object_path like '%/test-fixture-model.glb';
+delete from public.products where slug = 'test-fixture-draft';
 
 insert into auth.users (id, email, email_confirmed_at) values
   (gen_random_uuid(), 'owner-a@test.ph', now()),
@@ -56,3 +59,22 @@ on conflict do nothing;
 insert into public.store_applications (store_name, contact_email, contact_phone, message)
 values ('Test Unconfirmed Shop', 'unconfirmed@test.ph', '+63431113333', 'Fixture application')
 on conflict do nothing;
+
+-- A draft product with a model attached, in owner A's store. Draft on purpose:
+-- the public read policy would never show this to anyone outside the store,
+-- so it is what proves the admin-visibility policies (0004) actually reach
+-- past status and store membership, not just past the public/member split
+-- 0001 already covered.
+insert into public.products (
+  id, store_id, slug, name, price_php, stock, width_cm, height_cm, depth_cm, status
+)
+select gen_random_uuid(), s.id, 'test-fixture-draft', 'Fixture Draft Bench',
+       1500, 2, 100, 45, 40, 'draft'
+  from public.stores s where s.slug = 'sc-variety'
+on conflict (store_id, slug) do nothing;
+
+insert into public.product_assets (product_id, store_id, kind, object_path, byte_size, mime_type)
+select p.id, p.store_id, 'glb', p.store_id::text || '/' || p.id::text || '/test-fixture-model.glb',
+       2400000, 'model/gltf-binary'
+  from public.products p where p.slug = 'test-fixture-draft'
+on conflict (product_id, kind) do nothing;
