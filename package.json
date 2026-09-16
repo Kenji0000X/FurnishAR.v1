@@ -9,6 +9,7 @@
     "start": "next start",
     "test": "node --test tests/*.test.js",
     "test:db": "node --test tests/db.test.js",
+    "check:supabase": "node scripts/check-supabase.js",
     "check:planner": "node scripts/check-planner.mjs",
     "check:portal": "node scripts/check-portal.mjs",
     "check:mobile": "node scripts/check-mobile.mjs"
