@@ -1,18 +1,56 @@
 'use client';
 
 /**
- * The portal's backend.
+ * Which backend the portal is talking to, behind one interface.
  *
- * The Supabase integration was removed, so there is one backend: this app's own
- * /api routes, backed by data/catalog.json and the demo shop sign-ins in
- * lib/handler.js. Nothing here talks to a third party.
+ * Supabase when the deployment is configured for it (real accounts, per-store
+ * rows, model uploads); otherwise the bundled catalogue and the demo shop
+ * sign-ins served by /api. Moved from public/client.js so the portal's React
+ * code never has to branch on which one answered.
  *
- * Catalogue writes work locally but not on Vercel, where the function
- * filesystem is read-only — the API answers those with a clear 503 rather than
- * pretending to save. Restoring a database is what lifts that.
+ * public/supabase.js is imported from its original location rather than copied,
+ * so there is one implementation of the Supabase calls while the vanilla site
+ * still exists. It moves under lib/ when that site is retired.
  */
 
-/** Calls the app's own API, with the session token attached when there is one. */
+let sb = null;
+let resolved = null;
+
+/** Loads the Supabase module if this deployment has a backend. Idempotent. */
+export async function initBackend() {
+  if (resolved) return resolved;
+  try {
+    const module = await import('../../public/supabase.js');
+    if (!module.isConfigured()) {
+      resolved = { kind: 'local', reason: 'No database is configured for this deployment.' };
+      return resolved;
+    }
+    await module.prepare();
+    sb = module;
+    resolved = { kind: 'supabase' };
+  } catch (error) {
+    // prepare() records why when the server has credentials but the project
+    // did not answer; that reason is worth showing, since "sign-ups are
+    // closed" and "the database is misconfigured" need different responses
+    // from whoever runs the site.
+    let reason = error?.message;
+    try {
+      const module = await import('../../public/supabase.js');
+      reason = module.unavailable?.() || reason;
+    } catch { /* module itself failed to load */ }
+    console.warn('[FurnishAR] database unavailable, using the bundled catalogue:', reason);
+    sb = null;
+    resolved = { kind: 'local', reason };
+  }
+  return resolved;
+}
+
+export const usingSupabase = () => resolved?.kind === 'supabase' && Boolean(sb);
+export const supabase = () => sb;
+/** Why the database is not in use, when it is not. */
+export const backendReason = () => resolved?.reason || null;
+
+/** The demo API, with the session token attached when there is one. */
 export async function api(path, { token, ...options } = {}) {
   const headers = {
     ...(options.body ? { 'Content-Type': 'application/json' } : {}),
@@ -25,7 +63,7 @@ export async function api(path, { token, ...options } = {}) {
   return data;
 }
 
-/** Sessions live in sessionStorage: they last for the tab, and no longer. */
+/** Demo sessions live in sessionStorage; Supabase keeps its own. */
 export const demoSession = {
   read() {
     try {

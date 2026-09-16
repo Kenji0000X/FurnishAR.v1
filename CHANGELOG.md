@@ -2,7 +2,24 @@
 
 Notable changes, newest first. Versions follow the footer build stamp.
 
-## Unreleased — the database connection removed
+## Unreleased — the database connection restored, with a reachability gate
+
+- Online store sign-up works again: the portal selects the Supabase backend
+  when `/api/sb/status` reports one, creates the account, and files the
+  `store_applications` row. The manual-email message is now only the fallback.
+- **The backend is chosen on reachability, not just configuration.**
+  `prepare()` calls `/api/sb/status?probe=1`, so a `SUPABASE_URL` pointing at a
+  deleted project falls back to the manual message — naming the reason —
+  instead of letting every sign-in and sign-up return 502. That was the exact
+  production failure.
+- Kept two fixes made directly on main that a plain restore would have lost:
+  the `.env` reader now tolerates a BOM and CRLF endings, and `proxyRest` no
+  longer puts the publishable key in `Authorization` (it is an API key, not a
+  JWT — the same correction already made for the auth endpoints).
+- `dist/supabase.js` stays deleted: it carried the old project's publishable
+  and secret keys as literal strings.
+
+## Superseded — the database connection removed
 
 - **The Supabase integration was removed.** The app runs entirely on files:
   `data/catalog.json`, the shops in `lib/catalog.mjs`, models in
