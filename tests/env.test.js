@@ -68,6 +68,33 @@ test('an unconfigured deployment bundles nothing and reports no mode', () => {
   assert.equal(bundle.mixed, false);
 });
 
+test('credentials pasted with quotes, whitespace or a NAME= prefix are repaired', () => {
+  // Each of these produced an unexplained 500 in production, because an
+  // invalid URL makes fetch throw and the rejection surfaced as a bare 500.
+  const { cleanCredential } = require('../lib/env.js');
+  const cases = [
+    ['  https://abc.supabase.co  ', 'https://abc.supabase.co'],
+    ['"https://abc.supabase.co"', 'https://abc.supabase.co'],
+    ["'https://abc.supabase.co'", 'https://abc.supabase.co'],
+    ['https://abc.supabase.co\n', 'https://abc.supabase.co'],
+    ['SUPABASE_URL=https://abc.supabase.co', 'https://abc.supabase.co'],
+    ['SUPABASE_URL = https://abc.supabase.co', 'https://abc.supabase.co']
+  ];
+  for (const [input, expected] of cases) {
+    assert.equal(cleanCredential(input, 'SUPABASE_URL'), expected, `cleaning ${JSON.stringify(input)}`);
+  }
+  assert.equal(cleanCredential(undefined, 'SUPABASE_URL'), '');
+});
+
+test('a URL fetch could not use is refused with a message that names the fix', () => {
+  const { assertUsableUrl } = require('../lib/env.js');
+  assert.throws(() => assertUsableUrl('abc.supabase.co'), /not a usable URL/);
+  assert.throws(() => assertUsableUrl('http://abc.supabase.co'), /must start with https/);
+  assert.equal(assertUsableUrl('https://abc.supabase.co'), 'https://abc.supabase.co');
+  // Local mock servers are how the browser checks run, so they stay allowed.
+  assert.equal(assertUsableUrl('http://127.0.0.1:4561'), 'http://127.0.0.1:4561');
+});
+
 test('the proxy refuses to serve requests with a secret key', () => {
   // The proxy documented this rule long before it enforced it. A secret key
   // bypasses row level security, so a deployment configured with one looks
