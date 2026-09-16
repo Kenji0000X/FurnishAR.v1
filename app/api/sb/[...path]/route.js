@@ -33,13 +33,31 @@ function json(status, body, extraHeaders = {}) {
   return Response.json(body, { status, headers: extraHeaders });
 }
 
-async function handle(request, context) {
+/**
+ * A deployment whose credentials are wrong — a secret key where the publishable
+ * one belongs, say — must not answer with a bare 500 and an empty body. That is
+ * indistinguishable from a crash, and the reason ends up only in a log the
+ * person debugging is not looking at. These are configuration faults: 503, and
+ * say which variable is wrong.
+ */
+function isConfigurationError(error) {
+  return /secret\/service_role key|no Supabase backend/i.test(error?.message || '');
+}
+
+async function route(request, context) {
   const { path = [] } = await context.params;
   const [section, ...rest] = path;
   const url = new URL(request.url);
 
   if (section === 'status' && rest.length === 0) {
-    return json(200, { configured: isConfigured() });
+    // Reports a misconfiguration rather than throwing, so the portal can say
+    // what is wrong instead of silently falling back to the demo backend.
+    try {
+      return json(200, { configured: isConfigured() });
+    } catch (error) {
+      if (!isConfigurationError(error)) throw error;
+      return json(200, { configured: false, error: error.message });
+    }
   }
 
   if (!isConfigured()) {
@@ -90,6 +108,26 @@ async function handle(request, context) {
   }
 
   return json(404, { error: 'Unknown endpoint.' });
+}
+
+/**
+ * Nothing here should ever reach the browser as an unhandled 500 with an empty
+ * body — that is what a misconfigured deployment used to look like, and it
+ * tells the person debugging it nothing at all.
+ */
+async function handle(request, context) {
+  try {
+    return await route(request, context);
+  } catch (error) {
+    if (isConfigurationError(error)) {
+      console.error('[supabase] configuration error:', error.message);
+      return json(503, { error: error.message });
+    }
+    // Genuinely unexpected: log it in full for the server operator, and tell
+    // the browser only that it was our fault, not theirs.
+    console.error('[supabase] unhandled error in /api/sb:', error);
+    return json(500, { error: 'The server could not complete that request. Check the deployment logs.' });
+  }
 }
 
 export const GET = handle;
