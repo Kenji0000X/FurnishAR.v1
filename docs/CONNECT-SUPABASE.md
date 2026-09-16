@@ -224,6 +224,10 @@ They refresh and have their dashboard.
 - An owner can sign in at `/portal` and see their own products only.
 - Adding a product in the portal makes it appear in the catalogue within a
   minute.
+- `/api/sb/status?probe=1` on the deployed site reports
+  `"reachable": true` and the project host. `"configured": true` on its own is
+  not enough — that only means the variables are well formed, and a URL
+  pointing at a deleted project passes it.
 - DevTools → Network: every Supabase request goes to **your own domain**
   (`/api/sb/…`). Search the page source for `sb_publishable` and find nothing.
   That last one is the check worth repeating after any change.
@@ -232,7 +236,8 @@ They refresh and have their dashboard.
 
 | What you see | What it means |
 | --- | --- |
-| Catalogue still shows the armchair | Variables missing or the deploy predates them. Check Vercel, then redeploy. |
+| Catalogue still shows the armchair | The app could not reach Supabase and fell back to the bundled file. Open `/api/sb/status?probe=1` — it says whether the project answers. |
+| `ENOTFOUND` in the logs, or `"reachable": false` from the probe | `SUPABASE_URL` points at a project that no longer exists — usually an old ref left behind after creating a new project. Update it and redeploy. |
 | "This deployment has no Supabase backend configured" | The server cannot see `SUPABASE_URL` / `SUPABASE_PUBLISHABLE_KEY`. |
 | "Sign-ups are turned off for this project" | Step 3. |
 | "Too many attempts. Wait…" | Supabase rate-limits auth. Wait it out; the button counts down. Your account may already exist — try signing in. |
