@@ -172,6 +172,12 @@ repository, and anyone could forge an owner session — so it throws instead.
 > entirely, which would make the proxy the only thing standing between the public
 > and every row in your database. `npm run check:supabase` refuses to run if it sees one.
 
+If Vercel Deployment Protection is enabled, disable it for the public production
+deployment or configure a public bypass. Protection redirects public assets such
+as `/manifest.webmanifest` to `vercel.com/sso-api`; browsers cannot load that
+cross-origin SSO response as an app manifest. This is a Vercel project setting,
+not an application CORS setting.
+
 ## 5. Approve the first owner
 
 Owners sign themselves up in the portal. That creates an auth account and a row

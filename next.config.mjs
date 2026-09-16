@@ -10,6 +10,13 @@ const nextConfig = {
   async headers() {
     return [
       {
+        source: '/manifest.webmanifest',
+        headers: [
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Content-Type', value: 'application/manifest+json' }
+        ]
+      },
+      {
         // WebXR and getUserMedia are permission-gated features; a page that
         // does not ask for them should not be able to. `self` keeps them
         // available to our own origin and denies every embedder.
