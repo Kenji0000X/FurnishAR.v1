@@ -7,8 +7,8 @@ accurate area measurement".*
 
 ## 1. What is deployed, and how to tell
 
-Every build stamps its version and commit into `dist/config.js`, and the footer
-shows them. Read the bottom of any page: `v1.0.0 · a7385ea · live catalog`.
+The footer is rendered on the server with the version and commit. Read the
+bottom of any page: `v1.1.0 · a7385ea`.
 
 - **Version** comes from `package.json`.
 - **Commit** is the first seven characters of `VERCEL_GIT_COMMIT_SHA`, or `dev`
@@ -35,7 +35,9 @@ uptime checker at.
 1. Work on a branch; never commit straight to `main` (Vercel deploys `main`).
 2. `npm test` must pass. If you changed the schema, `npm run test:db` needs a
    local Postgres — see `SUPABASE.md`.
-3. `npm run build`, then open `dist/` locally with `npm run local`.
+3. `npm run build`, then `npm start` and check the pages. For anything touching
+   the planner or the portal, run `npm run check:planner` and
+   `npm run check:portal` against it — a green build does not exercise either.
 4. Push. Vercel builds a preview URL for the branch; open it on a phone.
 5. Merge to `main` only after the preview behaves.
 
@@ -52,8 +54,9 @@ outage degrades the app instead of breaking it.
 | three.js | `0.170.0` | Loading and rendering the `.glb` | AR falls back to a box at true scale |
 | supabase-js | `2` | Database, auth, storage | The app serves the bundled catalogue |
 
-To upgrade either one, change the single `import(...)` URL in
-`public/client.js` or `public/supabase.js`, then re-run the AR checks — a
+three.js is a normal dependency now, so upgrade it with npm and re-run the AR
+checks rather than editing a CDN URL. After any bump, run
+`npm run check:planner` and place a piece on a real Android device — a
 three.js major version can change material and colour-space behaviour, which is
 exactly the class of bug that made the armchair render black once before.
 

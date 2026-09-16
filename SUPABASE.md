@@ -27,16 +27,17 @@ Supabase's "Connect" panel hands out **Next.js** code by default:
 `@supabase/ssr`, `createServerClient`, `cookies()` from `next/headers`,
 `utils/supabase/server.ts`, `NEXT_PUBLIC_*` variables and a `todos` table.
 
-**None of it applies to FurnishAR.** This project is plain HTML, CSS and
-JavaScript with no framework, no bundler and no server components. There is
-nothing for `next/headers` to run inside, no `@/` path alias to resolve, and
-`todos` is not a table in this schema.
+**Most of it still does not apply**, even though this is a Next.js app now. The
+integration already exists and is arranged so the key never reaches a browser,
+which the dashboard's snippets explicitly do not do — their `client.ts` calls
+`createBrowserClient` with `NEXT_PUBLIC_*` values, i.e. it publishes your key to
+every visitor. And `todos` is not a table in this schema.
 
 | The dashboard shows | This project uses |
 | --- | --- |
-| `@supabase/ssr`, `createServerClient` | `@supabase/supabase-js@2`, loaded from a CDN in `public/supabase.js` |
+| `@supabase/ssr`, `createServerClient` | `lib/supabase-proxy.js`, called from Route Handlers |
 | `utils/supabase/server.ts`, `client.ts`, `middleware.ts` | two files: `lib/supabase-proxy.js` (server) and `public/supabase.js` (browser) |
-| `cookies()` from `next/headers` | the browser's own session storage, handled by supabase-js |
+| `cookies()` from `next/headers` | the browser's own session storage, in `public/supabase.js` |
 | `process.env.NEXT_PUBLIC_*` inlined into the browser bundle | server-only variables, read by `lib/supabase-proxy.js`; the browser gets nothing |
 | `createBrowserClient` calling Supabase from the page | the page calling `/api/sb/…` on this app's own origin |
 | `supabase.from('todos')` | `supabase.from('catalog')` — see §"Schema at a glance" |
@@ -78,11 +79,10 @@ policies. Confirm it under **Storage** — it should be public, 50 MB limit.
 - **Authentication → URL Configuration**: add your Vercel domain to *Site URL*
   and *Redirect URLs*.
 - **Database → Replication** (or **Realtime**): enable replication for
-  `public.products` and `public.product_assets`. In direct mode this is what
-  makes a shopper's catalogue update the moment a shop publishes something. In
-  proxy mode (§4, the recommended one) the websocket cannot be proxied, so the
-  catalogue refreshes on a 60-second poll instead; enabling replication anyway
-  costs nothing and keeps the option open.
+  `public.products` and `public.product_assets`. Realtime needs a websocket
+  straight to your project, which the proxy (§4) deliberately does not open, so
+  today the catalogue refreshes on a 60-second poll instead. Enabling
+  replication costs nothing and keeps the option open.
 
 ## 4. Point the app at it
 
@@ -115,23 +115,18 @@ The proxy holds the *publishable* key on purpose, never the secret one, so row
 level security still applies to every request. A signed-in browser forwards its
 own access token, so the database sees the real user.
 
-<details>
-<summary>The old <code>NEXT_PUBLIC_*</code> names still work — here is what you give up</summary>
+The old `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+names are still read, so an existing `.env.local` keeps working — but they are
+now only ever read **on the server**, like the un-prefixed ones. Nothing writes
+a key into the browser bundle any more: the build step that used to do that
+(`build.js` and `dist/config.js`) was removed with the vanilla site, so there is
+no configuration that can publish the key by accident. Prefer the un-prefixed
+names anyway; the prefix means the opposite of what happens here and will
+mislead the next person reading your Vercel settings.
 
-`NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` /
-`NEXT_PUBLIC_SUPABASE_ANON_KEY` / `SUPABASE_ANON_KEY` are all still accepted, so
-an existing `.env.local` keeps working. But with a `NEXT_PUBLIC_` name the build
-writes the key into `dist/config.js` and the app runs in **direct mode**:
-the browser talks to Supabase itself and anyone can read the key out of the
-network tab. RLS still protects your rows — the key was never the security
-boundary — but the key can be scraped and spent against your free-tier quota,
-and your project URL is advertised to every visitor. Rename the two variables
-and that stops.
-
-Direct mode does buy one thing: Supabase realtime, which needs a websocket
-straight to the project. In proxy mode the catalogue polls every 60 seconds
-instead. For a pilot at this size that is the better trade.
-</details>
+The one thing this costs is Supabase realtime, which needs a websocket straight
+to the project and cannot be proxied. The catalogue polls every 60 seconds
+instead. For a pilot this size that is the better trade.
 
 Then check the wiring before you deploy anything:
 
@@ -144,17 +139,16 @@ exist, whether the seed data is there, whether drafts are correctly hidden from
 the public, whether the sign-up queue is closed, and whether email sign-in is
 on. Every failure names the fix. Run it from a normal internet connection.
 
-Then `npm run build && npm run local` and open
-[http://localhost:4173](http://localhost:4173). The footer will read
-`v1.1.0 · dev · live catalog` when the app is talking to Supabase.
+Then `npm run dev` and open [http://localhost:3000](http://localhost:3000).
 
 ### On Vercel
 
 **Settings → Environment Variables** → add `SUPABASE_URL` and
 `SUPABASE_PUBLISHABLE_KEY`, then redeploy. Vercel's own variables always win
 over any `.env.local` left in a checkout. If you previously set the
-`NEXT_PUBLIC_` versions there, **delete them** — otherwise the build keeps
-inlining the key into `dist/config.js` and the proxy work is undone.
+`NEXT_PUBLIC_` versions there, rename them: they still work, but the prefix
+tells every future reader that the value is published to the browser, which is
+exactly what this setup is arranged not to do.
 
 One more variable belongs here, and the app refuses to start on Vercel without
 it:
@@ -171,7 +165,7 @@ repository, and anyone could forge an owner session — so it throws instead.
 > The **secret** (`sb_secret_…`) or **service_role** key must never go in any of
 > these variables, not even the server-only ones. It bypasses row level security
 > entirely, which would make the proxy the only thing standing between the public
-> and every row in your database. `npm run build` refuses to run if it sees one.
+> and every row in your database. `npm run check:supabase` refuses to run if it sees one.
 
 ## 5. Approve the first owner
 

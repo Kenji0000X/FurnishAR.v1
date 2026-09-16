@@ -11,3 +11,7 @@ pgdata/
 
 # Generated at build time from the environment (may contain project keys).
 dist/config.js
+
+# Next.js build output and its cache.
+.next/
+next-env.d.ts

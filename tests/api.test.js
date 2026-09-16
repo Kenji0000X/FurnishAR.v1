@@ -33,15 +33,21 @@ test.before(async () => {
 test.beforeEach(() => resetCatalog());
 test.after(() => { resetCatalog(); server?.kill(); });
 
+test('the handler serves the API only, not the site', async () => {
+  // Next.js renders the pages now; lib/handler.js is the demo API behind
+  // /api/* and no longer has an index.html to hand out.
+  const home = await fetch(`http://127.0.0.1:${port}/`);
+  assert.equal(home.status, 404);
+});
+
 test('catalog and health endpoints serve the expected data', async () => {
   const health = await fetch(`http://127.0.0.1:${port}/api/health`).then(response => response.json());
   const catalog = await fetch(`http://127.0.0.1:${port}/api/products`).then(response => response.json());
-  const home = await fetch(`http://127.0.0.1:${port}/`);
   const privateSource = await fetch(`http://127.0.0.1:${port}/server.js`);
   assert.equal(health.status, 'ok');
   assert.ok(catalog.products.length >= 1);
   assert.ok(catalog.products.every(product => product.dimensions.width > 0 && product.arReady));
-  assert.equal(home.status, 200);
+  // Source files must never be readable over HTTP, whatever else changes.
   assert.equal(privateSource.status, 404);
 });
 
@@ -103,6 +109,25 @@ test('a production runtime refuses to start on the repository\'s public dev secr
   assert.match(stderr, /FURNISHAR_JWT_SECRET is not set/);
 });
 
+test('importing the handler is safe without a secret, but using it is not', () => {
+  // `next build` imports this module to collect route configuration on a
+  // machine that legitimately has no secret, so import must not throw. The
+  // refusal moved to the point where a session token would actually be signed.
+  const handler = require('../lib/handler.js');
+  const previousVercel = process.env.VERCEL;
+  const previousSecret = process.env.FURNISHAR_JWT_SECRET;
+  process.env.VERCEL = '1';
+  delete process.env.FURNISHAR_JWT_SECRET;
+  try {
+    assert.throws(() => handler.assertSigningSecret(), /FURNISHAR_JWT_SECRET is not set/);
+    process.env.FURNISHAR_JWT_SECRET = 'a-real-secret';
+    assert.equal(handler.assertSigningSecret(), 'a-real-secret');
+  } finally {
+    if (previousVercel === undefined) delete process.env.VERCEL; else process.env.VERCEL = previousVercel;
+    if (previousSecret === undefined) delete process.env.FURNISHAR_JWT_SECRET; else process.env.FURNISHAR_JWT_SECRET = previousSecret;
+  }
+});
+
 test('the Vercel rewrite reaches the requested API endpoint', async () => {
   const handler = require('../api/index.js');
   const functionServer = http.createServer(handler);
@@ -120,7 +145,12 @@ test('the Vercel rewrite reaches the requested API endpoint', async () => {
 test('Vercel returns a controlled response instead of crashing on a file-backed catalog write', async () => {
   const handler = require('../api/index.js');
   const previousVercel = process.env.VERCEL;
+  const previousSecret = process.env.FURNISHAR_JWT_SECRET;
   process.env.VERCEL = '1';
+  // A real Vercel deployment has a signing secret set; without one the handler
+  // refuses to mint a session at all, and this test would never reach the
+  // catalog write it is about.
+  process.env.FURNISHAR_JWT_SECRET = previousSecret || 'test-secret-for-the-vercel-write-path';
   const functionServer = http.createServer(handler);
   await new Promise(resolve => functionServer.listen(0, '127.0.0.1', resolve));
   const { port: functionPort } = functionServer.address();
@@ -130,6 +160,7 @@ test('Vercel returns a controlled response instead of crashing on a file-backed 
     assert.equal(response.status, 503);
   } finally {
     if (previousVercel === undefined) delete process.env.VERCEL; else process.env.VERCEL = previousVercel;
+    if (previousSecret === undefined) delete process.env.FURNISHAR_JWT_SECRET; else process.env.FURNISHAR_JWT_SECRET = previousSecret;
     await new Promise(resolve => functionServer.close(resolve));
   }
 });

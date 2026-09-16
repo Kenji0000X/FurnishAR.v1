@@ -76,7 +76,10 @@ export function activeMode() {
 
 async function getDirectClient() {
   if (client) return client;
-  loading ||= import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
+  // Resolved from node_modules and bundled, not fetched from a CDN at run
+  // time: one fewer third party that has to be reachable, and the version is
+  // pinned in package-lock.json rather than by a URL.
+  loading ||= import('@supabase/supabase-js');
   const { createClient } = await loading;
   client = createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
