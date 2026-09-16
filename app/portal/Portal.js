@@ -203,11 +203,11 @@ export default function Portal({ initialProducts }) {
 
   async function handleSignup(event) {
     event.preventDefault();
-    // There is no account system while the database is disconnected, so this
-    // says so plainly rather than appearing to create something.
+    // This deployment currently has no account/database signup endpoint, so do
+    // not imply that the applicant's details were submitted.
     setSignupMessage({
       ok: false,
-      text: "Store sign-ups are closed while the catalogue database is disconnected. Email hello@furnishar.ph and we will add your store by hand."
+      text: "Online store applications are temporarily unavailable because the catalogue database is not connected. Email hello@furnishar.ph and we can add your store manually."
     });
   }
 
