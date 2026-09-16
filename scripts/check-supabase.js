@@ -29,7 +29,6 @@ async function request(url, key, path, options = {}) {
     ...options,
     headers: {
       apikey: key,
-      Authorization: `Bearer ${key}`,
       Accept: 'application/json',
       ...(options.headers || {})
     }
