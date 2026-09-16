@@ -155,6 +155,38 @@ await run('a failed application does NOT report the account as failed', {
     made.filter(c => c.url.includes('signup')).length === 1
 });
 
+console.log('--- misconfiguration is reported, not crashed ---');
+{
+  // A secret key where the publishable one belongs used to throw inside the
+  // route and reach the browser as a bare 500 with an empty body.
+  const misconfigured = spawn('npx', ['next', 'start', '-p', String(APP_PORT + 1)], {
+    env: {
+      ...process.env,
+      SUPABASE_URL: `http://127.0.0.1:${SUPABASE_PORT}`,
+      SUPABASE_PUBLISHABLE_KEY: 'sb_secret_shouldNeverBeAccepted',
+      FURNISHAR_JWT_SECRET: 'auth-error-check-secret'
+    },
+    stdio: 'ignore'
+  });
+  let response = null;
+  for (let i = 0; i < 40; i++) {
+    try {
+      response = await fetch(`http://127.0.0.1:${APP_PORT + 1}/api/sb/auth/signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'a@b.ph', password: 'longenough' })
+      });
+      break;
+    } catch { await new Promise(r => setTimeout(r, 1000)); }
+  }
+  const body = response ? await response.json().catch(() => ({})) : {};
+  const ok = response?.status === 503 && /secret\/service_role key/i.test(body.error || '');
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} a secret key gives 503 and names the variable, not a bare 500`);
+  console.log(`       status ${response?.status}: "${(body.error || '').slice(0, 80)}…"`);
+  if (!ok) problems.push('secret key should give a readable 503');
+  misconfigured.kill();
+}
+
 console.log('--- request shape ---');
 await run('the key goes in apikey, never as a Bearer JWT, and never to the browser', {
   which: 'login', setUp: 'bad-credentials',
