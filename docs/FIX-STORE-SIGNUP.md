@@ -20,6 +20,18 @@ In Supabase Dashboard:
 
 Use the current URL from the dashboard. If DNS cannot resolve the old `*.supabase.co` hostname, the project was deleted, renamed, or the URL is incorrect.
 
+If signup logs say `Could not find the table public.store_applications in the
+schema cache`, open Supabase **SQL Editor**, run the complete
+`supabase/migrations/0001_init.sql` file from this repository, then run:
+
+```sql
+NOTIFY pgrst, 'reload schema';
+```
+
+Do the same if `store_members` returns `404`. Do not create only one table by
+hand: the migration also installs the RLS policies, grants, catalogue view,
+triggers, and storage policies required by the portal.
+
 ## 2. Configure local development
 
 Keep the server variables in `.env.local`:
@@ -77,6 +89,29 @@ Configuration alone does not remove the manual-email message. The portal must us
 3. Make `handleSignup()` call the Supabase signup method instead of always setting the manual-email message.
 4. Insert the store application into `store_applications` after account creation.
 5. Keep the manual-email message only as the fallback when the status check reports that Supabase is unavailable.
+
+## 5. Review incoming stores
+
+The review page is at `/admin`, and it needs **no extra environment variables** —
+not a service-role key, and not an admin token.
+
+This section previously described a version that reached Supabase with
+`SUPABASE_SERVICE_ROLE_KEY` and let anyone holding a shared `FURNISHAR_ADMIN_TOKEN`
+approve stores. Both are gone. A service-role key bypasses row level security
+entirely, and a shared token means every reviewer is the same anonymous person,
+so the record cannot say who approved what. Neither variable is read any more;
+remove them from Vercel if you added them.
+
+Access is now a row in `public.platform_admins`, which is per-account,
+revocable, and the same list the database policies read. See
+[SUPABASE.md §5](../SUPABASE.md#5-make-yourself-the-superadmin) for how to add
+yourself and what each layer does.
+
+Open `/admin` signed in as that account. Approval checks the applicant's account
+exists and has confirmed its email, then creates the store, links
+`store_members`, closes the application and records the decision — in one
+transaction. Rejecting requires a note and keeps it on the record; it does not
+delete the applicant's account.
 
 After changing the portal, run:
 

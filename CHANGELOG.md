@@ -10,7 +10,7 @@ Notable changes, newest first. Versions follow the footer build stamp.
   and approves or rejects with a note. Approving is one transaction — it creates
   the store, links the account as owner, closes the application and records the
   decision — so a half-approved store cannot happen.
-- **The wall is in the database.** `supabase/migrations/0002_platform_admin.sql`
+- **The wall is in the database.** `supabase/migrations/0003_platform_admin.sql`
   adds `platform_admins`, an `is_platform_admin()` helper, an append-only
   `admin_audit`, and policies that keep the sign-up queue invisible to store
   owners and to the public. `platform_admins` has no insert policy on purpose:
@@ -23,6 +23,19 @@ Notable changes, newest first. Versions follow the footer build stamp.
   that reads like an empty queue. Identity is re-checked with Supabase on every
   request and never cached, so removing an admin takes effect immediately.
   Filing an application stays public — that is the sign-up form.
+- **The applicant is checked, not just looked at.** The console shows whether
+  the contact address belongs to a real account, whether that account confirmed
+  it, and when they last signed in; approval refuses an unconfirmed or disabled
+  account outright. `auth.users` stays unreadable — the lookup is a
+  security-definer function that answers for one application at a time, for an
+  admin only, and returns only those few facts.
+- **Replaces the service-role admin route** (`lib/admin-applications.js`,
+  `app/api/admin/applications/route.js`) that landed on main in parallel. It
+  reached Supabase with `SUPABASE_SERVICE_ROLE_KEY`, which bypasses row level
+  security entirely, and gated access on one shared `FURNISHAR_ADMIN_TOKEN` — so
+  every reviewer was the same anonymous person and the audit trail could not say
+  who approved what. Its email-confirmation check was the good part and is kept,
+  moved into the database. Neither environment variable is needed any more.
 - `npm run check:admin` drives a real browser: a signed-out visitor and a
   signed-in store owner are both refused and shown no applicant's email or phone
   number; the operator sees the queue, is asked to confirm, and the approval is

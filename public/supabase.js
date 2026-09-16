@@ -126,7 +126,12 @@ async function restCall(path, options = {}) {
     const renewed = await refreshSession();
     if (renewed) return restCall(path, options);
   }
-  if (!response.ok) throw new Error(friendlyError(body || { message: `Request failed (${response.status})` }));
+  if (!response.ok) {
+    const error = new Error(friendlyError(body || { message: `Request failed (${response.status})` }));
+    error.status = response.status;
+    error.code = body?.code;
+    throw error;
+  }
   return body;
 }
 
@@ -510,11 +515,23 @@ export async function getMembership() {
     const supabase = await getDirectClient();
     const { data, error } = await supabase.from('store_members')
       .select('role, stores(id, slug, name, plan)').limit(1).maybeSingle();
-    if (error) throw new Error(friendlyError(error));
+    // A newly created account has no membership until an administrator
+    // approves its store. Treat a temporarily missing schema object the same
+    // way so the portal can show the review state instead of looping errors.
+    if (error) {
+      if (error.code === '42P01' || /schema cache|relation .* does not exist/i.test(error.message || '')) return null;
+      throw new Error(friendlyError(error));
+    }
     return shape(data);
   }
   if (!session) return null;
-  const rows = await restCall('store_members?select=role,stores(id,slug,name,plan)&limit=1');
+  let rows;
+  try {
+    rows = await restCall('store_members?select=role,stores(id,slug,name,plan)&limit=1');
+  } catch (error) {
+    if (error.status === 404 || error.code === '42P01' || /schema cache|relation .* does not exist/i.test(error.message || '')) return null;
+    throw error;
+  }
   return shape((rows || [])[0]);
 }
 
@@ -597,7 +614,7 @@ export function friendlyError(error) {
 
    Nothing here grants anything. Every call below is refused by row level
    security unless the signed-in account is in platform_admins — see
-   supabase/migrations/0002_platform_admin.sql. `isPlatformAdmin()` decides
+   supabase/migrations/0003_platform_admin.sql. `isPlatformAdmin()` decides
    which portal to *render*; it is not what protects the data, and a browser
    that lies about it still gets nothing back.
 --------------------------------------------------------------------------- */
@@ -625,6 +642,26 @@ export async function listApplications(status = 'pending') {
     ? `store_applications?status=eq.${encodeURIComponent(status)}&order=created_at.asc`
     : 'store_applications?order=created_at.desc';
   return (await restCall(query)) || [];
+}
+
+/**
+ * What the applicant's account looks like: does it exist, have they proved
+ * they own the address, have they ever signed in.
+ *
+ * `auth.users` is readable by nobody; this goes through a security-definer
+ * function that answers for one application at a time and returns only those
+ * few facts. Approving re-checks them in the same transaction, so this is for
+ * the reviewer's eyes, not the gate.
+ */
+export async function applicantAccount(applicationId) {
+  const body = JSON.stringify({ application: applicationId });
+  if (mode === 'direct') {
+    const supabase = await getDirectClient();
+    const { data, error } = await supabase.rpc('applicant_account', { application: applicationId });
+    if (error) throw new Error(friendlyError(error));
+    return data;
+  }
+  return restCall('rpc/applicant_account', { method: 'POST', body });
 }
 
 /** Every store, including suspended ones the public policy hides. */

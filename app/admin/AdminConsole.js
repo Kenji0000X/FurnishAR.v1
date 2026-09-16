@@ -8,7 +8,7 @@ import { initBackend, usingSupabase, supabase, backendReason } from '../portal/b
  *
  * What protects this is NOT this file. Every call it makes is refused by row
  * level security unless the signed-in account is in `platform_admins` — see
- * supabase/migrations/0002_platform_admin.sql and tests/admin.test.js. This
+ * supabase/migrations/0003_platform_admin.sql and tests/admin.test.js. This
  * component decides what to *render*; the database decides what is *allowed*.
  *
  * That distinction is the whole point. A reviewer who reached this page without
@@ -34,7 +34,29 @@ function timeAgo(iso) {
 const slugify = value =>
   String(value || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-function ApplicationCard({ application, onApprove, onReject, busy }) {
+/**
+ * What the database will say about the applicant's account when asked.
+ *
+ * Shown so the reviewer knows before pressing anything; `approve_store_application`
+ * re-checks the same facts in its own transaction, so this is a convenience,
+ * never the check itself.
+ */
+function AccountState({ account }) {
+  if (!account) return <dd>checking…</dd>;
+  if (!account.found) return <dd className="verification-warning">no account with this address yet</dd>;
+  if (account.disabled) return <dd className="verification-warning">the account is disabled</dd>;
+  if (!account.confirmed) {
+    return <dd className="verification-warning">email not confirmed — cannot be approved yet</dd>;
+  }
+  return (
+    <dd className="verification-ok">
+      email confirmed {timeAgo(account.confirmed_at)}
+      {account.last_sign_in_at ? `, last signed in ${timeAgo(account.last_sign_in_at)}` : ', never signed in'}
+    </dd>
+  );
+}
+
+function ApplicationCard({ application, account, onApprove, onReject, busy }) {
   const [slug, setSlug] = useState(slugify(application.store_name));
   const [note, setNote] = useState('');
   const [confirming, setConfirming] = useState(null); // 'approve' | 'reject' | null
@@ -54,6 +76,7 @@ function ApplicationCard({ application, onApprove, onReject, busy }) {
       {/* The details to check before letting someone list furniture publicly. */}
       <dl className="review-details">
         <div><dt>Contact email</dt><dd>{application.contact_email}</dd></div>
+        <div><dt>Their account</dt><AccountState account={account} /></div>
         <div><dt>Contact number</dt><dd>{application.contact_phone || '—'}</dd></div>
         <div><dt>What they will list</dt><dd>{application.message || '—'}</dd></div>
       </dl>
@@ -111,8 +134,10 @@ function ApplicationCard({ application, onApprove, onReject, busy }) {
             <div className="review-buttons">
               {/* Approval is irreversible from here — it creates a store and
                   grants publishing rights — so it asks twice. */}
+              {/* The database refuses an unconfirmed account anyway; greying
+                  the button out says so before the reviewer commits to it. */}
               <button className="button button-primary" type="button"
-                disabled={busy || !slug}
+                disabled={busy || !slug || !(account?.found && account.confirmed && !account.disabled)}
                 onClick={() => setConfirming('approve')}>
                 Approve
               </button>
@@ -138,6 +163,7 @@ export default function AdminConsole() {
   const [tab, setTab] = useState('pending');
   const [applications, setApplications] = useState([]);
   const [stores, setStores] = useState([]);
+  const [accounts, setAccounts] = useState({});
   const [audit, setAudit] = useState([]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
@@ -153,6 +179,15 @@ export default function AdminConsole() {
     setApplications(queue);
     setStores(allStores);
     setAudit(recent);
+
+    // One lookup per pending application. They are separate calls because each
+    // is a separate security-definer check; there are only ever a handful.
+    const pending = queue.filter(application => application.status === 'pending');
+    const looked = await Promise.all(pending.map(application =>
+      sb.applicantAccount(application.id)
+        .then(account => [application.id, account])
+        .catch(() => [application.id, { found: false, confirmed: false, disabled: false }])));
+    setAccounts(Object.fromEntries(looked));
   }, [tab]);
 
   useEffect(() => {
@@ -280,6 +315,7 @@ export default function AdminConsole() {
           <ApplicationCard
             key={application.id}
             application={application}
+            account={accounts[application.id]}
             busy={busy}
             onApprove={handleApprove}
             onReject={handleReject}
