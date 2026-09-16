@@ -217,8 +217,17 @@ approved, the portal shows them a "your store is in review" screen.
 
 Open `/admin`. Each application shows the store name, contact email, phone and
 what they intend to list — check those against the business before approving,
-which is the point of the queue. Set the address their shop will live at, then
-approve. That one action creates the store, links their account to it as owner,
+which is the point of the queue.
+
+Two of those checks are made for you, because they can be. The console shows
+whether the address belongs to a real account, whether that account has
+confirmed it owns the address, and when they last signed in; and
+`approve_store_application` refuses outright if the address is unconfirmed or
+the account is disabled. So an applicant who typed somebody else's email cannot
+be approved, however convincing the form looked. The judgement left to you is
+the part a database cannot make: is this a real furniture shop in Mamburao.
+
+Set the address their shop will live at, then approve. That one action creates the store, links their account to it as owner,
 closes the application and records the decision under your email in
 `admin_audit`, all in a single transaction — if any part fails, none of it
 happens.
@@ -247,7 +256,7 @@ SQL editor's own credentials — it is not a way around the wall.
 Three layers, and only the first one actually protects the data:
 
 1. **Row level security.** Every policy is in
-   `supabase/migrations/0002_platform_admin.sql`, and `tests/admin.test.js`
+   `supabase/migrations/0003_platform_admin.sql`, and `tests/admin.test.js`
    proves them by connecting *as* an anonymous visitor, two different store
    owners, an admin and a stranger, and trying things that should fail: reading
    the queue, approving an application, promoting oneself, forging or deleting
@@ -257,6 +266,10 @@ Three layers, and only the first one actually protects the data:
    non-admin gets a plain 403 instead of an empty list that reads like an empty
    queue. It re-checks identity with Supabase on every request and caches
    nothing. `tests/auth.test.js` covers it.
+   `applicant_account` is security-definer too, because `auth.users` is
+   readable by nobody and should stay that way: it answers for one application
+   at a time, only for an admin, and returns only whether the account exists, is
+   confirmed, is disabled, and when it last signed in.
 3. **The interface.** `/admin` asks the server whether you are an admin and
    renders accordingly. This is the layer that protects nothing, which is why
    the other two exist. `npm run check:admin` drives a real browser to confirm

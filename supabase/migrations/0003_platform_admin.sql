@@ -130,6 +130,54 @@ as $$
   select trim(both '-' from regexp_replace(lower(btrim(value)), '[^a-z0-9]+', '-', 'g'));
 $$;
 
+/*
+ * What the applicant's account actually looks like.
+ *
+ * A reviewer deciding whether a shop is legitimate wants to know whether the
+ * person behind the address has proved they own it, and whether they have ever
+ * signed in. `auth.users` is not readable by anyone, and it should not become
+ * readable — so this is a security-definer function that answers only for one
+ * application at a time, only for an admin, and returns only those few facts.
+ * Never the password hash, never the token, never the whole row.
+ */
+create or replace function public.applicant_account(application uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  app  public.store_applications;
+  acct auth.users;
+begin
+  if not public.is_platform_admin() then
+    raise exception 'Only a platform administrator may look up applicants'
+      using errcode = '42501';
+  end if;
+
+  select * into app from public.store_applications where id = application;
+  if not found then
+    raise exception 'No application with id %', application using errcode = 'P0002';
+  end if;
+
+  select * into acct from auth.users where lower(email) = lower(app.contact_email);
+  if not found then
+    return jsonb_build_object('found', false, 'confirmed', false, 'disabled', false);
+  end if;
+
+  return jsonb_build_object(
+    'found', true,
+    'confirmed', acct.email_confirmed_at is not null,
+    'confirmed_at', acct.email_confirmed_at,
+    'last_sign_in_at', acct.last_sign_in_at,
+    'disabled', acct.banned_until is not null and acct.banned_until > now()
+  );
+end;
+$$;
+
+revoke all on function public.applicant_account(uuid) from public, anon;
+grant execute on function public.applicant_account(uuid) to authenticated;
+
 create or replace function public.approve_store_application(
   application uuid,
   store_slug  text default null
@@ -142,6 +190,8 @@ as $$
 declare
   app         public.store_applications;
   owner_user  uuid;
+  confirmed   timestamptz;
+  banned      timestamptz;
   new_slug    text;
   target      uuid;
   actor_email text;
@@ -161,11 +211,25 @@ begin
     raise exception 'That application was already %', app.status using errcode = '22023';
   end if;
 
-  select id into owner_user from auth.users where lower(email) = lower(app.contact_email);
+  -- Vetting the applicant is the point of the queue, so the checks that can be
+  -- made mechanically are made here rather than left to the reviewer's
+  -- attention: the address must belong to an account, that account must have
+  -- proved it owns the address, and it must not be locked out.
+  select id, email_confirmed_at, banned_until
+    into owner_user, confirmed, banned
+    from auth.users where lower(email) = lower(app.contact_email);
   if owner_user is null then
     raise exception
-      'No account exists for % yet. The applicant must confirm their email address before the store can be linked.',
+      'No account exists for % yet. The applicant must sign up before the store can be linked.',
       app.contact_email using errcode = 'P0002';
+  end if;
+  if confirmed is null then
+    raise exception
+      '% has not confirmed their email address yet, so there is nothing proving they own it.',
+      app.contact_email using errcode = '22023';
+  end if;
+  if banned is not null and banned > now() then
+    raise exception 'The account for % is disabled.', app.contact_email using errcode = '22023';
   end if;
 
   new_slug := coalesce(nullif(btrim(store_slug), ''), public.slugify(app.store_name));

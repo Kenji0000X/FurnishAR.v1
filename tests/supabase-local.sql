@@ -14,10 +14,20 @@
 create schema if not exists auth;
 create schema if not exists storage;
 
+-- Enough of Supabase's auth.users to test against: the columns the policies and
+-- the approval function actually read. Approval refuses an unconfirmed or
+-- disabled account, so those columns have to exist here or the test would pass
+-- for the wrong reason.
 create table if not exists auth.users (
-  id    uuid primary key default gen_random_uuid(),
-  email text unique
+  id                 uuid primary key default gen_random_uuid(),
+  email              text unique,
+  email_confirmed_at timestamptz,
+  last_sign_in_at    timestamptz,
+  banned_until       timestamptz
 );
+alter table auth.users add column if not exists email_confirmed_at timestamptz;
+alter table auth.users add column if not exists last_sign_in_at    timestamptz;
+alter table auth.users add column if not exists banned_until       timestamptz;
 
 create or replace function auth.uid()
 returns uuid

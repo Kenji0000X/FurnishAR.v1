@@ -847,6 +847,10 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .dashboard-top { display: flex; align-items: end; justify-content: space-between; gap: 1.5rem; flex-wrap: wrap; }
 .dashboard-top h2 { margin-top: .4rem; font-size: 1.6rem; }
 .dashboard-top > div:last-child { display: flex; gap: .6rem; }
+/* Whether the applicant's account has proved it owns the address. */
+.verification-ok, .verification-warning { font-family: var(--mono); font-size: .72rem; }
+.verification-ok { color: #276749; }
+.verification-warning { color: var(--accent-ink); }
 
 .inventory-summary {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

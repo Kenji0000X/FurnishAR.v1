@@ -68,6 +68,16 @@ const supabase = createServer((req, res) => {
     // is_platform_admin: the server's answer, which the UI must obey.
     if (req.url.startsWith('/rest/v1/rpc/is_platform_admin')) return send(200, isAdmin(req));
 
+    if (req.url.startsWith('/rest/v1/rpc/applicant_account')) {
+      if (!isAdmin(req)) return send(403, { message: 'Only a platform administrator may look up applicants' });
+      return send(200, {
+        found: true, confirmed: true,
+        confirmed_at: new Date(Date.now() - 7200e3).toISOString(),
+        last_sign_in_at: new Date(Date.now() - 1800e3).toISOString(),
+        disabled: false
+      });
+    }
+
     // The queue: RLS returns nothing to a non-admin rather than erroring.
     if (req.url.startsWith('/rest/v1/store_applications')) {
       return send(200, isAdmin(req) ? applications : []);
@@ -180,6 +190,8 @@ console.log('--- the superadmin ---');
   const body = await page.locator('body').innerText();
   check('sees the queue', /Mindoro Rattan Works/.test(body));
   check('sees the details needed to vet them', body.includes('rattan@shop.ph'));
+  check('sees whether the applicant proved they own that address',
+    /email confirmed/i.test(body));
 
   console.log('--- approving ---');
   await page.click('button:has-text("Approve")');

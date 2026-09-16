@@ -81,7 +81,8 @@ const IDS = available
          'ownerB', (select id from auth.users where email = 'owner-b@test.ph'),
          'admin',  (select id from auth.users where email = 'admin@test.ph'),
          'outsider', (select id from auth.users where email = 'outsider@test.ph'),
-         'pending', (select id from public.store_applications where contact_email = 'applicant@test.ph')
+         'pending', (select id from public.store_applications where contact_email = 'applicant@test.ph'),
+         'unconfirmed', (select id from public.store_applications where contact_email = 'unconfirmed@test.ph')
        )`], { encoding: 'utf8' }).trim())
   : {};
 
@@ -107,6 +108,42 @@ describe('a superadmin can read the sign-up queue', () => {
   const rows = psql("select count(*) from public.store_applications where status = 'pending';",
     { role: 'authenticated', user: IDS.admin });
   assert.ok(Number(rows) >= 1, 'the admin should see the pending application');
+});
+
+/* ------------------------------------------------ the applicant is checked -- */
+
+describe('an applicant who never confirmed their email cannot be approved', () => {
+  // The point of the queue is vetting. An address nobody has proved they own
+  // is not a business you can approve, however convincing the form was.
+  assert.throws(
+    () => psql(`select public.approve_store_application('${IDS.unconfirmed}', 'unconfirmed-shop');`,
+      { role: 'authenticated', user: IDS.admin }),
+    /has not confirmed their email/,
+    'an unconfirmed applicant must be refused even for an admin'
+  );
+  const stores = psql("select count(*) from public.stores where slug = 'unconfirmed-shop';");
+  assert.equal(stores, '0', 'the refused approval must not have created a store');
+});
+
+describe('an admin can see whether the applicant confirmed their address', () => {
+  const account = JSON.parse(psql(`select public.applicant_account('${IDS.pending}');`,
+    { role: 'authenticated', user: IDS.admin }));
+  assert.equal(account.found, true);
+  assert.equal(account.confirmed, true);
+});
+
+describe('applicant_account never becomes a way to read auth.users', () => {
+  // It is security definer, so without its own check it would hand any signed-in
+  // account the applicant's details.
+  assert.throws(
+    () => psql(`select public.applicant_account('${IDS.pending}');`,
+      { role: 'authenticated', user: IDS.ownerA }),
+    /Only a platform administrator/
+  );
+  assert.throws(
+    () => psql(`select public.applicant_account('${IDS.pending}');`, { role: 'anon' }),
+    /Only a platform administrator|permission denied/
+  );
 });
 
 /* ------------------------------------------------------- deciding is gated -- */

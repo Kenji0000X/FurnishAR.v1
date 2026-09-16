@@ -13,15 +13,19 @@ delete from public.admin_audit
 delete from public.store_members
  where store_id in (select id from public.stores where slug = 'test-approved-shop');
 delete from public.stores where slug = 'test-approved-shop';
-delete from public.store_applications where contact_email = 'applicant@test.ph';
+delete from public.store_applications
+ where contact_email in ('applicant@test.ph', 'unconfirmed@test.ph');
 
-insert into auth.users (id, email) values
-  (gen_random_uuid(), 'owner-a@test.ph'),
-  (gen_random_uuid(), 'owner-b@test.ph'),
-  (gen_random_uuid(), 'admin@test.ph'),
-  (gen_random_uuid(), 'outsider@test.ph'),
-  (gen_random_uuid(), 'applicant@test.ph')
-on conflict (email) do nothing;
+insert into auth.users (id, email, email_confirmed_at) values
+  (gen_random_uuid(), 'owner-a@test.ph', now()),
+  (gen_random_uuid(), 'owner-b@test.ph', now()),
+  (gen_random_uuid(), 'admin@test.ph', now()),
+  (gen_random_uuid(), 'outsider@test.ph', now()),
+  (gen_random_uuid(), 'applicant@test.ph', now()),
+  -- Signed up but never clicked the confirmation link: nothing proves this
+  -- address belongs to them, so approving their shop must be refused.
+  (gen_random_uuid(), 'unconfirmed@test.ph', null)
+on conflict (email) do update set email_confirmed_at = excluded.email_confirmed_at;
 
 -- Owner A runs S&C, owner B runs Tiampion. Both stores come from seed.sql.
 insert into public.store_members (store_id, user_id, role)
@@ -46,4 +50,9 @@ on conflict (user_id) do nothing;
 -- (so approval can link it).
 insert into public.store_applications (store_name, contact_email, contact_phone, message)
 values ('Test Approved Shop', 'applicant@test.ph', '+63431112222', 'Fixture application')
+on conflict do nothing;
+
+-- A second application whose applicant has not confirmed their email.
+insert into public.store_applications (store_name, contact_email, contact_phone, message)
+values ('Test Unconfirmed Shop', 'unconfirmed@test.ph', '+63431113333', 'Fixture application')
 on conflict do nothing;
