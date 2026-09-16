@@ -41,7 +41,8 @@ function json(status, body, extraHeaders = {}) {
  * say which variable is wrong.
  */
 function isConfigurationError(error) {
-  return /secret\/service_role key|no Supabase backend/i.test(error?.message || '');
+  return /secret\/service_role key|no Supabase backend|not a usable URL|must start with https/i
+    .test(error?.message || '');
 }
 
 async function route(request, context) {
@@ -122,6 +123,12 @@ async function handle(request, context) {
     if (isConfigurationError(error)) {
       console.error('[supabase] configuration error:', error.message);
       return json(503, { error: error.message });
+    }
+    // Supabase itself was unreachable — a paused project, a wrong ref, DNS.
+    // 502 says plainly that the upstream failed, not this app.
+    if (error?.upstream) {
+      console.error('[supabase] upstream unreachable:', error.message);
+      return json(502, { error: error.message });
     }
     // Genuinely unexpected: log it in full for the server operator, and tell
     // the browser only that it was our fault, not theirs.
