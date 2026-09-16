@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { initBackend, usingSupabase, supabase, backendReason, api, demoSession } from './backend.js';
+import Link from 'next/link';
 import ProductFormDialog from './ProductFormDialog.js';
 import { peso } from '../format.js';
 
@@ -189,6 +190,9 @@ export default function Portal({ initialProducts }) {
   const [editing, setEditing] = useState(undefined); // undefined = closed
   const [notice, setNotice] = useState('');
   const [cooldown, setCooldown] = useState(0);       // seconds left after a 429
+  // Whether to show a way through to the platform console. The server answers
+  // this; it decides what to render and grants nothing on its own.
+  const [isAdmin, setIsAdmin] = useState(false);
 
   // Counts the rate-limit wait down so the button can say how long is left
   // rather than just refusing.
@@ -256,6 +260,7 @@ export default function Portal({ initialProducts }) {
         supabase().onAuthChange(event => {
           if (['SIGNED_IN', 'SIGNED_OUT', 'TOKEN_REFRESHED'].includes(event)) refreshSession();
         });
+        supabase().isPlatformAdmin().then(admin => { if (active) setIsAdmin(admin); });
       }
     })();
     return () => { active = false; };
@@ -430,6 +435,9 @@ export default function Portal({ initialProducts }) {
           <h2>Welcome back</h2>
         </div>
         <div>
+          {isAdmin && (
+            <Link className="button button-outline" href="/admin">Platform console</Link>
+          )}
           <button className="button button-primary" type="button" onClick={() => setEditing(null)}>
             + Add product
           </button>

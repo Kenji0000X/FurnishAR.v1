@@ -172,37 +172,96 @@ repository, and anyone could forge an owner session — so it throws instead.
 > entirely, which would make the proxy the only thing standing between the public
 > and every row in your database. `npm run check:supabase` refuses to run if it sees one.
 
-## 5. Approve the first owner
+## 5. Make yourself the superadmin
 
-Owners sign themselves up in the portal. That creates an auth account and a row
-in `store_applications`, but the account owns nothing until you link it — until
-then the portal shows them a "your store is in review" screen.
+There are two portals, and this is the one step that cannot be done in either.
 
-To approve, in the SQL editor:
+| | who signs in | where | what they can do |
+|---|---|---|---|
+| Store portal | a store owner | `/portal` | their own shop: products, prices, stock, 3D models |
+| Platform console | you | `/admin` | vet sign-ups, approve or reject them, see every store and every decision |
+
+An owner is admin of their own shop and nothing else. A platform admin never
+becomes a member of anyone's store — they can read the roster and the queue,
+and approve, but they cannot publish furniture as somebody else.
+
+Being a platform admin means having a row in `public.platform_admins`. There is
+deliberately **no insert policy on that table**, so nobody can promote
+themselves, or be tricked into promoting someone, through the app — not even an
+existing admin. The only way in is database credentials. Run this once in the
+SQL editor, with your own email:
 
 ```sql
--- See the queue
-select id, store_name, contact_email, contact_phone, created_at
-from public.store_applications
-where status = 'pending'
-order by created_at;
-
--- Link the account to a store (creating the store first if it is new)
-insert into public.store_members (store_id, user_id, role)
-select s.id, u.id, 'owner'
-from public.stores s, auth.users u
-where s.slug = 'sc-variety' and u.email = 'owner@furnishar.ph'
-on conflict do nothing;
-
--- Close the application
-update public.store_applications
-   set status = 'approved',
-       reviewed_at = now(),
-       approved_store_id = (select id from public.stores where slug = 'sc-variety')
- where contact_email = 'owner@furnishar.ph';
+insert into public.platform_admins (user_id, note)
+select id, 'founder' from auth.users where email = 'you@example.com'
+on conflict (user_id) do nothing;
 ```
 
-The owner refreshes and has their dashboard.
+(Sign up at `/portal` first if you have no account yet — the row needs a user to
+point at.) Sign in, and the portal grows a **Platform console** link.
+
+Removing an admin is the same table:
+
+```sql
+delete from public.platform_admins
+where user_id = (select id from auth.users where email = 'them@example.com');
+```
+
+It takes effect on their very next click; nothing is cached.
+
+### Approving a store owner
+
+Owners sign themselves up in the portal. That creates an auth account and a row
+in `store_applications`, but the account owns nothing yet — until it is
+approved, the portal shows them a "your store is in review" screen.
+
+Open `/admin`. Each application shows the store name, contact email, phone and
+what they intend to list — check those against the business before approving,
+which is the point of the queue. Set the address their shop will live at, then
+approve. That one action creates the store, links their account to it as owner,
+closes the application and records the decision under your email in
+`admin_audit`, all in a single transaction — if any part fails, none of it
+happens.
+
+Rejecting requires a note, which is kept on the record.
+
+The audit table is append-only by design: there is no insert or delete policy,
+so entries can only be written by the approve/reject functions and cannot be
+forged or erased through the app.
+
+**If you are locked out** — no admin account, or the console is unreachable —
+the SQL editor still works:
+
+```sql
+select id, store_name, contact_email, contact_phone, created_at
+from public.store_applications where status = 'pending' order by created_at;
+
+select public.approve_store_application('<application-id>', 'their-shop-slug');
+```
+
+`approve_store_application` checks `is_platform_admin()`, so this path needs the
+SQL editor's own credentials — it is not a way around the wall.
+
+### What stops the wrong person
+
+Three layers, and only the first one actually protects the data:
+
+1. **Row level security.** Every policy is in
+   `supabase/migrations/0002_platform_admin.sql`, and `tests/admin.test.js`
+   proves them by connecting *as* an anonymous visitor, two different store
+   owners, an admin and a stranger, and trying things that should fail: reading
+   the queue, approving an application, promoting oneself, forging or deleting
+   an audit entry, writing to another shop.
+2. **The server.** `lib/auth.js` refuses admin requests at the API boundary, so
+   an anonymous request for the sign-up queue never reaches Postgres, and a
+   non-admin gets a plain 403 instead of an empty list that reads like an empty
+   queue. It re-checks identity with Supabase on every request and caches
+   nothing. `tests/auth.test.js` covers it.
+3. **The interface.** `/admin` asks the server whether you are an admin and
+   renders accordingly. This is the layer that protects nothing, which is why
+   the other two exist. `npm run check:admin` drives a real browser to confirm
+   a signed-in store owner reaching `/admin` is refused and shown no applicant's
+   email or phone number.
 
 ---
 
@@ -225,8 +284,9 @@ the database, not by the interface:
   premium-only featuring are triggers, so they hold no matter which client
   writes.
 
-`tests/db.test.js` asserts all of the above against a real Postgres. Run it
-with a local server on port 55432, or point `FURNISHAR_TEST_PG` at one:
+`tests/db.test.js` asserts all of the above against a real Postgres, and
+`tests/admin.test.js` does the same for the platform-admin wall. Run them with a
+local server on port 55432, or point `FURNISHAR_TEST_PG` at one:
 
 ```bash
 npm run test:db

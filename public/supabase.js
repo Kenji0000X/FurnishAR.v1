@@ -591,3 +591,80 @@ export function friendlyError(error) {
   if (/exceeded the maximum allowed size|Payload too large/i.test(message)) return 'That model is larger than the 50 MB limit.';
   return message;
 }
+
+/* ---------------------------------------------------------------- admin ----
+   The superadmin portal.
+
+   Nothing here grants anything. Every call below is refused by row level
+   security unless the signed-in account is in platform_admins — see
+   supabase/migrations/0002_platform_admin.sql. `isPlatformAdmin()` decides
+   which portal to *render*; it is not what protects the data, and a browser
+   that lies about it still gets nothing back.
+--------------------------------------------------------------------------- */
+
+/** Is the signed-in account a platform administrator? */
+export async function isPlatformAdmin() {
+  if (!session) return false;
+  try {
+    if (mode === 'direct') {
+      const supabase = await getDirectClient();
+      const { data, error } = await supabase.rpc('is_platform_admin');
+      if (error) throw error;
+      return Boolean(data);
+    }
+    return Boolean(await restCall('rpc/is_platform_admin', { method: 'POST', body: '{}' }));
+  } catch {
+    // A failure here must read as "not an admin", never as "assume yes".
+    return false;
+  }
+}
+
+/** The sign-up queue. Admin-only; anyone else gets an empty list. */
+export async function listApplications(status = 'pending') {
+  const query = status
+    ? `store_applications?status=eq.${encodeURIComponent(status)}&order=created_at.asc`
+    : 'store_applications?order=created_at.desc';
+  return (await restCall(query)) || [];
+}
+
+/** Every store, including suspended ones the public policy hides. */
+export async function listAllStores() {
+  return (await restCall('stores?select=id,slug,name,plan,status,created_at&order=name.asc')) || [];
+}
+
+/** Recent administrative decisions, newest first. */
+export async function listAudit(limit = 25) {
+  return (await restCall(`admin_audit?order=at.desc&limit=${Number(limit) || 25}`)) || [];
+}
+
+/**
+ * Approves an application: creates the store, links the applicant's account as
+ * its owner, closes the application and writes the audit row — all in one
+ * transaction, inside the database.
+ */
+export async function approveApplication(applicationId, storeSlug) {
+  const body = JSON.stringify({ application: applicationId, store_slug: storeSlug || null });
+  if (mode === 'direct') {
+    const supabase = await getDirectClient();
+    const { data, error } = await supabase.rpc('approve_store_application', {
+      application: applicationId, store_slug: storeSlug || null
+    });
+    if (error) throw new Error(friendlyError(error));
+    return data;
+  }
+  return restCall('rpc/approve_store_application', { method: 'POST', body });
+}
+
+/** Rejects an application, with a note the reviewer can look back on. */
+export async function rejectApplication(applicationId, note) {
+  const body = JSON.stringify({ application: applicationId, note: note || null });
+  if (mode === 'direct') {
+    const supabase = await getDirectClient();
+    const { data, error } = await supabase.rpc('reject_store_application', {
+      application: applicationId, note: note || null
+    });
+    if (error) throw new Error(friendlyError(error));
+    return data;
+  }
+  return restCall('rpc/reject_store_application', { method: 'POST', body });
+}
