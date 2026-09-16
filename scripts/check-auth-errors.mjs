@@ -54,7 +54,14 @@ const supabase = createServer((req, res) => {
       }
       return send(201, null);
     }
-    if (req.url.startsWith('/auth/v1/health')) return send(200, { name: 'GoTrue' });
+    if (req.url.startsWith('/auth/v1/health')) {
+      // Supabase answers 401 without a valid apikey, whatever the project's
+      // state — which is why the probe has to send one.
+      if (req.headers.apikey !== 'sb_publishable_mockkey000000000') {
+        return send(401, { message: 'Invalid API key' });
+      }
+      return send(200, { name: 'GoTrue' });
+    }
     if (req.url.startsWith('/rest/v1/catalog')) return send(200, []);
     if (req.url.startsWith('/rest/v1/stores')) return send(200, []);
     return send(200, []);

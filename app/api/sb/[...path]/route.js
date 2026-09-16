@@ -59,15 +59,33 @@ function isConfigurationError(error) {
  * Never returns the key, only the host it is pointed at.
  */
 async function probeProject() {
-  const { url } = serverCredentials();
+  const { url, key } = serverCredentials();
   if (!url) return { reachable: false, project: null };
   const host = (() => { try { return new URL(url).host; } catch { return url; } })();
   try {
+    // The apikey header matters: Supabase's gateway answers an unauthenticated
+    // request with 401 whatever the project's state, so probing without it
+    // reports a 401 that says nothing about the key. Sending it makes the
+    // status mean what it looks like — 2xx is "this key works against this
+    // project", 401/403 is "it does not".
     const response = await fetch(`${url}/auth/v1/health`, {
+      headers: key ? { apikey: key } : undefined,
       signal: AbortSignal.timeout(5000),
       cache: 'no-store'
     });
-    return { reachable: true, project: host, projectStatus: response.status };
+    const keyAccepted = response.status !== 401 && response.status !== 403;
+    return {
+      reachable: true,
+      project: host,
+      projectStatus: response.status,
+      keyAccepted,
+      ...(keyAccepted ? {} : {
+        error:
+          `${host} answered, but rejected the key (HTTP ${response.status}). ` +
+          'SUPABASE_PUBLISHABLE_KEY probably belongs to a different project, or has been rotated. ' +
+          'Copy the publishable key from this project in Settings → API Keys.'
+      })
+    };
   } catch (error) {
     const code = error?.cause?.code || error?.name || 'network error';
     return {
