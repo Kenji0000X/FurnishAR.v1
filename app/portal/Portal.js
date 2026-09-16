@@ -306,7 +306,7 @@ export default function Portal({ initialProducts }) {
       const why = backendReason();
       setSignupMessage({
         ok: false,
-        text: "Online sign-ups are unavailable right now — email hello@furnishar.ph and we will add your store by hand."
+        text: "Online store applications are temporarily unavailable because the catalogue database is not connected. Email hello@furnishar.ph and we can add your store manually."
           + (why ? ` (${why})` : '')
       });
       return;
