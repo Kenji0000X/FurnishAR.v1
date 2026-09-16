@@ -823,16 +823,23 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   font-family: var(--mono); font-size: var(--micro);
   letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint);
 }
-.login-form input, .product-form input, .product-form select, .product-form textarea {
+/* .login-form textarea belongs here too: without it the sign-up form's "What
+   will you list?" box inherited the label's uppercase mono styling and rendered
+   at 10px. */
+.login-form input, .login-form textarea,
+.product-form input, .product-form select, .product-form textarea {
   width: 100%; padding: .6rem .7rem;
   border: 1px solid var(--rule); background: transparent;
   font-family: var(--sans); font-size: .8125rem;
   letter-spacing: normal; text-transform: none; color: var(--ink);
 }
-.login-form input, .product-form input, .product-form select, .product-form textarea {
+.login-form textarea { resize: vertical; min-height: 4.5rem; }
+.login-form input, .login-form textarea,
+.product-form input, .product-form select, .product-form textarea {
   transition: border-color var(--dur-fast) var(--ease-out);
 }
-.login-form input:focus-visible, .product-form input:focus-visible,
+.login-form input:focus-visible, .login-form textarea:focus-visible,
+.product-form input:focus-visible,
 .product-form select:focus-visible, .product-form textarea:focus-visible { border-color: var(--rule-strong); }
 .form-error { color: var(--danger); font-size: .75rem; }
 
@@ -1249,6 +1256,15 @@ footer {
   .tray-pad { grid-template-columns: repeat(3, 38px); }
   .filter-group select, .measurement-inputs input,
   .login-form input, .product-form input, .product-form select { min-height: var(--tap); }
+
+  /* iOS Safari zooms the whole page whenever a field smaller than 16px takes
+     focus, which on the five-field sign-up form means zooming in and back out
+     for every one. 16px is the threshold, not a design preference. */
+  .login-form input, .login-form textarea,
+  .product-form input, .product-form select, .product-form textarea,
+  .filter-group select, .measurement-inputs input, .search-input input {
+    font-size: 16px;
+  }
 }
 
 @media (max-width: 460px) {
