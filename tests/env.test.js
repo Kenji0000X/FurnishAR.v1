@@ -68,6 +68,28 @@ test('an unconfigured deployment bundles nothing and reports no mode', () => {
   assert.equal(bundle.mixed, false);
 });
 
+test('the proxy refuses to serve requests with a secret key', () => {
+  // The proxy documented this rule long before it enforced it. A secret key
+  // bypasses row level security, so a deployment configured with one looks
+  // healthy while being wide open — it has to fail loudly instead.
+  const proxy = require('../lib/supabase-proxy.js');
+  const previous = { url: process.env.SUPABASE_URL, key: process.env.SUPABASE_PUBLISHABLE_KEY };
+  process.env.SUPABASE_URL = 'https://example-project.supabase.co';
+  try {
+    process.env.SUPABASE_PUBLISHABLE_KEY = 'sb_secret_abcdef0123456789';
+    assert.throws(() => proxy.serverCredentials(), /secret\/service_role key/i);
+    assert.throws(() => proxy.isConfigured(), /secret\/service_role key/i);
+
+    process.env.SUPABASE_PUBLISHABLE_KEY = KEY_VALUE;
+    assert.equal(proxy.serverCredentials().key, KEY_VALUE);
+    assert.equal(proxy.isConfigured(), true);
+  } finally {
+    for (const [name, value] of [['SUPABASE_URL', previous.url], ['SUPABASE_PUBLISHABLE_KEY', previous.key]]) {
+      if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    }
+  }
+});
+
 test('a secret key is refused outright, whatever it is named', () => {
   for (const secret of ['sb_secret_abcdef0123456789', 'a.service_role.token']) {
     assert.throws(() => assertPublishableKey(secret), /secret|service.role/i);
