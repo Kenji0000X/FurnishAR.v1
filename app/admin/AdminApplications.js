@@ -11,6 +11,7 @@ export default function AdminApplications() {
   const [applications, setApplications] = useState([]);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
   async function request(path = '', options = {}) {
     const response = await fetch(`/api/admin/applications${path}`, {
@@ -27,6 +28,7 @@ export default function AdminApplications() {
     try {
       const result = await request();
       setApplications(result.applications || []);
+      setLoaded(true);
       sessionStorage.setItem('furnishar-admin-token', token);
     } catch (error) { setMessage(error.message); }
   }
@@ -43,7 +45,7 @@ export default function AdminApplications() {
     finally { setBusy(false); }
   }
 
-  if (!token || !applications.length && !message) {
+  if (!token || !loaded) {
     return (
       <section className="admin-tool">
         <h2>Administrator access</h2>
@@ -65,11 +67,26 @@ export default function AdminApplications() {
       <div className="application-list">
         {applications.map(application => (
           <article className="application-item" key={application.id}>
-            <div><p className="eyebrow">{new Date(application.created_at).toLocaleDateString()}</p><h3>{application.store_name}</h3><p>{application.contact_email} · {application.contact_phone || 'No phone provided'}</p>{application.message && <p>{application.message}</p>}</div>
-            <div className="application-actions"><button className="button button-primary" type="button" disabled={busy} onClick={() => review(application, 'approve')}>Approve</button><button className="button button-outline" type="button" disabled={busy} onClick={() => review(application, 'reject')}>Reject</button></div>
+            <div>
+              <p className="eyebrow">{new Date(application.created_at).toLocaleDateString()}</p>
+              <h3>{application.store_name}</h3>
+              <p>{application.contact_email} · {application.contact_phone || 'No phone provided'}</p>
+              {application.message && <p>{application.message}</p>}
+              <VerificationStatus account={application.account} />
+            </div>
+            <div className="application-actions"><button className="button button-primary" type="button" disabled={busy || !application.account?.found || !application.account.emailConfirmed} onClick={() => review(application, 'approve')}>Approve verified store</button><button className="button button-outline" type="button" disabled={busy} onClick={() => review(application, 'reject')}>Reject</button></div>
           </article>
         ))}
       </div>
     </section>
   );
+}
+
+function VerificationStatus({ account }) {
+  if (!account?.found) return <p className="verification-warning">Auth account not found</p>;
+  if (!account.emailConfirmed) return <p className="verification-warning">Email not verified</p>;
+  const lastSignIn = account.lastSignInAt
+    ? ` · last sign-in ${new Date(account.lastSignInAt).toLocaleDateString()}`
+    : '';
+  return <p className="verification-ok">Email verified{lastSignIn}</p>;
 }

@@ -854,6 +854,9 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .application-item h3 { margin: .3rem 0; font-size: 1.25rem; }
 .application-item p { margin: .35rem 0 0; color: var(--ink-muted); font-size: .875rem; }
 .application-actions { display: flex; align-items: center; gap: .6rem; flex-shrink: 0; }
+.verification-ok, .verification-warning { font-family: var(--mono); font-size: .72rem !important; }
+.verification-ok { color: #276749 !important; }
+.verification-warning { color: var(--accent-ink) !important; }
 
 .inventory-summary {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
