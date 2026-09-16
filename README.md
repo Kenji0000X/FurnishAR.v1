@@ -37,9 +37,12 @@ app: they put the key in the browser, and this one deliberately does not. The
 integration already exists — all it needs are the two values, and
 `npm run check:supabase` verifies them.
 
-**[SUPABASE.md](SUPABASE.md)** is the full runbook — creating the project,
-running `supabase/migrations/0001_init.sql`, the storage bucket, the
-environment variables, and how to approve a shop owner's application.
+**[docs/CONNECT-SUPABASE.md](docs/CONNECT-SUPABASE.md)** is the step-by-step
+setup: create the project, run `supabase/migrations/0001_init.sql`, set the
+environment variables, verify with `npm run check:supabase`, deploy, and approve
+the first shop owner. **[SUPABASE.md](SUPABASE.md)** is the reference behind it —
+what each piece does, how the data is separated, and what the proxy does and
+does not protect.
 
 Store owners sign themselves up in the portal. That creates an account and a
 `store_applications` row; the account owns nothing until an admin links it to a

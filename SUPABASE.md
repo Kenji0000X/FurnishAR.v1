@@ -1,5 +1,10 @@
 # FurnishAR on Supabase
 
+> **Setting this up for the first time? Follow
+> [docs/CONNECT-SUPABASE.md](docs/CONNECT-SUPABASE.md)** — the same material in
+> the order you need to do it, with the checks between steps. This file is the
+> reference for what each piece does and why.
+
 The app runs two ways:
 
 | | Without Supabase | With Supabase |
