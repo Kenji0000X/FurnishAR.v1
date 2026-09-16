@@ -218,14 +218,30 @@ console.log('--- a store owner (signed in, but not an admin) ---');
   check('sees no applicant phone', !body.includes('+63431234567'));
   check('sees no other store\'s 3D files', !body.includes('armchair.glb') && !body.includes('Cane Back Armchair'));
 
-  // Back on their own dashboard, the "Platform console" button must not be
-  // there — that one is rendered from the server's is_platform_admin answer.
+  // Back in the portal while signed in, no route to the console is offered at
+  // all — that link is rendered from the server's is_platform_admin answer.
   // (The quiet link on the signed-out login page is a different thing, and is
   // meant to be visible to everyone.)
   await page.goto(`http://127.0.0.1:${APP_PORT}/portal`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(2500);
-  check('their dashboard offers no console button',
-    !(await page.locator('.dashboard-top a[href="/admin"]').count()));
+  check('the signed-in portal offers them no console link',
+    !(await page.locator('a[href="/admin"]').count()));
+  await page.close();
+}
+
+console.log('--- the superadmin, who owns no store ---');
+{
+  // An admin is deliberately never a member of anybody's shop, so signing in
+  // lands them on the "no store" branch of the portal. That branch used to
+  // show them "your store is in review" and nothing else — their own console
+  // was rendered further down a path this returns before reaching.
+  const page = await browser.newPage();
+  await signIn(page, 'admin@furnishar.ph');
+  const body = await page.locator('body').innerText();
+  check('is not told their store is in review', !/store is in review/i.test(body));
+  check('is told what they actually are', /platform operator/i.test(body));
+  check('is offered the console from where they land',
+    await page.locator('.login-form a[href="/admin"]').count() > 0);
   await page.close();
 }
 
