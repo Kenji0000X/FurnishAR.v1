@@ -406,9 +406,8 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
 
   /* ---------------------------------------------------------------------------
      Backend
-     Supabase when the deployment is configured for it, otherwise the bundled
-     JSON catalogue and demo sign-in that shipped with the app. Everything below
-     this block is written against `backend`, not against either one directly.
+     The bundled JSON catalogue that ships with the app. Everything below this
+     block is written against `backend` rather than against it directly.
   --------------------------------------------------------------------------- */
 
 

@@ -45,11 +45,11 @@ since the Next.js port; the measurement mathematics are in `public/geometry.js`.
 | FR-6 | A shopper can measure a **clearance** between two points and get a fit verdict. | `captureNativePoint`, `fitAgainstClearance` | `tests/geometry.test.js` "fit against a linear clearance" |
 | FR-7 | A shopper can measure a **floor area** from three or more points and get a fit verdict against the piece's footprint. | `captureAreaPoint`, `closeAreaOutline`, `fitAgainstArea` | `tests/geometry.test.js` (8 area cases); end-to-end scan of a 4 × 3 m floor reading 12.0 m² |
 | FR-8 | A measurement is accepted only when two independent scans agree within 5%. | `reconcileReadings` | `tests/geometry.test.js` "the panel's 5% rule"; end-to-end rejection at 32% |
-| FR-9 | A store owner can sign up, creating an account and an application for review. | `app/portal/Portal.js` `handleSignup`, `store_applications` | `tests/db.test.js` "the sign-up form is open to the public but its queue is not" |
-| FR-10 | An owner can add, edit and remove **their own** products only. | Supabase RLS on `products` | `tests/db.test.js` cross-store read/write/delete cases |
-| FR-11 | An owner can upload a `.glb` model, stored under their own store's folder. | `app/portal/ProductFormDialog.js` → `uploadModel`, storage policies | `tests/db.test.js` "storage: a store can only write under its own folder" |
+| FR-9 | A store owner can sign up, creating an account and an application for review. | Schema only — `store_applications`. **Not active**: sign-ups are closed while there is no database. | `tests/db.test.js` "the sign-up form is open to the public but its queue is not" (schema level) |
+| FR-10 | An owner can add, edit and remove **their own** products only. | Schema only — RLS on `products`. **Not active**: the demo API scopes edits to the signed-in owner's store, but the database rules are what enforce it. | `tests/db.test.js` cross-store read/write/delete cases |
+| FR-11 | An owner can upload a `.glb` model, stored under their own store's folder. | Schema only — storage policies. **Not active**: models are committed to `public/models/`. | `tests/db.test.js` "storage: a store can only write under its own folder" |
 | FR-12 | A shopper can share a link to a specific piece. | `app/furniture/[slug]/page.js` — a real URL per piece, plus `ProductActions` for the share sheet | Browser pass: link copied and re-opened the dialog |
-| FR-13 | The catalogue updates without a refresh when a store publishes. | `subscribeToCatalog` (60-second poll; realtime needs a direct websocket the proxy does not open) | Not verified — needs a live Supabase project (see §6) |
+| FR-13 | The catalogue updates without a refresh when a store publishes. | **Not implemented** — there is no live backend to publish to. | — |
 
 ## 4. Non-functional requirements
 
@@ -62,7 +62,7 @@ since the Next.js port; the measurement mathematics are in `public/geometry.js`.
 | NFR-5 | **Performance** — the interface never blocks on the 3D library or the database. | Skeleton within one frame; graceful fallback | Skeleton verified against a 1.5 s throttled response; CDN-failure fallback verified |
 | NFR-6 | **Motion** — respects `prefers-reduced-motion`. | All transforms stop | Audit: 0.001 s transitions under reduced motion |
 | NFR-7 | **Security** — one store can never read or write another's data. | Enforced in the database, not the UI | `tests/db.test.js`, 14 cases |
-| NFR-8 | **Security** — the browser never holds a privileged key. | Anon key only | `build.js` refuses a service-role key |
+| NFR-8 | **Security** — the browser never holds a privileged key. | No keys at all | The app makes no third-party calls; there is nothing to hold |
 | NFR-9 | **Maintainability** — the system can be understood and changed by someone new. | Documented + tested | 50 automated tests; `docs/MAINTENANCE.md` |
 | NFR-10 | **Measurement accuracy** — AR readings within ±5% of a tape measure. | ±5% | Geometry proven exact against known shapes; **field validation against a tape measure is still outstanding** (see §6) |
 
@@ -86,8 +86,9 @@ These are open, and saying so is part of the analysis:
    but no measurements have yet been taken against a tape measure on a real
    floor with a real phone. `docs/MAINTENANCE.md` §5 gives the protocol and the
    table to fill in. This must be done before the accuracy claim is defended.
-2. **Live backend (FR-13).** The Supabase schema and access rules are verified
-   against a real Postgres, but no queries have been run against a hosted
-   Supabase project yet. See `SUPABASE.md`.
+2. **No live backend (FR-9, FR-10, FR-11, FR-13).** The schema and its access
+   rules are verified against a real Postgres, but the app is not connected to
+   a database: the catalogue is a committed file and owners cannot edit it on
+   the deployed site. See `docs/DATABASE-LATER.md`.
 3. **iOS AR.** Requires a `.usdz` per product. The field exists; no files yet.
 4. **Store addresses** are placeholders and must be replaced before launch.

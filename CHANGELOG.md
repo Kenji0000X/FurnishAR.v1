@@ -2,6 +2,25 @@
 
 Notable changes, newest first. Versions follow the footer build stamp.
 
+## Unreleased — the database connection removed
+
+- **The Supabase integration was removed.** The app runs entirely on files:
+  `data/catalog.json`, the shops in `lib/catalog.mjs`, models in
+  `public/models/`, and the demo sign-in in `lib/handler.js`. No external
+  service, no API key, and `FURNISHAR_JWT_SECRET` is the only environment
+  variable left.
+- Removed: the server-side proxy, the `/api/sb/*` routes, the browser client,
+  the credential loading, the connection checker, and `@supabase/supabase-js`.
+  Four runtime dependencies remain: Next, React, React DOM, three.js.
+- Store sign-ups are closed and say so, rather than appearing to create an
+  account there is nowhere to put.
+- Kept, but not wired up: `supabase/migrations/0001_init.sql`, `supabase/seed.sql`
+  and the 14 row-level-security tests in `tests/db.test.js`. See
+  `docs/DATABASE-LATER.md` for what reconnecting would involve.
+- Known limit this reintroduces: Vercel's filesystem is read-only, so owners
+  cannot edit furniture on the deployed site. The API says so instead of
+  pretending to save.
+
 ## 1.1.0 — panel comments applied
 
 **Measurement**

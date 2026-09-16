@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { initBackend, usingSupabase, supabase, api, demoSession } from './backend.js';
+import { api, demoSession } from './backend.js';
 import ProductFormDialog from './ProductFormDialog.js';
 import { peso } from '../format.js';
 
@@ -81,13 +81,7 @@ function PlanPanel({ plan, used }) {
   );
 }
 
-/** Label for a submit button that may be busy or held shut by a rate limit. */
-function submitLabel({ busy, cooldown, busyText, idle }) {
-  if (cooldown > 0) return `Try again in ${cooldown}s`;
-  return busy ? busyText : idle;
-}
-
-function LoginPanel({ onSubmit, error, busy, cooldown, onShowSignup }) {
+function LoginPanel({ onSubmit, error, busy, onShowSignup }) {
   return (
     <div className="login-panel">
       <div className="login-copy">
@@ -111,10 +105,8 @@ function LoginPanel({ onSubmit, error, busy, cooldown, onShowSignup }) {
           Password
           <input name="password" type="password" required autoComplete="current-password" defaultValue="furnishar" />
         </label>
-        <button className="button button-primary" type="submit" disabled={busy || cooldown > 0}>
-          {cooldown > 0 || busy
-            ? submitLabel({ busy, cooldown, busyText: 'Signing in…' })
-            : <>Sign in securely <span aria-hidden="true">→</span></>}
+        <button className="button button-primary" type="submit" disabled={busy}>
+          {busy ? 'Signing in…' : <>Sign in securely <span aria-hidden="true">→</span></>}
         </button>
         <p className="form-error" role="alert" aria-live="assertive">{error}</p>
         <button className="text-button" type="button" onClick={onShowSignup}>New store? Sign up</button>
@@ -123,7 +115,7 @@ function LoginPanel({ onSubmit, error, busy, cooldown, onShowSignup }) {
   );
 }
 
-function SignupPanel({ onSubmit, message, busy, cooldown, onShowLogin }) {
+function SignupPanel({ onSubmit, message, busy, onShowLogin }) {
   return (
     <div className="login-panel">
       <div className="login-copy">
@@ -140,38 +132,14 @@ function SignupPanel({ onSubmit, message, busy, cooldown, onShowLogin }) {
           What will you list?
           <textarea name="message" rows={2} maxLength={1000} placeholder="e.g. 40 pieces, mostly cabinets and dining sets" />
         </label>
-        <button className="button button-primary" type="submit" disabled={busy || cooldown > 0}>
-          {cooldown > 0 || busy
-            ? submitLabel({ busy, cooldown, busyText: 'Creating…' })
-            : <>Create account <span aria-hidden="true">→</span></>}
+        <button className="button button-primary" type="submit" disabled={busy}>
+          {busy ? 'Creating…' : <>Create account <span aria-hidden="true">→</span></>}
         </button>
         <p className={`form-error${message?.ok ? ' is-ok' : ''}`} role="status" aria-live="polite">
           {message?.text}
         </p>
         <button className="text-button" type="button" onClick={onShowLogin}>Back to login</button>
       </form>
-    </div>
-  );
-}
-
-function PendingPanel({ email, onLogout }) {
-  return (
-    <div className="login-panel">
-      <div className="login-copy">
-        <span className="secure-mark" aria-hidden="true">⌑</span>
-        <h2>Your store is in review.</h2>
-        <p>
-          The account for <b>{email}</b> is active, but it is not linked to a store yet. We check
-          new applications by hand so the catalog stays accurate.
-        </p>
-        <p className="demo-note">
-          You will be able to add furniture and upload 3D models as soon as it is approved.
-        </p>
-      </div>
-      <div className="login-form">
-        <p className="card-copy">Nothing to do here for now. Sign out and come back once you hear from us.</p>
-        <button className="button button-outline" type="button" onClick={onLogout}>Sign out</button>
-      </div>
     </div>
   );
 }
@@ -188,56 +156,15 @@ export default function Portal({ initialProducts }) {
   const [signupMessage, setSignupMessage] = useState(null);
   const [editing, setEditing] = useState(undefined); // undefined = closed
   const [notice, setNotice] = useState('');
-  const [cooldown, setCooldown] = useState(0);       // seconds left after a 429
 
-  // Counts the rate-limit wait down so the button can say how long is left
-  // rather than just refusing.
-  useEffect(() => {
-    if (cooldown <= 0) return undefined;
-    const timer = setTimeout(() => setCooldown(seconds => seconds - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [cooldown]);
-
-  const startCooldown = seconds => setCooldown(Math.min(Math.ceil(seconds), 3600));
 
   const toast = message => {
     setNotice(message);
     setTimeout(() => setNotice(''), 3400);
   };
 
-  /** Reads whichever session exists and loads the store's own inventory. */
+  /** Reads the demo session stored for this tab. */
   const refreshSession = useCallback(async () => {
-    if (usingSupabase()) {
-      const sb = supabase();
-      const current = await sb.getSession();
-      if (!current) {
-        setSession(null);
-        setOwnProducts([]);
-        return;
-      }
-      const membership = await sb.getMembership();
-      setSession({
-        token: current.access_token,
-        user: membership
-          ? {
-              email: current.user.email,
-              storeId: membership.storeId,
-              storeUuid: membership.storeUuid,
-              store: membership.store,
-              plan: membership.plan
-            }
-          : { email: current.user.email, storeId: null, storeUuid: null, store: null, plan: null }
-      });
-      if (membership) {
-        try {
-          setOwnProducts(await sb.listOwnProducts(membership.storeUuid));
-        } catch (error) {
-          console.warn('Could not load store inventory:', error.message);
-        }
-      }
-      return;
-    }
-
     const stored = demoSession.read();
     setSession(stored.token && stored.user ? stored : null);
   }, []);
@@ -245,18 +172,8 @@ export default function Portal({ initialProducts }) {
   useEffect(() => {
     let active = true;
     (async () => {
-      await initBackend();
-      if (!active) return;
       await refreshSession();
-      if (!active) return;
-      setReady(true);
-
-      // Follow sign-ins and sign-outs made in another tab.
-      if (usingSupabase()) {
-        supabase().onAuthChange(event => {
-          if (['SIGNED_IN', 'SIGNED_OUT', 'TOKEN_REFRESHED'].includes(event)) refreshSession();
-        });
-      }
+      if (active) setReady(true);
     })();
     return () => { active = false; };
   }, [refreshSession]);
@@ -268,24 +185,16 @@ export default function Portal({ initialProducts }) {
     setLoginError('');
     setBusy(true);
     try {
-      if (usingSupabase()) {
-        await supabase().signIn({ email: fields.email, password: fields.password });
-        await refreshSession();
-      } else {
-        const response = await api('/api/auth/login', {
-          method: 'POST',
-          body: JSON.stringify(fields)
-        });
-        demoSession.write(response.token, response.user);
-        setSession({ token: response.token, user: response.user });
-      }
+      const response = await api('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify(fields)
+      });
+      demoSession.write(response.token, response.user);
+      setSession({ token: response.token, user: response.user });
       form.reset();
       toast('Signed in.');
     } catch (error) {
       setLoginError(error.message);
-      // Sign-in is rate-limited by Supabase too, and had exactly the same
-      // "[object Object]" problem on an empty error body.
-      if (error.retryAfter) startCooldown(error.retryAfter);
       form.querySelector('[name="email"]')?.focus();
     } finally {
       setBusy(false);
@@ -294,52 +203,16 @@ export default function Portal({ initialProducts }) {
 
   async function handleSignup(event) {
     event.preventDefault();
-    const form = event.currentTarget;
-    const fields = Object.fromEntries(new FormData(form));
-    setSignupMessage(null);
-
-    if (!usingSupabase()) {
-      setSignupMessage({
-        ok: false,
-        text: "Store sign-ups open once the live database is connected. We'll onboard your store manually in the meantime."
-      });
-      return;
-    }
-
-    setBusy(true);
-    try {
-      const result = await supabase().signUp({
-        email: fields.email,
-        password: fields.password,
-        storeName: fields.storeName,
-        phone: fields.phone,
-        message: fields.message
-      });
-      form.reset();
-
-      const confirm = result.needsEmailConfirmation
-        ? 'Account created. Confirm your email address, then sign in'
-        : 'Account created. You can sign in now';
-      setSignupMessage({
-        ok: true,
-        text: result.applicationFiled
-          ? `${confirm} — your store is queued for review.`
-          : `${confirm}. We could not file your store application automatically, so email hello@furnishar.ph with your store name and we will add it by hand. Do not sign up again; the account already exists.`
-      });
-      toast('Application received.');
-    } catch (error) {
-      setSignupMessage({ ok: false, text: error.message });
-      // Supabase rate-limits sign-ups hard. Holding the button shut for the
-      // stated interval is the difference between one 429 and four.
-      if (error.retryAfter) startCooldown(error.retryAfter);
-    } finally {
-      setBusy(false);
-    }
+    // There is no account system while the database is disconnected, so this
+    // says so plainly rather than appearing to create something.
+    setSignupMessage({
+      ok: false,
+      text: "Store sign-ups are closed while the catalogue database is disconnected. Email hello@furnishar.ph and we will add your store by hand."
+    });
   }
 
   async function handleLogout() {
-    if (usingSupabase()) await supabase().signOut();
-    else demoSession.clear();
+    demoSession.clear();
     setSession(null);
     setOwnProducts([]);
     toast('Signed out.');
@@ -348,8 +221,7 @@ export default function Portal({ initialProducts }) {
   async function handleDelete(product) {
     if (!window.confirm(`Delete "${product.name}"? This cannot be undone.`)) return;
     try {
-      if (usingSupabase()) await supabase().deleteProduct(product.id);
-      else await api(`/api/products/${product.id}`, { method: 'DELETE', token: session.token });
+      await api(`/api/products/${product.id}`, { method: 'DELETE', token: session.token });
       await reloadInventory();
       toast('Product deleted.');
     } catch (error) {
@@ -357,20 +229,15 @@ export default function Portal({ initialProducts }) {
     }
   }
 
+  // There is no per-store endpoint, so an owner's list is the catalogue
+  // filtered to their store.
   const reloadInventory = useCallback(async () => {
-    if (usingSupabase()) {
-      if (!session?.user?.storeUuid) return;
-      setOwnProducts(await supabase().listOwnProducts(session.user.storeUuid));
-    } else {
-      const data = await api('/api/products');
-      setOwnProducts(data.products.filter(p => p.storeId === session?.user?.storeId));
-    }
+    const data = await api('/api/products');
+    setOwnProducts(data.products.filter(p => p.storeId === session?.user?.storeId));
   }, [session]);
 
-  // The demo backend has no per-store endpoint, so the owner's list is filtered
-  // out of the catalogue that was server-rendered with the page.
   useEffect(() => {
-    if (ready && !usingSupabase() && session?.user) {
+    if (ready && session?.user) {
       setOwnProducts(initialProducts.filter(p => p.storeId === session.user.storeId));
     }
   }, [ready, session, initialProducts]);
@@ -381,7 +248,6 @@ export default function Portal({ initialProducts }) {
 
   const user = session?.user;
   const loggedIn = Boolean(session?.token && user);
-  const awaitingApproval = loggedIn && usingSupabase() && !user.storeUuid;
 
   if (!loggedIn) {
     return mode === 'signup'
@@ -390,7 +256,6 @@ export default function Portal({ initialProducts }) {
           onSubmit={handleSignup}
           message={signupMessage}
           busy={busy}
-          cooldown={cooldown}
           onShowLogin={() => { setMode('login'); setSignupMessage(null); }}
         />
       )
@@ -399,19 +264,13 @@ export default function Portal({ initialProducts }) {
           onSubmit={handleLogin}
           error={loginError}
           busy={busy}
-          cooldown={cooldown}
           onShowSignup={() => { setMode('signup'); setLoginError(''); }}
         />
       );
   }
 
-  if (awaitingApproval) {
-    return <PendingPanel email={user.email} onLogout={handleLogout} />;
-  }
 
-  const plan = usingSupabase()
-    ? (user.plan === 'premium' ? 'premium' : 'freemium')
-    : (ownProducts.length > 0 ? 'premium' : 'freemium');
+  const plan = ownProducts.length > 0 ? 'premium' : 'freemium';
   const isFree = plan === 'freemium';
   const units = ownProducts.reduce((sum, product) => sum + product.stock, 0);
   const value = ownProducts.reduce((sum, product) => sum + product.price * product.stock, 0);

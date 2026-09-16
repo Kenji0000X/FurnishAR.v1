@@ -1,45 +1,18 @@
 'use client';
 
 /**
- * Which backend the portal is talking to, behind one interface.
+ * The portal's backend.
  *
- * Supabase when the deployment is configured for it (real accounts, per-store
- * rows, model uploads); otherwise the bundled catalogue and the demo shop
- * sign-ins served by /api. Moved from public/client.js so the portal's React
- * code never has to branch on which one answered.
+ * The Supabase integration was removed, so there is one backend: this app's own
+ * /api routes, backed by data/catalog.json and the demo shop sign-ins in
+ * lib/handler.js. Nothing here talks to a third party.
  *
- * public/supabase.js is imported from its original location rather than copied,
- * so there is one implementation of the Supabase calls while the vanilla site
- * still exists. It moves under lib/ when that site is retired.
+ * Catalogue writes work locally but not on Vercel, where the function
+ * filesystem is read-only — the API answers those with a clear 503 rather than
+ * pretending to save. Restoring a database is what lifts that.
  */
 
-let sb = null;
-let resolved = null;
-
-/** Loads the Supabase module if this deployment has a backend. Idempotent. */
-export async function initBackend() {
-  if (resolved) return resolved;
-  try {
-    const module = await import('../../public/supabase.js');
-    if (!module.isConfigured()) {
-      resolved = { kind: 'local' };
-      return resolved;
-    }
-    await module.prepare();
-    sb = module;
-    resolved = { kind: 'supabase' };
-  } catch (error) {
-    console.warn('[FurnishAR] Supabase unavailable, using the bundled catalogue:', error?.message);
-    sb = null;
-    resolved = { kind: 'local' };
-  }
-  return resolved;
-}
-
-export const usingSupabase = () => resolved?.kind === 'supabase' && Boolean(sb);
-export const supabase = () => sb;
-
-/** The demo API, with the session token attached when there is one. */
+/** Calls the app's own API, with the session token attached when there is one. */
 export async function api(path, { token, ...options } = {}) {
   const headers = {
     ...(options.body ? { 'Content-Type': 'application/json' } : {}),
@@ -52,7 +25,7 @@ export async function api(path, { token, ...options } = {}) {
   return data;
 }
 
-/** Demo sessions live in sessionStorage; Supabase keeps its own. */
+/** Sessions live in sessionStorage: they last for the tab, and no longer. */
 export const demoSession = {
   read() {
     try {

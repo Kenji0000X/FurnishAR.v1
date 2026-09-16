@@ -1,10 +1,8 @@
 import { BrandMark } from './SiteHeader.js';
 
 /**
- * The build stamp used to be filled in by JS from window.FURNISHAR_CONFIG. It
- * is rendered on the server now, so it is correct in the HTML rather than
- * appearing a moment later — and it no longer needs the config object that
- * once carried the Supabase key.
+ * The build stamp is rendered on the server, so it is correct in the HTML
+ * rather than appearing a moment later.
  */
 export default function SiteFooter() {
   const version = process.env.npm_package_version || '1.1.0';

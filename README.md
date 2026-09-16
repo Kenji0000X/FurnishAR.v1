@@ -7,15 +7,15 @@ Browser-native furniture planning for Mamburao retailers. It includes a searchab
 Use Node.js 20 or newer, then run:
 
 ```powershell
-npm.cmd run local
+npm run dev
 ```
 
-Open [http://localhost:4173](http://localhost:4173). `localhost` is treated as a secure context by Chrome, so it is suitable for testing camera/WebXR features. For a phone, deploy via HTTPS; WebXR will not start on a plain HTTP IP address.
+Open [http://localhost:3000](http://localhost:3000). `localhost` is treated as a secure context by Chrome, so it is suitable for testing camera/WebXR features. For a phone, deploy via HTTPS; WebXR will not start on a plain HTTP IP address.
 
 ## Demo owner accounts
 
-These belong to the bundled-catalogue mode, which is what runs when no Supabase
-project is configured.
+Sign-in uses these accounts. They are defined in `lib/handler.js` and must be
+removed or changed before any real launch.
 
 | Store | Email | Password |
 | --- | --- | --- |
@@ -23,34 +23,27 @@ project is configured.
 | Tiampion Buildings | `tiampion@furnishar.ph` | `furnishar` |
 | Sanros General Merchandise | `sanros@furnishar.ph` | `furnishar` |
 
-## Live database (Supabase)
+## Data, and the database
 
-Supply a Supabase project URL and publishable key and the app switches to a real
-backend: Supabase Auth accounts, per-store furniture protected by row level
-security, 3D model uploads into Storage, and a catalogue that updates live in
-every open browser. Leave them unset and it keeps the bundled catalogue and the
-demo sign-in above, unchanged.
+There is no database. The catalogue is `data/catalog.json`, the shops are in
+`lib/catalog.mjs`, the 3D models are files in `public/models/`, and sign-in uses
+the demo accounts above. No external service, no API key, nothing to configure.
 
-The dashboard's snippets (`@supabase/ssr`, `utils/supabase/server.ts`,
-`createBrowserClient`) still do **not** apply, even though this is a Next.js
-app: they put the key in the browser, and this one deliberately does not. The
-integration already exists — all it needs are the two values, and
-`npm run check:supabase` verifies them.
+The Supabase integration was removed. **[docs/DATABASE-LATER.md](docs/DATABASE-LATER.md)**
+records what the app does without one, what was kept (the schema and its
+row-level-security tests), and what reconnecting would involve.
 
-**[docs/CONNECT-SUPABASE.md](docs/CONNECT-SUPABASE.md)** is the step-by-step
-setup: create the project, run `supabase/migrations/0001_init.sql`, set the
-environment variables, verify with `npm run check:supabase`, deploy, and approve
-the first shop owner. **[SUPABASE.md](SUPABASE.md)** is the reference behind it —
-what each piece does, how the data is separated, and what the proxy does and
-does not protect.
+The practical limit: Vercel's filesystem is read-only, so owners cannot add or
+edit furniture on the deployed site — the API says so rather than pretending to
+save. Editing the catalogue means editing `data/catalog.json` and pushing.
 
-Store owners sign themselves up in the portal. That creates an account and a
-`store_applications` row; the account owns nothing until an admin links it to a
-store, so a new sign-up sees a "your store is in review" screen rather than an
-empty dashboard.
+Store sign-ups are closed: with no database there is nothing to create an
+account in, so the portal says so and gives an email address instead of
+appearing to register someone.
 
-`npm run test:db` checks the schema and every access rule against a real
-Postgres, including that one shop can never read or write another's furniture.
+`npm run test:db` still checks the retained schema and every access rule against
+a real Postgres, including that one shop can never read or write another's
+furniture. It skips itself when no Postgres is running.
 
 ## Panel feedback & roadmap
 
@@ -90,8 +83,9 @@ The **Place in your room** action checks for WebXR immersive AR with hit-test su
 
 This is a Next.js app, so Vercel builds and serves it directly — no rewrites or
 output directory to configure. Pages are server-rendered (product pages are
-generated statically at build time), and both APIs are Route Handlers:
-`/api/sb/*` is the Supabase proxy that keeps the key off the browser, and
-`/api/*` is the demo backend used when no Supabase project is configured.
+generated statically at build time), and `/api/*` is a Route Handler serving the
+bundled catalogue and the demo sign-in. The only environment variable is
+`FURNISHAR_JWT_SECRET`, which signs owner sessions and is required in
+production.
 
 In **Vercel → Project → Settings → Environment Variables**, set `FURNISHAR_JWT_SECRET` to a long random value, then redeploy. The bundled JSON catalog is read-only on Vercel, so catalog viewing and login work there, while product changes intentionally return a clear service message until the catalog is migrated to a persistent database or Vercel KV. Local development retains file-backed CRUD.

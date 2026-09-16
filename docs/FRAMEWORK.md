@@ -13,9 +13,10 @@ Next.js, `NEXT_PUBLIC_*` is *defined* as "inline this value into the JavaScript
 sent to the browser" — the Supabase quickstart's `client.ts` does exactly that.
 
 What hides a key is **a server**, not a framework. The key must never leave it.
-That is now done (`lib/supabase-proxy.js`): the browser calls this app's own
-`/api/sb/…` endpoints, and the server calls Supabase. Verified — the browser
-receives no key, not even the project URL.
+That was done with a server-side proxy, and verified: the browser received no
+key, not even the project URL. The integration has since been removed
+altogether (`docs/DATABASE-LATER.md`), so the app now holds no keys at all —
+but the principle is the one to carry into any future backend.
 
 So "use Next.js" and "hide the key" were never the same requirement. The second
 is solved. The first is now purely a question of what this codebase should be
@@ -30,7 +31,7 @@ Judge a framework against the real workload, not a generic checklist:
 | AR engine (WebXR, three.js, hit-testing, the control tray, measurement) | ~1,400 lines | Imperative, frame-by-frame, owns its own DOM and a WebGL canvas |
 | Design system | ~1,300 lines CSS | Hand-written tokens, documented in `BRAND.md` |
 | Catalogue, planner, owner portal | ~600 lines | Ordinary forms and lists |
-| API + proxy | ~450 lines | Node serverless functions |
+| API | ~300 lines | Node serverless functions |
 | Tests | 51 | Node's test runner, no framework needed |
 
 **Roughly two-thirds of this app is an imperative real-time graphics loop.**
@@ -43,9 +44,8 @@ the catalogue and portal.
 ### Next.js (App Router) — what you asked for
 
 **For:** first-class on Vercel, which you already use. Server Components and
-Route Handlers are a natural home for the Supabase proxy. Every Supabase
-tutorial, including the one in your dashboard, is written for it, so you can
-copy-paste help. Image optimisation, routing and code splitting come free. It
+Route Handlers are a natural home for a server-side data layer, and most
+backend tutorials are written for it, so you can copy-paste help. Image optimisation, routing and code splitting come free. It
 is the most employable thing to have on a thesis.
 
 **Against:** the AR layer gets no benefit and must be ported carefully into a
@@ -64,8 +64,8 @@ catalogue) get static generation; islands cover the interactive bits. Server
 endpoints handle the proxy. This is what I would pick if the only criterion were
 "best fit for this app".
 
-**Against:** smaller ecosystem, fewer Supabase examples, and less recognisable
-on a CV than Next.js.
+**Against:** smaller ecosystem, fewer worked examples, and less recognisable on
+a CV than Next.js.
 
 ### SvelteKit
 
@@ -83,9 +83,9 @@ sustainability argument in the thesis is real and unusual.
 
 **Go with Next.js, but port in this order, and not all at once:**
 
-1. **Done already — the server boundary.** `/api/sb/*` is the seam. In Next.js
-   these become Route Handlers with almost no change; the browser code calling
-   them does not care.
+1. **Done already — the server boundary.** The `/api` routes are the seam. In
+   Next.js these become Route Handlers with almost no change; the browser code
+   calling them does not care.
 2. **Catalogue and product pages first.** Real gain: server-rendered product
    pages are shareable and indexable, which matters for shops being found.
 3. **Owner portal second.** Forms and tables are what React is good at.
@@ -110,8 +110,7 @@ The migration was carried out in the order above. What actually shipped:
 | `/furniture/<slug>` | statically generated per product | **the point of the exercise** — own title, description, canonical URL, OG tags |
 | `/plan` | static shell, client engine | the AR engine, moved not rewritten |
 | `/portal` | client, `noindex` | owner sign-in, inventory, plan panel |
-| `/api/sb/*` | Route Handler | reuses `lib/supabase-proxy.js` unchanged; key stays server-side |
-| `/api/*` | Route Handler | the demo API, adapting `lib/handler.js` rather than reimplementing it |
+| `/api/*` | Route Handler | the catalogue and sign-in API, adapting `lib/handler.js` rather than reimplementing it |
 
 Decisions worth recording:
 

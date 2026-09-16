@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { usingSupabase, supabase, api } from './backend.js';
+import { api } from './backend.js';
 
 const CATEGORIES = ['Sofa', 'Table', 'Chair', 'Bed', 'Storage'];
 const SHAPES = ['sofa', 'table', 'chair', 'bed', 'shelf', 'desk'];
@@ -16,7 +16,7 @@ const SHAPES = ['sofa', 'table', 'chair', 'bed', 'shelf', 'desk'];
 export default function ProductFormDialog({ product, session, onClose, onSaved }) {
   const dialogRef = useRef(null);
   const [error, setError] = useState('');
-  const [status, setStatus] = useState('');   // 'Saving…' | 'Uploading model…'
+  const [status, setStatus] = useState('');   // 'Saving…' while in flight
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -36,7 +36,6 @@ export default function ProductFormDialog({ product, session, onClose, onSaved }
     event.preventDefault();
     const form = event.currentTarget;
     const values = Object.fromEntries(new FormData(form));
-    const modelFile = form.elements.modelFile?.files?.[0] || null;
     setError('');
     setStatus('Saving…');
 
@@ -59,33 +58,11 @@ export default function ProductFormDialog({ product, session, onClose, onSaved }
     };
 
     try {
-      if (usingSupabase()) {
-        const storeUuid = session?.user?.storeUuid;
-        if (!storeUuid) throw new Error('Your store is still awaiting approval.');
-        const saved = await supabase().saveProduct(
-          { ...payload, id: values.id || undefined },
-          storeUuid
-        );
-        if (modelFile) {
-          setStatus('Uploading model…');
-          await supabase().uploadModel(modelFile, {
-            storeUuid,
-            productId: saved.id,
-            kind: 'glb'
-          });
-        }
-      } else {
-        if (modelFile) {
-          throw new Error(
-            'Model uploads need the Supabase backend. Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY.'
-          );
-        }
-        await api(values.id ? `/api/products/${values.id}` : '/api/products', {
-          method: values.id ? 'PUT' : 'POST',
-          token: session?.token,
-          body: JSON.stringify(payload)
-        });
-      }
+      await api(values.id ? `/api/products/${values.id}` : '/api/products', {
+        method: values.id ? 'PUT' : 'POST',
+        token: session?.token,
+        body: JSON.stringify(payload)
+      });
       dialogRef.current?.close();
       onSaved(values.id ? 'Product updated.' : 'Product added to the catalog.');
     } catch (saveError) {
@@ -136,13 +113,13 @@ export default function ProductFormDialog({ product, session, onClose, onSaved }
             </select>
           </label>
           <label className="form-wide">
-            3D model (.glb)
-            <input name="modelFile" type="file" accept=".glb,model/gltf-binary" />
+            Android GLB path
+            <input name="modelGlb" type="text" placeholder="models/example.glb" defaultValue={value('modelGlb')} />
             <small className="field-note">
-              Uploaded to your store&apos;s folder. Up to 50 MB. Leave empty to keep the current model.
+              Commit the .glb to public/models/ and name it here. File uploads need a
+              storage backend, which is not connected.
             </small>
           </label>
-          <label>Android GLB path<input name="modelGlb" type="text" placeholder="models/example.glb" defaultValue={value('modelGlb')} /></label>
           <label>iPhone USDZ path<input name="modelUsdz" type="text" placeholder="models/example.usdz" defaultValue={value('modelUsdz')} /></label>
           <label>AR box width (cm)<input name="modelWidth" type="number" min="1" step="0.1" placeholder="same as width" defaultValue={bounds('width')} /></label>
           <label>AR box height (cm)<input name="modelHeight" type="number" min="1" step="0.1" placeholder="same as height" defaultValue={bounds('height')} /></label>
