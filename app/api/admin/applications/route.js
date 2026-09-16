@@ -27,7 +27,7 @@ async function handle(request) {
     return json(405, { error: 'Method not allowed.' });
   } catch (error) {
     console.error('[admin applications]', error);
-    const status = /requires|must be|authorization/i.test(error.message) ? 503 : 400;
+    const status = /requires|missing:|not configured|must be|authorization/i.test(error.message) ? 503 : 400;
     return json(status, { error: error.message || 'Could not process the application.' });
   }
 }
