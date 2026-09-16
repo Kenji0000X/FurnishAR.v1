@@ -189,6 +189,10 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 
 .main-nav { display: flex; gap: 1.4rem; margin-left: auto; }
 
+/* These two are <a> now that the views are real routes, so they have to shed
+   the browser's link styling; they were <button> before the Next.js port. */
+.nav-link, .header-action { text-decoration: none; }
+
 .nav-link {
   position: relative;
   padding: .3rem 0;
@@ -211,6 +215,7 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   padding: .5rem .9rem;
   border: 1px solid var(--rule-strong);
   background: transparent;
+  color: inherit;
   font-size: .75rem;
 }
 .header-action { transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
@@ -594,12 +599,21 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   -webkit-backdrop-filter: var(--glass-blur);
   font-size: .9rem;
 }
+/* An <a> since products got real URLs, so it has to centre its own glyph and
+   drop link styling — a <button> did both for free. */
+.view-button {
+  display: flex; align-items: center; justify-content: center;
+  color: inherit; text-decoration: none;
+}
 .view-button { transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .product-card:hover .view-button, .view-button:focus-visible { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 
 .product-info { padding: 1rem 1.1rem 1.2rem; }
 .product-store { color: var(--ink-faint); }
 .product-name { margin: .5rem 0 .9rem; font-size: 1rem; letter-spacing: -.02em; }
+/* The whole name is the tap target, without looking like a link. */
+.product-name a { color: inherit; text-decoration: none; }
+.product-name a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .product-meta { display: flex; align-items: baseline; justify-content: space-between; gap: .75rem; }
 .product-price { font-family: var(--mono); font-size: .875rem; }
 .product-dimension { font-family: var(--mono); font-size: var(--micro); color: var(--ink-faint); }

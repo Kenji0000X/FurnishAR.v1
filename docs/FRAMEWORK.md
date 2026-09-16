@@ -100,18 +100,48 @@ sustainability argument in the thesis is real and unusual.
 nothing from the migration, and it is the part your panel will actually be
 shown. A half-ported app that loses AR is worse than either endpoint.
 
-## 5. If you want Next.js now
+## 5. Status: done
 
-The migration is a multi-day piece of work that will touch every file, so it
-should be its own branch and its own decision — not a side effect of an API-key
-fix. When you want it, the first commit should be:
+The migration was carried out in the order above. What actually shipped:
 
+| Route | Rendering | Notes |
+| --- | --- | --- |
+| `/` | server-rendered, static | whole catalogue in the HTML; filters hydrate on top |
+| `/furniture/<slug>` | statically generated per product | **the point of the exercise** — own title, description, canonical URL, OG tags |
+| `/plan` | static shell, client engine | the AR engine, moved not rewritten |
+| `/portal` | client, `noindex` | owner sign-in, inventory, plan panel |
+| `/api/sb/*` | Route Handler | reuses `lib/supabase-proxy.js` unchanged; key stays server-side |
+| `/api/*` | Route Handler | the demo API, adapting `lib/handler.js` rather than reimplementing it |
+
+Decisions worth recording:
+
+- **JavaScript, not TypeScript.** The port was meant to move code, not rewrite
+  it; converting ~1,500 lines of AR engine to TS at the same time would have
+  mixed a mechanical change with a risky one. TS is a reasonable follow-up, one
+  file at a time.
+- **three.js is a dependency now**, not a CDN import map, so AR no longer
+  depends on jsdelivr being reachable.
+- **The AR engine kept its own DOM.** `app/plan/PlannerCards.js` renders the
+  same element ids the engine has always queried. That is what made it a move
+  rather than a rewrite — the trade is that renaming an id means editing both.
+- **The vanilla site is gone**, not kept alongside. Two copies of a UI drift;
+  git history is the rollback.
+
+What the framework did *not* do is hide the API key — a server did that, before
+any of this. See §1; it is the single most common misunderstanding of
+`NEXT_PUBLIC_`.
+
+### Verifying it
+
+A green `next build` proves very little here, because the AR engine binds by id
+at runtime and the portal writes. Two browser checks cover what the unit tests
+cannot:
+
+```bash
+npm run build && FURNISHAR_JWT_SECRET=dev-secret npm start   # then, in another shell:
+npm run check:planner -- http://localhost:3000   # product, fit verdict, mode switch, AR detection
+npm run check:portal  -- http://localhost:3000   # sign in, add, edit, delete, sign out
 ```
-npx create-next-app@latest furnishar-next --ts --app --tailwind=false
-```
 
-then move `lib/supabase-proxy.js` into `app/api/sb/[...path]/route.ts` (it is
-already plain Node and needs only its request/response shapes changed), and
-bring `public/geometry.js` across untouched.
-
-**The key-hiding work does not need to wait for any of this, and hasn't.**
+`check:planner` earned its place immediately: it caught a reference the move had
+dropped, which the build compiled happily.
