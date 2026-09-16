@@ -847,6 +847,13 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .dashboard-top { display: flex; align-items: end; justify-content: space-between; gap: 1.5rem; flex-wrap: wrap; }
 .dashboard-top h2 { margin-top: .4rem; font-size: 1.6rem; }
 .dashboard-top > div:last-child { display: flex; gap: .6rem; }
+.admin-tool { max-width: 58rem; margin: 2rem auto 0; padding: 1.5rem; border: 1px solid var(--rule); background: var(--paper-raised); }
+.admin-tool h2 { margin: .35rem 0 1rem; font-size: 1.6rem; }
+.application-list { display: grid; gap: 1rem; margin-top: 1.5rem; }
+.application-item { display: flex; justify-content: space-between; gap: 1.5rem; padding: 1.2rem; border: 1px solid var(--rule); background: var(--paper); }
+.application-item h3 { margin: .3rem 0; font-size: 1.25rem; }
+.application-item p { margin: .35rem 0 0; color: var(--ink-muted); font-size: .875rem; }
+.application-actions { display: flex; align-items: center; gap: .6rem; flex-shrink: 0; }
 
 .inventory-summary {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -1237,6 +1244,9 @@ footer {
   .dialog-info { padding: 1.6rem 1.2rem; }
   .form-dialog { padding: 1.4rem 1.1rem; }
   .dashboard-top > div:last-child { width: 100%; }
+  .application-item { flex-direction: column; }
+  .application-actions { width: 100%; }
+  .application-actions .button { flex: 1; }
   .inventory-summary { grid-template-columns: 1fr; }
 }
 
