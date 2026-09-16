@@ -1409,3 +1409,83 @@ footer {
 }
 .plan-card .button { width: 100%; }
 .fit-plan-piece.is-tiny span { display: none; }
+
+/* ------------------------------------------------- platform console ------- */
+/* The superadmin's review queue. Built from the same tokens as the owner
+   dashboard — this is one system with two doors, not two products. */
+
+.admin-console { display: grid; gap: clamp(1.5rem, 4vw, 2.5rem); }
+
+.review-list { display: grid; gap: .9rem; }
+
+.review-card {
+  display: grid; gap: .9rem;
+  padding: clamp(1rem, 3vw, 1.4rem);
+  border: 1px solid var(--rule);
+  background: var(--paper-raised);
+}
+.review-card:has(.review-confirm) { border-color: var(--rule-strong); box-shadow: var(--hard-sm); }
+
+.review-head { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.review-head h3 { font-size: 1.05rem; letter-spacing: -.02em; }
+.review-meta {
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint);
+}
+
+.review-status {
+  flex: 0 0 auto;
+  padding: .25rem .55rem;
+  border: 1px solid var(--rule);
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .12em; text-transform: uppercase;
+}
+.review-status.is-pending  { border-color: var(--accent); color: var(--accent-ink); }
+.review-status.is-approved { border-color: var(--rule-strong); }
+.review-status.is-rejected { color: var(--ink-faint); }
+
+.review-details { display: grid; gap: .5rem; }
+.review-details > div { display: grid; grid-template-columns: 12rem 1fr; gap: .75rem; }
+.review-details dt {
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint);
+}
+.review-details dd { font-size: .875rem; overflow-wrap: anywhere; }
+
+.review-actions { display: grid; gap: .75rem; padding-top: .3rem; border-top: 1px solid var(--rule); }
+.review-actions label {
+  display: grid; gap: .35rem;
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint);
+}
+.review-actions input {
+  width: 100%; padding: .55rem .7rem;
+  border: 1px solid var(--rule); background: transparent;
+  font-family: var(--sans); font-size: .8125rem;
+  letter-spacing: normal; text-transform: none; color: var(--ink);
+}
+.review-actions input:focus-visible { border-color: var(--rule-strong); }
+
+.review-slug-row { display: flex; align-items: center; gap: .4rem; }
+.review-slug-row > span { font-family: var(--mono); font-size: var(--micro); color: var(--ink-faint); }
+
+.review-buttons, .review-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
+/* The confirm step is the last thing between an applicant and a public shop,
+   so it is visually louder than the button that opened it. */
+.review-confirm {
+  padding: .9rem;
+  border: 1px solid var(--rule-strong);
+  background: var(--paper);
+}
+.review-confirm p { flex: 1 1 18rem; font-size: .8125rem; }
+.review-confirm code { font-family: var(--mono); }
+
+.review-note {
+  font-size: .8125rem; color: var(--ink-faint);
+  padding-top: .5rem; border-top: 1px solid var(--rule);
+}
+
+@media (max-width: 640px) {
+  .review-details > div { grid-template-columns: 1fr; gap: .15rem; }
+  .review-head { flex-direction: column; gap: .5rem; }
+}

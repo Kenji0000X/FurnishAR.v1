@@ -12,6 +12,21 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). `localhost` is treated as a secure context by Chrome, so it is suitable for testing camera/WebXR features. For a phone, deploy via HTTPS; WebXR will not start on a plain HTTP IP address.
 
+## The two portals
+
+| | for | what it does |
+| --- | --- | --- |
+| `/portal` | a store owner | their own shop only: products, prices, stock, 3D models |
+| `/admin` | the platform operator | vets sign-ups before a store exists, and can see every store and every decision |
+
+A store owner is admin of their own shop and nothing else; nobody gets a public
+shop without being checked first. Both walls are in the database, not the
+interface — see [SUPABASE.md §5](SUPABASE.md#5-make-yourself-the-superadmin) for
+how to make yourself the operator and what stops everyone else.
+
+With no database connected, `/admin` says so and does nothing: applications live
+in Supabase.
+
 ## Demo owner accounts
 
 Sign-in uses these accounts. They are defined in `lib/handler.js` and must be

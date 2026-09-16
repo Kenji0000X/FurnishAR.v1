@@ -70,14 +70,38 @@ const supabase = createServer((req, res) => {
 
 await new Promise(resolve => supabase.listen(SUPABASE_PORT, resolve));
 
-const app = spawn('npx', ['next', 'start', '-p', String(APP_PORT)], {
-  env: {
-    ...process.env,
-    SUPABASE_URL: `http://127.0.0.1:${SUPABASE_PORT}`,
-    SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_mockkey000000000',
-    FURNISHAR_JWT_SECRET: 'auth-error-check-secret'
-  },
-  stdio: 'ignore'
+/**
+ * Refuse to run against somebody else's server.
+ *
+ * `next start` on a taken port exits, and the wait loop below then happily
+ * finds the *old* server answering — which cost an hour of chasing a failure
+ * that was really a stale build from a previous run. Fail loudly instead.
+ */
+for (const port of [APP_PORT, APP_PORT + 1]) {
+  const stale = await fetch(`http://127.0.0.1:${port}/portal`).then(() => true).catch(() => false);
+  if (stale) {
+    console.error(`Something is already listening on ${port}. Stop it first — otherwise this ` +
+      'check silently tests whatever that is, not the build you just made.');
+    process.exit(1);
+  }
+}
+
+
+/**
+ * `next start` is a launcher: killing it leaves the real `next-server` child
+ * holding the port, which then answers the *next* run of this script from a
+ * stale build. Spawning into its own process group and signalling the group is
+ * what actually stops it.
+ */
+const serve = (port, env) => spawn('npx', ['next', 'start', '-p', String(port)], {
+  env: { ...process.env, ...env }, stdio: 'ignore', detached: true
+});
+const stop = child => { try { process.kill(-child.pid, 'SIGTERM'); } catch { child.kill(); } };
+
+const app = serve(APP_PORT, {
+  SUPABASE_URL: `http://127.0.0.1:${SUPABASE_PORT}`,
+  SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_mockkey000000000',
+  FURNISHAR_JWT_SECRET: 'auth-error-check-secret'
 });
 
 const ready = async () => {
@@ -92,7 +116,7 @@ const ready = async () => {
 };
 if (!await ready()) {
   console.error('the app did not start');
-  app.kill();
+  stop(app);
   process.exit(1);
 }
 
@@ -103,6 +127,16 @@ async function run(label, { which, setUp, expect }) {
   scenario = setUp;
   calls.length = 0;
   const page = await browser.newPage();
+  // A failure here is usually the browser telling you exactly what went wrong
+  // in a console warning nobody was listening to.
+  const noise = [];
+  page.on('console', m => { if (m.type() !== 'log') noise.push(`${m.type()}: ${m.text()}`); });
+  page.on('pageerror', e => noise.push(`pageerror: ${e.message}`));
+  page.on('requestfinished', async r => {
+    if (r.url().includes('/api/sb/')) {
+      noise.push(`${r.method()} ${r.url().replace(/^.*\/api\/sb/, '')} -> ${(await r.response())?.status()}`);
+    }
+  });
   await page.goto(`http://127.0.0.1:${APP_PORT}/portal`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('form.login-form', { timeout: 20000 });
 
@@ -129,7 +163,10 @@ async function run(label, { which, setUp, expect }) {
   console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${label}`);
   console.log(`       message: "${shown.trim()}"`);
   console.log(`       button : "${buttonText.trim()}"${disabled ? ' (disabled)' : ''}`);
-  if (!ok) problems.push(label);
+  if (!ok) {
+    problems.push(label);
+    for (const line of noise) console.log(`       ${line}`);
+  }
   await page.close();
 }
 
@@ -180,14 +217,10 @@ console.log('--- misconfiguration is reported, not crashed ---');
 {
   // A secret key where the publishable one belongs used to throw inside the
   // route and reach the browser as a bare 500 with an empty body.
-  const misconfigured = spawn('npx', ['next', 'start', '-p', String(APP_PORT + 1)], {
-    env: {
-      ...process.env,
-      SUPABASE_URL: `http://127.0.0.1:${SUPABASE_PORT}`,
-      SUPABASE_PUBLISHABLE_KEY: 'sb_secret_shouldNeverBeAccepted',
-      FURNISHAR_JWT_SECRET: 'auth-error-check-secret'
-    },
-    stdio: 'ignore'
+  const misconfigured = serve(APP_PORT + 1, {
+    SUPABASE_URL: `http://127.0.0.1:${SUPABASE_PORT}`,
+    SUPABASE_PUBLISHABLE_KEY: 'sb_secret_shouldNeverBeAccepted',
+    FURNISHAR_JWT_SECRET: 'auth-error-check-secret'
   });
   let response = null;
   for (let i = 0; i < 40; i++) {
@@ -205,7 +238,7 @@ console.log('--- misconfiguration is reported, not crashed ---');
   console.log(`  ${ok ? 'ok  ' : 'FAIL'} a secret key gives 503 and names the variable, not a bare 500`);
   console.log(`       status ${response?.status}: "${(body.error || '').slice(0, 80)}…"`);
   if (!ok) problems.push('secret key should give a readable 503');
-  misconfigured.kill();
+  stop(misconfigured);
 }
 
 console.log('--- request shape ---');
@@ -230,7 +263,7 @@ await run('sign-in rate limit is handled too', {
 });
 
 await browser.close();
-app.kill();
+stop(app);
 supabase.close();
 
 console.log(problems.length ? `\nFAILED: ${problems.join('; ')}` : '\nall auth error checks passed');

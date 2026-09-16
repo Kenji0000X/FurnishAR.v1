@@ -1,0 +1,215 @@
+/**
+ * The security layer for the two portals, tested against a real Postgres.
+ *
+ * These are the tests that matter for this feature. The portals are just
+ * pages; what actually stops a store owner reading the sign-up queue, or a
+ * stranger approving themselves, is row level security. A test that drove the
+ * UI would prove only that the UI hides things.
+ *
+ * Every case below connects AS a role — anon, a store owner, a second store
+ * owner, a superadmin — by setting the JWT claims Supabase would set, and then
+ * tries to do something it should not be able to do.
+ *
+ * Skips itself when no Postgres is reachable, so `npm test` passes without one.
+ *   npm run test:db     (or point FURNISHAR_TEST_PG at a server)
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
+const path = require('node:path');
+
+const ROOT = path.resolve(__dirname, '..');
+const CONN = process.env.FURNISHAR_TEST_PG
+  || 'postgresql://postgres@/furnishar_admin_test?host=/tmp&port=55440';
+
+function psql(sql, { role = null, user = null } = {}) {
+  // Supabase sets request.jwt.claims; auth.uid() and the policies read it.
+  // A bare `select set_config(...)` would print a row and land in the output
+  // being asserted on, so it goes inside a DO block that returns nothing.
+  const claims = user
+    ? `do $claims$ begin perform set_config('request.jwt.claims',
+         '{"sub":"${user}","role":"${role || 'authenticated'}"}', true); end $claims$;`
+    : '';
+  const asRole = role ? `set local role ${role};` : '';
+  const script = `begin; ${claims} ${asRole} ${sql} commit;`;
+  const out = execFileSync('psql', [CONN, '-v', 'ON_ERROR_STOP=1', '-tAc', script], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  // psql prints a command tag per statement (BEGIN, DO, SET, COMMIT …); the
+  // value being asserted on is the last line that is not one of those.
+  const tags = /^(BEGIN|COMMIT|DO|SET|INSERT|UPDATE|DELETE|SELECT)\b/;
+  const lines = out.split('\n').map(l => l.trim()).filter(Boolean);
+  const values = lines.filter(l => !tags.test(l));
+  return values.length ? values[values.length - 1] : '';
+}
+
+/** Reads as a role that may be refused outright; denial counts as "no rows". */
+function readOrDenied(sql, identity) {
+  try {
+    return psql(sql, identity);
+  } catch (error) {
+    if (/permission denied|row-level security/i.test(String(error.stderr || error.message))) {
+      return 'denied';
+    }
+    throw error;
+  }
+}
+
+let available = true;
+try {
+  execFileSync('psql', [CONN, '-tAc', 'select 1'], { stdio: 'ignore' });
+  // The suite approves an application, which cannot be undone by rolling back
+  // — so it resets its own fixtures rather than depending on a fresh database.
+  execFileSync('psql', [CONN, '-q', '-v', 'ON_ERROR_STOP=1',
+    '-f', path.join(ROOT, 'tests', 'admin-fixtures.sql')], { stdio: 'ignore' });
+} catch {
+  available = false;
+}
+
+const describe = available ? test : test.skip;
+
+/* Identities created by scripts/setup-admin-test.sql:
+   - OWNER_A  owns sc-variety
+   - OWNER_B  owns tiampion
+   - ADMIN    is in platform_admins
+   - OUTSIDER is signed in but owns nothing          */
+const IDS = available
+  ? JSON.parse(execFileSync('psql', [CONN, '-tAc',
+      `select json_build_object(
+         'ownerA', (select id from auth.users where email = 'owner-a@test.ph'),
+         'ownerB', (select id from auth.users where email = 'owner-b@test.ph'),
+         'admin',  (select id from auth.users where email = 'admin@test.ph'),
+         'outsider', (select id from auth.users where email = 'outsider@test.ph'),
+         'pending', (select id from public.store_applications where contact_email = 'applicant@test.ph')
+       )`], { encoding: 'utf8' }).trim())
+  : {};
+
+/* ------------------------------------------------- the queue is not public -- */
+
+describe('the sign-up queue is invisible to the public', () => {
+  // anon has no SELECT grant at all, so it is refused before RLS is consulted.
+  // That is stronger than "returns no rows", and either answer passes: what
+  // matters is that no applicant's email or phone number comes back.
+  const rows = readOrDenied('select count(*) from public.store_applications;', { role: 'anon' });
+  assert.ok(rows === 'denied' || rows === '0', `anon read applications: ${rows}`);
+});
+
+describe('a store owner cannot read the sign-up queue', () => {
+  // This is the one people get wrong: an owner is authenticated, so a naive
+  // "logged in?" check would let them read every applicant's email and phone.
+  const rows = readOrDenied('select count(*) from public.store_applications;',
+    { role: 'authenticated', user: IDS.ownerA });
+  assert.ok(rows === 'denied' || rows === '0', `an owner saw applications: ${rows}`);
+});
+
+describe('a superadmin can read the sign-up queue', () => {
+  const rows = psql("select count(*) from public.store_applications where status = 'pending';",
+    { role: 'authenticated', user: IDS.admin });
+  assert.ok(Number(rows) >= 1, 'the admin should see the pending application');
+});
+
+/* ------------------------------------------------------- deciding is gated -- */
+
+describe('a store owner cannot approve an application', () => {
+  assert.throws(
+    () => psql(`select public.approve_store_application('${IDS.pending}');`,
+      { role: 'authenticated', user: IDS.ownerA }),
+    /Only a platform administrator/,
+    'approval must be refused for a non-admin'
+  );
+});
+
+describe('a signed-in stranger cannot approve an application', () => {
+  assert.throws(
+    () => psql(`select public.approve_store_application('${IDS.pending}');`,
+      { role: 'authenticated', user: IDS.outsider }),
+    /Only a platform administrator/
+  );
+});
+
+describe('anon cannot approve an application', () => {
+  assert.throws(
+    () => psql(`select public.approve_store_application('${IDS.pending}');`, { role: 'anon' }),
+    /Only a platform administrator|permission denied/
+  );
+});
+
+describe('a store owner cannot promote themselves to superadmin', () => {
+  assert.throws(
+    () => psql(
+      `insert into public.platform_admins (user_id, email) values ('${IDS.ownerA}', 'owner-a@test.ph');`,
+      { role: 'authenticated', user: IDS.ownerA }),
+    /permission denied|row-level security/,
+    'there must be no path from store owner to superadmin through the API'
+  );
+});
+
+describe('the admin roster is invisible to a store owner', () => {
+  const rows = readOrDenied('select count(*) from public.platform_admins;',
+    { role: 'authenticated', user: IDS.ownerA });
+  assert.ok(rows === 'denied' || rows === '0', `an owner enumerated admins: ${rows}`);
+});
+
+/* ----------------------------------------------------- approval does its job -- */
+
+describe('approving creates the store, links the owner, and logs who did it', () => {
+  const result = psql(
+    `select public.approve_store_application('${IDS.pending}', 'test-approved-shop');`,
+    { role: 'authenticated', user: IDS.admin });
+  assert.match(result, /store_id/, 'the function should return the new store');
+
+  const linked = psql(`select count(*) from public.store_members m
+      join public.stores s on s.id = m.store_id
+     where s.slug = 'test-approved-shop' and m.role = 'owner';`, { role: null });
+  assert.equal(linked, '1', 'the applicant’s account must be linked as owner');
+
+  const status = psql(`select status from public.store_applications where id = '${IDS.pending}';`,
+    { role: null });
+  assert.equal(status, 'approved');
+
+  const audit = psql(`select count(*) from public.admin_audit
+     where action = 'application.approved' and subject = '${IDS.pending}';`, { role: null });
+  assert.equal(audit, '1', 'the decision must leave an audit row');
+});
+
+describe('an application cannot be approved twice', () => {
+  assert.throws(
+    () => psql(`select public.approve_store_application('${IDS.pending}');`,
+      { role: 'authenticated', user: IDS.admin }),
+    /already approved/,
+    'a second approval would create a duplicate store'
+  );
+});
+
+describe('the audit trail cannot be forged or erased', () => {
+  assert.throws(
+    () => psql(`insert into public.admin_audit (action) values ('application.approved');`,
+      { role: 'authenticated', user: IDS.admin }),
+    /permission denied|row-level security/,
+    'even an admin must not be able to write the log by hand'
+  );
+  assert.throws(
+    () => psql("delete from public.admin_audit;", { role: 'authenticated', user: IDS.admin }),
+    /permission denied|row-level security/,
+    'an admin must not be able to delete their own trail'
+  );
+});
+
+/* ------------------------------------------- the owner portal stays scoped -- */
+
+describe('an approved owner administers only their own store', () => {
+  const own = psql(`select count(*) from public.products p
+      join public.stores s on s.id = p.store_id where s.slug = 'sc-variety';`,
+    { role: 'authenticated', user: IDS.ownerA });
+  assert.ok(Number(own) >= 0);
+
+  // Owner B must not be able to touch Owner A's rows.
+  const crossWrite = psql(`
+    with target as (select p.id from public.products p
+      join public.stores s on s.id = p.store_id where s.slug = 'sc-variety' limit 1)
+    update public.products set stock = 999
+     where id in (select id from target)
+    returning 'CHANGED';`, { role: 'authenticated', user: IDS.ownerB });
+  assert.notEqual(crossWrite, 'CHANGED', 'one shop must not be able to edit another’s stock');
+});

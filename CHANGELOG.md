@@ -2,6 +2,35 @@
 
 Notable changes, newest first. Versions follow the footer build stamp.
 
+## Unreleased — two portals, and a wall between them
+
+- **A platform console at `/admin`.** Store sign-ups are now vetted before a
+  shop exists: the operator sees the applicant's store name, contact email,
+  phone and what they intend to list, sets the address the shop will live at,
+  and approves or rejects with a note. Approving is one transaction — it creates
+  the store, links the account as owner, closes the application and records the
+  decision — so a half-approved store cannot happen.
+- **The wall is in the database.** `supabase/migrations/0002_platform_admin.sql`
+  adds `platform_admins`, an `is_platform_admin()` helper, an append-only
+  `admin_audit`, and policies that keep the sign-up queue invisible to store
+  owners and to the public. `platform_admins` has no insert policy on purpose:
+  promotion needs database credentials, so nobody can promote themselves through
+  the app. `tests/admin.test.js` proves each rule by connecting as the wrong
+  person and being refused.
+- **A server-side gate in front of it** (`lib/auth.js`): admin requests are
+  refused at the API boundary, so an anonymous request for the sign-up queue
+  never reaches Postgres, and a non-admin gets a 403 rather than an empty list
+  that reads like an empty queue. Identity is re-checked with Supabase on every
+  request and never cached, so removing an admin takes effect immediately.
+  Filing an application stays public — that is the sign-up form.
+- `npm run check:admin` drives a real browser: a signed-out visitor and a
+  signed-in store owner are both refused and shown no applicant's email or phone
+  number; the operator sees the queue, is asked to confirm, and the approval is
+  recorded.
+- The browser checks now kill the whole `next start` process group and refuse to
+  run when something else holds their port. A leftover server from a previous
+  run had been answering, which made a fresh build look broken.
+
 ## Unreleased — the database connection restored, with a reachability gate
 
 - Online store sign-up works again: the portal selects the Supabase backend
