@@ -43,6 +43,34 @@ Wait for the project to finish provisioning before continuing.
 
 ## Step 2 — Create the tables
 
+### The easy way: run it from GitHub
+
+**Actions → Migrate database → Run workflow.** Tick *seed* on a new project to
+load the pilot shops and the armchair.
+
+It needs one repository secret the first time:
+
+1. Supabase → **Settings → Database → Connection string → URI**. Take the
+   pooled **Session** string; that is the one that works from CI.
+2. GitHub → **Settings → Secrets and variables → Actions → New repository
+   secret**, named `SUPABASE_DB_URL`.
+
+That string contains your database password, so it goes in the secret store and
+nowhere else — not in `.env`, not in a commit. GitHub encrypts it and masks it
+in logs.
+
+The workflow records what it has applied in `public.schema_migrations`, so
+running it twice is a no-op rather than a gamble. *Dry run* lists what would
+happen without touching anything; *force* re-applies everything.
+
+Locally the same script does the same job:
+
+```bash
+SUPABASE_DB_URL='postgresql://…' ./scripts/migrate.sh --seed
+```
+
+### By hand
+
 **SQL Editor → New query**, paste the whole of
 `supabase/migrations/0001_init.sql`, **Run**.
 

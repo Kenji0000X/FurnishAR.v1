@@ -1,0 +1,59 @@
+# Applies the database schema to Supabase, from the Actions tab.
+#
+# Deliberately manual. Running migrations automatically on every push to main
+# means a bad migration reaches production the moment it merges, with no one
+# watching — and this project has one production database and no backups.
+# Pressing a button and reading the log is the right amount of friction here.
+name: Migrate database
+
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: 'Also load supabase/seed.sql (pilot shops + the armchair)'
+        type: boolean
+        default: false
+      force:
+        description: 'Re-apply migrations already recorded as applied'
+        type: boolean
+        default: false
+      dry_run:
+        description: 'List what would run, change nothing'
+        type: boolean
+        default: false
+
+# One migration at a time. Two concurrent runs against one database is a way
+# to get a half-applied schema.
+concurrency:
+  group: migrate-database
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    # Requires a reviewer's approval if you add required reviewers to this
+    # environment in Settings → Environments. Worth doing before launch.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Postgres client
+        # The runner ships psql 16, but pinning the client avoids a surprise
+        # when GitHub changes the image.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16 || sudo apt-get install -y -qq postgresql-client
+
+      - name: Apply migrations
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        # `if` rather than `[ … ] && …`: GitHub runs this with `bash -e`, where
+        # a trailing test that evaluates false can fail the step. It happens to
+        # be safe here, for a subtle reason about how set -e treats && lists,
+        # and that is not a thing to leave a future edit standing on.
+        run: |
+          args=""
+          if [ "${{ inputs.seed }}" = "true" ]; then args="$args --seed"; fi
+          if [ "${{ inputs.force }}" = "true" ]; then args="$args --force"; fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then args="$args --dry-run"; fi
+          bash scripts/migrate.sh $args
