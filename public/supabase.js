@@ -126,7 +126,12 @@ async function restCall(path, options = {}) {
     const renewed = await refreshSession();
     if (renewed) return restCall(path, options);
   }
-  if (!response.ok) throw new Error(friendlyError(body || { message: `Request failed (${response.status})` }));
+  if (!response.ok) {
+    const error = new Error(friendlyError(body || { message: `Request failed (${response.status})` }));
+    error.status = response.status;
+    error.code = body?.code;
+    throw error;
+  }
   return body;
 }
 
@@ -510,11 +515,23 @@ export async function getMembership() {
     const supabase = await getDirectClient();
     const { data, error } = await supabase.from('store_members')
       .select('role, stores(id, slug, name, plan)').limit(1).maybeSingle();
-    if (error) throw new Error(friendlyError(error));
+    // A newly created account has no membership until an administrator
+    // approves its store. Treat a temporarily missing schema object the same
+    // way so the portal can show the review state instead of looping errors.
+    if (error) {
+      if (error.code === '42P01' || /schema cache|relation .* does not exist/i.test(error.message || '')) return null;
+      throw new Error(friendlyError(error));
+    }
     return shape(data);
   }
   if (!session) return null;
-  const rows = await restCall('store_members?select=role,stores(id,slug,name,plan)&limit=1');
+  let rows;
+  try {
+    rows = await restCall('store_members?select=role,stores(id,slug,name,plan)&limit=1');
+  } catch (error) {
+    if (error.status === 404 || error.code === '42P01' || /schema cache|relation .* does not exist/i.test(error.message || '')) return null;
+    throw error;
+  }
   return shape((rows || [])[0]);
 }
 
