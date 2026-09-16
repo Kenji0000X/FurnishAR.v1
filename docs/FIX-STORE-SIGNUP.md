@@ -90,6 +90,29 @@ Configuration alone does not remove the manual-email message. The portal must us
 4. Insert the store application into `store_applications` after account creation.
 5. Keep the manual-email message only as the fallback when the status check reports that Supabase is unavailable.
 
+## 5. Review incoming stores
+
+The admin review page is available at `/admin`. It requires these server-only
+Vercel variables:
+
+```text
+SUPABASE_SERVICE_ROLE_KEY=<Supabase service_role key>
+FURNISHAR_ADMIN_TOKEN=<long random admin token>
+```
+
+The service-role key must never be prefixed with `NEXT_PUBLIC_` and must never
+be sent to the browser. The page uses the admin token only to authorize its
+server API. Generate the token with:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+Open `/admin`, enter the admin token, and approve an application. Approval
+finds the applicant's Auth account, creates the store, links `store_members`,
+and marks the application approved. Reject only removes the pending item from
+the queue; it does not delete the Auth account.
+
 After changing the portal, run:
 
 ```bash
