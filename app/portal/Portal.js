@@ -164,7 +164,40 @@ function SignupPanel({ onSubmit, message, busy, cooldown, onShowLogin }) {
   );
 }
 
-function PendingPanel({ email, onLogout }) {
+/**
+ * Signed in, but linked to no store.
+ *
+ * For an applicant that means "we are still checking you". For the platform
+ * operator it means nothing is wrong at all: an admin deliberately never
+ * becomes a member of anybody's shop, so they land here every time. Showing
+ * them "your store is in review" was a dead end — their console was rendered
+ * further down a branch this panel returns before reaching.
+ */
+function PendingPanel({ email, onLogout, isAdmin }) {
+  if (isAdmin) {
+    return (
+      <div className="login-panel">
+        <div className="login-copy">
+          <span className="secure-mark" aria-hidden="true">⌑</span>
+          <h2>You are the platform operator.</h2>
+          <p>
+            <b>{email}</b> runs no shop of its own — that is on purpose. Approving a store
+            makes somebody else its owner; it never makes you one.
+          </p>
+          <p className="demo-note">
+            Review sign-ups, watch what is being uploaded, and see every decision on record.
+          </p>
+        </div>
+        <div className="login-form">
+          <Link className="button button-primary" href="/admin">
+            Open the platform console <span aria-hidden="true">→</span>
+          </Link>
+          <button className="button button-outline" type="button" onClick={onLogout}>Sign out</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="login-panel">
       <div className="login-copy">
@@ -226,9 +259,17 @@ export default function Portal({ initialProducts }) {
       if (!current) {
         setSession(null);
         setOwnProducts([]);
+        setIsAdmin(false);
         return;
       }
       const membership = await sb.getMembership();
+
+      // Asked here, not once at page load: at load the visitor is usually
+      // signed out, and isPlatformAdmin() answers false for anyone without a
+      // session. Checking it only then meant an operator never saw their own
+      // console until they reloaded the page by hand.
+      setIsAdmin(await sb.isPlatformAdmin());
+
       setSession({
         token: current.access_token,
         user: membership
@@ -269,7 +310,6 @@ export default function Portal({ initialProducts }) {
         supabase().onAuthChange(event => {
           if (['SIGNED_IN', 'SIGNED_OUT', 'TOKEN_REFRESHED'].includes(event)) refreshSession();
         });
-        supabase().isPlatformAdmin().then(admin => { if (active) setIsAdmin(admin); });
       }
     })();
     return () => { active = false; };
@@ -426,7 +466,7 @@ export default function Portal({ initialProducts }) {
   }
 
   if (awaitingApproval) {
-    return <PendingPanel email={user.email} onLogout={handleLogout} />;
+    return <PendingPanel email={user.email} onLogout={handleLogout} isAdmin={isAdmin} />;
   }
 
   const plan = usingSupabase()
