@@ -20,6 +20,18 @@ In Supabase Dashboard:
 
 Use the current URL from the dashboard. If DNS cannot resolve the old `*.supabase.co` hostname, the project was deleted, renamed, or the URL is incorrect.
 
+If signup logs say `Could not find the table public.store_applications in the
+schema cache`, open Supabase **SQL Editor**, run the complete
+`supabase/migrations/0001_init.sql` file from this repository, then run:
+
+```sql
+NOTIFY pgrst, 'reload schema';
+```
+
+Do the same if `store_members` returns `404`. Do not create only one table by
+hand: the migration also installs the RLS policies, grants, catalogue view,
+triggers, and storage policies required by the portal.
+
 ## 2. Configure local development
 
 Keep the server variables in `.env.local`:
