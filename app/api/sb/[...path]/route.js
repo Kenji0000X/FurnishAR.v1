@@ -58,7 +58,11 @@ async function handle(request, context) {
 
   if (section === 'auth' && request.method === 'POST') {
     const result = await proxyAuth(rest.join('/'), await request.json().catch(() => ({})));
-    return json(result.status, result.body);
+    const headers = {};
+    // Carried through so the form can say how long the wait is instead of
+    // letting someone hammer a rate-limited endpoint.
+    if (result.headers?.['retry-after']) headers['Retry-After'] = result.headers['retry-after'];
+    return json(result.status, result.body, headers);
   }
 
   // Models are fetched through this origin so the project URL is not published
