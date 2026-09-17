@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { initBackend, usingSupabase, supabase, backendReason } from '../portal/backend.js';
+import PasswordField from '../PasswordField.js';
 
 /**
  * The superadmin console: vetting store owners before they get a shop.
@@ -177,8 +177,7 @@ function ApplicationCard({ application, account, onApprove, onReject, busy }) {
 }
 
 export default function AdminConsole() {
-  const router = useRouter();
-  const [state, setState] = useState('loading'); // loading | denied | ready | offline
+  const [state, setState] = useState('loading'); // loading | signin | denied | ready | offline
   const [reason, setReason] = useState('');
   const [tab, setTab] = useState('pending');
   const [applications, setApplications] = useState([]);
@@ -191,6 +190,7 @@ export default function AdminConsole() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [loginError, setLoginError] = useState('');
 
   const load = useCallback(async () => {
     const sb = supabase();
@@ -222,10 +222,28 @@ export default function AdminConsole() {
   /**
    * Ask the server who is asking, and act on the answer.
    *
-   * Returns nothing and throws nothing: every path ends in a state, and the
-   * unauthorised one ends in leaving. Written as its own function because it
-   * has to run again later — on a page restored from the back-forward cache,
-   * where React does not re-mount and an effect would never fire twice.
+   * Three outcomes, and telling them apart is the whole fix here:
+   *
+   *   nobody signed in        -> ask for credentials ('signin')
+   *   signed in, not an admin -> say so ('denied')
+   *   signed in, an admin     -> the console ('ready')
+   *
+   * It used to collapse the first two into `router.replace('/portal')`. The
+   * portal links here as "Superadmin sign-in →", but this page never asked
+   * anyone to sign in — it only inspected the session it happened to find. So
+   * a store owner who followed that link was bounced straight back to their
+   * own dashboard with no message at all, which reads exactly like the link
+   * logging you into the wrong account. There was, in fact, no way to sign in
+   * as the superadmin from here.
+   *
+   * Showing a sign-in form gives nothing away that was not already public: the
+   * portal links to this URL by name. What stays hidden is everything behind
+   * it — the queue, the applicants, who the administrators are — because RLS
+   * refuses all of it regardless of what this component renders.
+   *
+   * Written as its own function because it has to run again later — after a
+   * sign-in, and on a page restored from the back-forward cache where React
+   * does not re-mount and an effect would never fire twice.
    */
   const verify = useCallback(async () => {
     await initBackend();
@@ -236,28 +254,55 @@ export default function AdminConsole() {
       return;
     }
 
+    const sb = supabase();
+    // Nobody signed in at all is a different answer from "signed in and not
+    // allowed", and the two need different screens.
+    if (!(await sb.getSession())) {
+      setState('signin');
+      return;
+    }
+
     // The server answers this, and answers "no" for anyone who is not in
     // platform_admins. It decides the view; RLS decides the data.
-    const admin = await supabase().isPlatformAdmin();
-    if (!admin) {
-      // Sent away rather than shown a locked door. replace() and not push()
-      // deliberately: this leaves no /admin entry in history, so pressing Back
-      // returns to wherever they really came from instead of bouncing them
-      // against the same refusal.
+    if (!(await sb.isPlatformAdmin())) {
       setState('denied');
-      router.replace('/portal');
       return;
     }
 
     await load();
     setState('ready');
-  }, [load, router]);
+  }, [load]);
 
   useEffect(() => {
     let active = true;
-    verify().catch(() => { if (active) { setState('denied'); router.replace('/portal'); } });
+    verify().catch(() => { if (active) setState('denied'); });
     return () => { active = false; };
-  }, [verify, router]);
+  }, [verify]);
+
+  /** Sign in from this page, then re-check the role against the server. */
+  async function handleAdminLogin(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const values = Object.fromEntries(new FormData(form));
+    setLoginError('');
+    setBusy(true);
+    try {
+      await supabase().signIn({ email: String(values.email), password: String(values.password) });
+      setState('loading');
+      await verify();
+    } catch (error) {
+      setLoginError(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Leave the account that is not an admin, so another can be used. */
+  async function handleSwitchAccount() {
+    try { await supabase().signOut(); } catch { /* already gone */ }
+    setLoginError('');
+    setState('signin');
+  }
 
   /**
    * A page restored from the back-forward cache comes back exactly as it was —
@@ -320,11 +365,74 @@ export default function AdminConsole() {
     );
   }
 
+  if (state === 'signin') {
+    return (
+      <div className="login-panel">
+        <div className="login-copy">
+          <span className="secure-mark" aria-hidden="true">⌑</span>
+          <h2>Platform console</h2>
+          <p>Sign in with an administrator account.</p>
+          <p className="demo-note">
+            This is not the store portal. Store owners sign in at{' '}
+            <a href="/portal">/portal</a>.
+          </p>
+        </div>
+        <form className="login-form" onSubmit={handleAdminLogin}>
+          <label>
+            Email
+            <input
+              name="email"
+              type="email"
+              required
+              autoComplete="email"
+              aria-invalid={loginError ? 'true' : undefined}
+            />
+          </label>
+          <PasswordField autoComplete="current-password" />
+          <button className="button button-primary" type="submit" disabled={busy}>
+            {busy ? 'Signing in…' : <>Sign in <span aria-hidden="true">→</span></>}
+          </button>
+          {/* The refusal is identical whether the address is unknown, the
+              password is wrong, or the account simply is not an administrator.
+              Saying which would turn this form into a way to find out who the
+              administrators are. */}
+          <p className="form-error" role="alert" aria-live="assertive">{loginError}</p>
+        </form>
+      </div>
+    );
+  }
+
   if (state === 'denied') {
-    // On the way to /portal. Nothing is said about the console, the queue, or
-    // who the administrators are — an account that may not be here is not told
-    // what it is missing, and there is no locked door to rattle.
-    return <p className="card-copy">Taking you to the store portal…</p>;
+    // Said plainly, instead of a silent router.replace('/portal').
+    //
+    // The redirect was meant to avoid showing a locked door. What it actually
+    // did was drop a signed-in store owner back into their own dashboard with
+    // no explanation — so following the portal's own "Superadmin sign-in →"
+    // link looked like it had logged you into the wrong account. Telling
+    // someone their account is not an administrator reveals nothing they could
+    // not learn by reading this page's URL in the portal footer, and it is the
+    // difference between a refusal and a bug.
+    return (
+      <div className="login-panel">
+        <div className="login-copy">
+          <span className="secure-mark" aria-hidden="true">⌑</span>
+          <h2>This account is not an administrator.</h2>
+          <p>
+            You are signed in, but this account is not on the platform administrator
+            list, so the review queue is not available to it.
+          </p>
+          <p className="demo-note">
+            Signed in to manage a shop? That is the <a href="/portal">store portal</a>.
+          </p>
+        </div>
+        <div className="login-form">
+          <button className="button button-primary" type="button" onClick={handleSwitchAccount}>
+            Sign in as someone else
+          </button>
+          <a className="button" href="/portal">Go to the store portal</a>
+        </div>
+      </div>
+    );
   }
 
   const pending = applications.filter(a => a.status === 'pending');
