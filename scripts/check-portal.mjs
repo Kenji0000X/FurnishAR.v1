@@ -77,8 +77,28 @@ const stockCell = await page.locator('tr', { hasText: NAME }).locator('td').nth(
 check('the edit saved', stockCell?.trim() === '9', `stock cell reads "${stockCell?.trim()}"`);
 
 console.log('--- delete it ---');
-page.once('dialog', d => d.accept());
+// Deleting used to go through window.confirm, which Playwright dismissed with
+// a `dialog` event handler. It is a real <dialog> now, so the confirmation is
+// part of the page and has to be driven like any other UI — which is the point
+// of the change: a browser-drawn prompt that mobile Safari can suppress
+// entirely was guarding an irreversible action.
 await page.locator('tr', { hasText: NAME }).locator('button:has-text("Delete")').click();
+await page.waitForSelector('dialog.confirm-dialog[open]', { timeout: 10000 });
+check('deleting asks first', await page.locator('dialog.confirm-dialog').isVisible());
+check(
+  'the confirmation names the product',
+  (await page.locator('dialog.confirm-dialog').textContent() || '').includes(NAME)
+);
+
+// Backing out must not delete anything.
+await page.click('dialog.confirm-dialog button:has-text("Cancel")');
+await page.waitForSelector('dialog.confirm-dialog[open]', { state: 'detached', timeout: 10000 });
+await page.waitForTimeout(500);
+check('cancelling keeps the product', (await page.locator(`text=${NAME}`).count()) > 0);
+
+await page.locator('tr', { hasText: NAME }).locator('button:has-text("Delete")').click();
+await page.waitForSelector('dialog.confirm-dialog[open]', { timeout: 10000 });
+await page.click('dialog.confirm-dialog button:has-text("Delete product")');
 await page.waitForTimeout(2500);
 check('the product is gone', (await page.locator(`text=${NAME}`).count()) === 0);
 check(
