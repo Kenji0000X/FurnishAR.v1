@@ -78,6 +78,11 @@ export default function ProductFormDialog({ product, session, onClose, onSaved }
           { ...payload, id: values.id || createdId.current || undefined },
           storeUuid
         );
+        if (!saved?.id) {
+          // PATCH matching no row comes back as an empty array; reading .id off
+          // that throws a TypeError that says nothing useful about the cause.
+          throw new Error('The product could not be saved — it may have been deleted. Reload and try again.');
+        }
         createdId.current = saved.id;
         if (modelFile) {
           setStatus('Uploading model… 0%');

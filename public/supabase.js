@@ -541,7 +541,45 @@ export async function uploadModel(file, { storeUuid, productId, kind = 'glb', on
       body: JSON.stringify(assetRow)
     });
   }
+
+  // Read it back before calling this a success.
+  //
+  // An upload is two writes — the file into Storage, the row that points at
+  // it — and the model is invisible to AR unless BOTH landed. A file with no
+  // row is exactly the state that produces "this piece has no 3D model
+  // uploaded yet" for a model the owner watched upload to 100%, with nothing
+  // anywhere saying which of the two went missing. One small read closes that:
+  // whatever the reason, the owner is told now, while the file is still in the
+  // picker, instead of discovering it with a camera pointed at a wall.
+  const linked = await listAssetPaths(productId, kind);
+  if (!linked.length) {
+    throw new Error(
+      'The file uploaded, but it could not be linked to this product, so AR will not find it. '
+      + 'Save again — if it keeps happening, the product may have been removed underneath it.'
+    );
+  }
+
   return { objectPath, url: modelUrl(objectPath) };
+}
+
+/** The stored asset paths for one product and kind. Empty means nothing linked. */
+async function listAssetPaths(productId, kind) {
+  try {
+    if (mode === 'direct') {
+      const supabase = await getDirectClient();
+      const { data } = await supabase.from('product_assets')
+        .select('object_path').eq('product_id', productId).eq('kind', kind);
+      return data || [];
+    }
+    return (await restCall(
+      `product_assets?select=object_path&product_id=eq.${productId}&kind=eq.${kind}`
+    )) || [];
+  } catch {
+    // The row may well be there and only the read refused. Saying "it did not
+    // link" on a failed read would be its own false alarm, so an unreadable
+    // answer counts as linked and the portal's own listing will show the truth.
+    return [{ unverified: true }];
+  }
 }
 
 /* ----------------------------------------------------------------- auth --- */

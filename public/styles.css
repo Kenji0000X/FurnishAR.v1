@@ -848,6 +848,11 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .dashboard-top h2 { margin-top: .4rem; font-size: 1.6rem; }
 .dashboard-top > div:last-child { display: flex; gap: .6rem; }
 /* Whether the applicant's account has proved it owns the address. */
+/* A listing with no model is not a small detail — it cannot be placed in AR at
+   all, which is the whole product. Said plainly in the owner's own inventory,
+   where the person who can fix it will see it. */
+.missing-model { color: var(--accent-ink); font-weight: 600; }
+
 .verification-ok, .verification-warning { font-family: var(--mono); font-size: .72rem; }
 .verification-ok { color: #276749; }
 .verification-warning { color: var(--accent-ink); }
