@@ -437,9 +437,31 @@ model is a multi-minute download for **every shopper who opens it**, not just
 once for the owner who uploaded it. A 2 MB model that loads is worth more than
 a 60 MB one nobody waits for.
 
-### Shrinking a model
+### The portal shrinks oversized models by itself
 
-One command, no account, nothing installed permanently:
+**A store owner does not have to do any of this.** If the file they choose is
+over 40 MB, the portal resizes its textures in the browser before uploading —
+"Shrinking model… 60%" in place of the save button — and says what it did:
+*"Model shrunk from 48.4 MB to 4.9 MB so it fits and loads quickly for
+shoppers."* Those are real numbers from `npm run check:shrink`, which drives a
+48 MB model with 2048-pixel textures through the actual portal and then parses
+what reached Storage to confirm it is still a valid model with its meshes and
+textures intact. Smaller and broken would be worse than not shrinking at all.
+
+It works down through 2048, 1024 and 512-pixel texture budgets until the file
+fits, and it never touches geometry: losing texture resolution is invisible at
+the distance someone looks at a chair, but decimating a mesh changes the
+silhouette, and this app's entire claim is that what you see on the floor is
+the real size and shape of the thing. A model that cannot fit on textures alone
+is refused with that explanation rather than quietly mangled.
+
+The limit it targets is 40 MB, deliberately under Supabase's 50 — a model that
+only just fits still costs every shopper that download on a phone.
+
+### Shrinking a model yourself
+
+For a bulk import, or to see what is achievable before uploading. One command,
+no account, nothing installed permanently:
 
 ```bash
 npx @gltf-transform/cli optimize big.glb small.glb \

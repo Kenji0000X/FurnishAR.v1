@@ -7,6 +7,17 @@ const CATEGORIES = ['Sofa', 'Table', 'Chair', 'Bed', 'Storage'];
 const SHAPES = ['sofa', 'table', 'chair', 'bed', 'shelf', 'desk'];
 
 /**
+ * What an upload has to fit inside.
+ *
+ * Deliberately under Supabase's own ceiling rather than equal to it: a Free
+ * project refuses anything over 50 MB no matter what the bucket says, and a
+ * model that only just fits still costs every shopper that download on a
+ * phone. 40 MB leaves headroom and is already far more than a well-made piece
+ * of furniture needs.
+ */
+const UPLOAD_LIMIT_BYTES = 40 * 1024 * 1024;
+
+/**
  * Add or edit a piece.
  *
  * Still a real <dialog>, so the browser handles the focus trap, Escape, and
@@ -21,6 +32,9 @@ export default function ProductFormDialog({ product, session, onClose, onSaved }
   const createdId = useRef(null);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');   // 'Saving…' | 'Uploading model… 42%'
+  // Set when an oversized model was resized on the way through, so the owner
+  // is told their file was changed rather than discovering it later.
+  const [shrunkNote, setShrunkNote] = useState('');
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -85,8 +99,37 @@ export default function ProductFormDialog({ product, session, onClose, onSaved }
         }
         createdId.current = saved.id;
         if (modelFile) {
+          // Shrink it first if it will not fit. Storage enforces a per-file
+          // limit and a refusal at that point is the end of the road for
+          // someone with no way to re-export — so the resizing happens here,
+          // automatically, rather than being homework.
+          setStatus('Checking model size…');
+          const { compressGlb, formatBytes } = await import('./compress-model.js');
+          const result = await compressGlb(modelFile, {
+            maxBytes: UPLOAD_LIMIT_BYTES,
+            onProgress: (stage, fraction) => setStatus(
+              stage === 'reading'
+                ? 'Reading model…'
+                : `Shrinking model… ${Math.round(fraction * 100)}%`
+            )
+          });
+
+          if (result.stillTooBig) {
+            throw new Error(
+              `This model is ${formatBytes(result.originalBytes)} and will not fit even after `
+              + `resizing its textures (${formatBytes(result.finalBytes)}). It has more detail than `
+              + 'AR needs — reduce the mesh in your 3D tool and export again.'
+            );
+          }
+          if (result.changed) {
+            setShrunkNote(
+              `Model shrunk from ${formatBytes(result.originalBytes)} to `
+              + `${formatBytes(result.finalBytes)} so it fits and loads quickly for shoppers.`
+            );
+          }
+
           setStatus('Uploading model… 0%');
-          await supabase().uploadModel(modelFile, {
+          await supabase().uploadModel(result.file, {
             storeUuid,
             productId: saved.id,
             kind: 'glb',
@@ -175,6 +218,7 @@ export default function ProductFormDialog({ product, session, onClose, onSaved }
           <textarea name="description" rows={3} maxLength={400} defaultValue={value('description')} />
         </label>
 
+        {shrunkNote && <p className="form-note" role="status">{shrunkNote}</p>}
         <p className="form-error" role="alert" aria-live="assertive">{error}</p>
         <button className="button button-primary" type="submit" disabled={Boolean(status)}>
           {status || 'Save product'}

@@ -18,12 +18,16 @@
     "check:upload": "node scripts/check-upload-progress.mjs",
     "check:session": "node scripts/check-session-refresh.mjs",
     "check:retry": "node scripts/check-upload-retry.mjs",
-    "check:ar": "node scripts/check-ar-model.mjs"
+    "check:ar": "node scripts/check-ar-model.mjs",
+    "check:shrink": "node scripts/check-model-shrink.mjs"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "@gltf-transform/core": "^4.5.0",
+    "@gltf-transform/extensions": "^4.5.0",
+    "@gltf-transform/functions": "^4.5.0",
     "@supabase/supabase-js": "^2.116.0",
     "next": "^16.3.5",
     "react": "^19.3.0",
