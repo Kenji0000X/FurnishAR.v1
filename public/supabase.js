@@ -20,7 +20,11 @@
 
 const CONFIG = (typeof window !== 'undefined' && window.FURNISHAR_CONFIG) || {};
 const MODEL_BUCKET = 'furniture-models';
-const MAX_MODEL_BYTES = 50 * 1024 * 1024; // matches the bucket's file_size_limit
+// Matches the bucket's file_size_limit (supabase/migrations/0005_raise_model_limit.sql).
+// Checked here too so an oversized file is refused before spending any of the
+// upload — on a slow connection, finding out after ten minutes is its own
+// kind of broken.
+const MAX_MODEL_BYTES = 100 * 1024 * 1024;
 const SESSION_KEY = 'furnishar-sb-session';
 
 let mode = null;          // 'proxy' | 'direct' | null
@@ -349,27 +353,72 @@ export async function deleteProduct(id) {
 }
 
 /**
+ * PUTs a file to a signed Storage URL and reports real progress.
+ *
+ * `fetch` has no upload-progress event — the browser hands the body to the
+ * network layer and tells you nothing until it's over — which is fine for a
+ * kilobyte JSON body and wrong for a 100 MB model on a mobile connection. A
+ * few minutes of a status line that never changes reads as frozen, not
+ * working, and someone frozen on a slow connection will reload the page and
+ * try again, doubling the upload for nothing. XMLHttpRequest is the one
+ * browser primitive that still exposes progress on an upload body, so this
+ * is the one place in the app that reaches for it instead of fetch.
+ */
+function putWithProgress(url, file, mime, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url);
+    xhr.setRequestHeader('Content-Type', mime);
+    xhr.setRequestHeader('x-upsert', 'true');
+    // Same ceiling GoTrue/PostgREST calls don't need, because those are small
+    // and fast; a big file on a bad connection can legitimately take minutes,
+    // but a connection that has gone fully silent should not hang forever.
+    xhr.timeout = 10 * 60 * 1000;
+    xhr.upload.onprogress = event => {
+      if (event.lengthComputable) onProgress(event.loaded / event.total);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`The model could not be uploaded (${xhr.status}).`));
+    };
+    xhr.onerror = () => reject(new Error('The upload was interrupted. Check your connection and try again.'));
+    xhr.ontimeout = () => reject(new Error('The upload stalled and timed out. Check your connection and try again.'));
+    xhr.send(file);
+  });
+}
+
+/**
  * Uploads a .glb/.usdz for a product to <store_id>/<product_id>/<file>.
  *
  * In proxy mode the server issues a one-time signed URL and the browser uploads
  * straight to Storage with it. The file never passes through the serverless
- * function — which would cap it at 4.5 MB, far below the 50 MB model limit —
- * and the key still never reaches the page.
+ * function — which would cap it at 4.5 MB, far below the 100 MB model limit —
+ * and the key still never reaches the page. Uploading fifty of these is fifty
+ * independent requests straight to object storage; nothing here is shared or
+ * serialised, so one owner's big file does not slow another's.
+ *
+ * `onProgress`, if given, is called with a 0–1 fraction as the upload runs.
  */
-export async function uploadModel(file, { storeUuid, productId, kind = 'glb' }) {
+export async function uploadModel(file, { storeUuid, productId, kind = 'glb', onProgress } = {}) {
   if (!file) throw new Error('Choose a file first.');
   if (file.size > MAX_MODEL_BYTES) {
-    throw new Error(`That file is ${(file.size / 1048576).toFixed(1)} MB. The limit is 50 MB.`);
+    throw new Error(
+      `That file is ${(file.size / 1048576).toFixed(1)} MB. The limit is ${MAX_MODEL_BYTES / 1048576} MB.`
+    );
   }
   const extension = kind === 'glb' ? 'glb' : kind === 'usdz' ? 'usdz' : 'png';
   const mime = kind === 'glb' ? 'model/gltf-binary' : kind === 'usdz' ? 'model/vnd.usdz+zip' : file.type;
   const objectPath = `${storeUuid}/${productId}/model.${extension}`;
+  const report = typeof onProgress === 'function' ? onProgress : () => {};
 
   if (mode === 'direct') {
     const supabase = await getDirectClient();
+    // supabase-js's own upload() has no progress callback either; direct mode
+    // is the legacy path and is not worth doubling this machinery for.
     const { error: uploadError } = await supabase.storage.from(MODEL_BUCKET)
       .upload(objectPath, file, { contentType: mime, upsert: true, cacheControl: '3600' });
     if (uploadError) throw new Error(friendlyError(uploadError));
+    report(1);
   } else {
     const signed = await fetch('/api/sb/storage/sign', {
       method: 'POST',
@@ -381,12 +430,7 @@ export async function uploadModel(file, { storeUuid, productId, kind = 'glb' }) 
     }).then(r => r.json().then(body => ({ ok: r.ok, body })));
     if (!signed.ok) throw new Error(friendlyError(signed.body));
 
-    const upload = await fetch(signed.body.uploadUrl, {
-      method: 'PUT',
-      headers: { 'Content-Type': mime, 'x-upsert': 'true' },
-      body: file
-    });
-    if (!upload.ok) throw new Error(`The model could not be uploaded (${upload.status}).`);
+    await putWithProgress(signed.body.uploadUrl, file, mime, report);
   }
 
   // store_id is set by a trigger from the product, so it cannot be spoofed here.
@@ -712,6 +756,21 @@ export async function listMissingModels(limit = 200) {
       })()
     : (await restCall(query)) || [];
   return rows.filter(row => !(row.product_assets || []).some(asset => asset.kind === 'glb'));
+}
+
+/**
+ * Bytes uploaded per store, largest first — so a per-file cap that just went
+ * up from 50 MB to 100 MB does not turn into a surprise against the project's
+ * storage quota with nobody watching for it.
+ */
+export async function listStorageUsage() {
+  if (mode === 'direct') {
+    const supabase = await getDirectClient();
+    const { data, error } = await supabase.rpc('storage_usage');
+    if (error) throw new Error(friendlyError(error));
+    return data || [];
+  }
+  return (await restCall('rpc/storage_usage', { method: 'POST', body: '{}' })) || [];
 }
 
 /** Recent administrative decisions, newest first. */

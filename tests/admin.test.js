@@ -262,6 +262,38 @@ describe('anon cannot see it, and admin visibility grants no write access', () =
   assert.notEqual(price, '999999.00', 'an admin should not be able to write another store\'s product');
 });
 
+/* --------------------------------------------------------- storage totals -- */
+// 0005: storage_usage() is what lets the operator watch the real cost of a
+// bigger per-file cap without dashboard access — it has to add up bytes across
+// every store (which nobody but an admin may otherwise do) while still never
+// exposing a row of auth.users or letting anyone but an admin call it at all.
+
+describe('an admin sees the fixture upload counted against its store', () => {
+  const rows = JSON.parse(psql(
+    "select coalesce(json_agg(row_to_json(t)), '[]') from public.storage_usage() t;",
+    { role: 'authenticated', user: IDS.admin }
+  ));
+  const scVariety = rows.find(r => r.store_slug === 'sc-variety');
+  assert.ok(scVariety, 'sc-variety should appear in the usage totals');
+  assert.ok(Number(scVariety.total_bytes) >= 2400000,
+    `expected the fixture's 2.4 MB model counted, got ${scVariety.total_bytes}`);
+  assert.ok(Number(scVariety.file_count) >= 1);
+});
+
+describe('a store owner cannot call storage_usage at all', () => {
+  assert.throws(
+    () => psql('select public.storage_usage();', { role: 'authenticated', user: IDS.ownerA }),
+    /Only a platform administrator/
+  );
+});
+
+describe('anon cannot call it either', () => {
+  assert.throws(
+    () => psql('select public.storage_usage();', { role: 'anon' }),
+    /Only a platform administrator|permission denied/
+  );
+});
+
 /* ----------------------------------------------------- approval does its job -- */
 
 describe('approving creates the store, links the owner, and logs who did it', () => {

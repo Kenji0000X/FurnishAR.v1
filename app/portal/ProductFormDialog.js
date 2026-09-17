@@ -16,7 +16,7 @@ const SHAPES = ['sofa', 'table', 'chair', 'bed', 'shelf', 'desk'];
 export default function ProductFormDialog({ product, session, onClose, onSaved }) {
   const dialogRef = useRef(null);
   const [error, setError] = useState('');
-  const [status, setStatus] = useState('');   // 'Saving…' | 'Uploading model…'
+  const [status, setStatus] = useState('');   // 'Saving…' | 'Uploading model… 42%'
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -67,11 +67,14 @@ export default function ProductFormDialog({ product, session, onClose, onSaved }
           storeUuid
         );
         if (modelFile) {
-          setStatus('Uploading model…');
+          setStatus('Uploading model… 0%');
           await supabase().uploadModel(modelFile, {
             storeUuid,
             productId: saved.id,
-            kind: 'glb'
+            kind: 'glb',
+            // A big file on a slow connection can take minutes; a status line
+            // that never changes in that time looks frozen, not working.
+            onProgress: fraction => setStatus(`Uploading model… ${Math.round(fraction * 100)}%`)
           });
         }
       } else {
