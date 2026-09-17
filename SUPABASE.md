@@ -261,6 +261,30 @@ cannot edit or delete another shop's furniture — that stays the owner's job in
 their own portal. Seeing everything and owning everything are different powers,
 and only one of them is needed to run the platform.
 
+### The seeded armchair has no model until you upload one
+
+Worth knowing before it surprises you, because it looks exactly like a
+regression and is not one.
+
+Without Supabase the catalogue is `data/catalog.json`, where the Cane Back
+Armchair's `modelGlb` is `models/cane-back-armchair.glb` — **a file bundled in
+the app**, which always loads. Connect Supabase and the catalogue comes from
+the database instead, and `supabase/seed.sql` creates that product but
+deliberately creates no `product_assets` row for it (its own comment says the
+.glb is uploaded through the owner portal). Storage starts empty; nothing puts
+that bundled file into it.
+
+So the armchair that worked before connecting the database stops having a model
+after, along with every other seeded piece, and the planner correctly reports
+"this piece has no 3D model uploaded yet". Nothing broke — the app changed
+which source of truth it reads. Upload a .glb through the portal for each
+seeded product and they work again.
+
+That file, `public/models/cane-back-armchair.glb`, is about 1.4 MB and is a
+useful thing to upload first when a bigger model is being refused: if it goes
+through and a large one does not, the size limit is the whole problem and
+nothing else is wrong with the pipeline.
+
 ### When a model will not show in AR
 
 The planner used to answer every one of these with the same sentence — *"3D
@@ -395,6 +419,25 @@ case, not the typical one: **one badly optimised upload can now be 100 MB
 instead of 50**, and it is entirely possible for a handful of large files to
 use up the free tier's 1 GB faster than 700 small ones ever would. Twenty
 50 MB files is already the whole free allowance.
+
+### The bucket limit is not the only ceiling
+
+**A Free project cannot accept a file over 50 MB, whatever this bucket says.**
+Supabase enforces a project-wide maximum in **Storage → Settings**, a per-bucket
+`file_size_limit` cannot exceed it, and on the Free plan that maximum is 50 MB.
+Running 0005 on a Free project therefore does **not** get you 100 MB uploads —
+Storage still refuses at 50, with "The object exceeded the maximum allowed
+size". Neither does 70 MB, or anything else above 50. The only ways past it are
+to upgrade the plan (Pro raises the project maximum substantially) or to make
+the file smaller.
+
+Make the file smaller. It is the better answer anyway, and not a compromise:
+this app is built for phones on mobile connections in Mamburao, and a 50 MB
+model is a multi-minute download for **every shopper who opens it**, not just
+once for the owner who uploaded it. Furniture models routinely come out of a 3D
+tool at tens of megabytes and compress to single digits with no visible loss —
+Draco or meshopt geometry compression, and textures resized to 1–2k. A 2 MB
+model that loads is worth more than a 60 MB one nobody waits for.
 
 This does not need watching constantly, but it does need watching:
 
