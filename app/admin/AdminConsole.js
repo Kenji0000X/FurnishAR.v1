@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { initBackend, usingSupabase, supabase, backendReason } from '../portal/backend.js';
 import PasswordField from '../PasswordField.js';
 
@@ -318,8 +318,18 @@ export default function AdminConsole() {
     return () => window.removeEventListener('pageshow', onShow);
   }, [verify]);
 
+  /**
+   * Reloads when the reviewer switches tabs, without re-fetching the moment
+   * `state` becomes 'ready' — verify() already loaded that data one line
+   * above, so without this guard the very first render of the console fired
+   * every query in `load()` twice. `isFirstReady` distinguishes "we just
+   * arrived at ready" from "we were already ready and the tab changed".
+   */
+  const isFirstReady = useRef(true);
   useEffect(() => {
-    if (state === 'ready') load().catch(() => {});
+    if (state !== 'ready') { isFirstReady.current = true; return; }
+    if (isFirstReady.current) { isFirstReady.current = false; return; }
+    load().catch(() => {});
   }, [tab, state, load]);
 
   async function handleApprove(application, slug) {

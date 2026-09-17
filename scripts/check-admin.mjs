@@ -264,6 +264,7 @@ console.log('--- signing in AT /admin, which is what the portal link promises --
   const page = await browser.newPage();
   await page.goto(`http://127.0.0.1:${APP_PORT}/admin`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('form.login-form', { timeout: 20000 });
+  const callsBeforeLogin = calls.length;
   await page.fill('input[name="email"]', 'admin@furnishar.ph');
   await page.fill('input[name="password"]', 'whatever');
   await page.click('form.login-form button[type="submit"]');
@@ -272,6 +273,17 @@ console.log('--- signing in AT /admin, which is what the portal link promises --
   check('signing in here reaches the console', /Store applications/i.test(body),
     page.url());
   check('and it is the real queue', body.includes('Mindoro Rattan'));
+
+  // verify() loads the queue once on the way to 'ready', and a second effect
+  // reloads it whenever the reviewer switches tabs — keyed on `state`, which
+  // also flips to 'ready' on that very same transition. Without a guard the
+  // effect fires right alongside verify()'s own load, so the first paint of
+  // the console cost two reads of every table instead of one.
+  const queueReadsAfterLogin = calls
+    .slice(callsBeforeLogin)
+    .filter(c => c.url.startsWith('/rest/v1/store_applications')).length;
+  check('the queue is read once on first reaching the console, not twice',
+    queueReadsAfterLogin === 1, `${queueReadsAfterLogin} read(s)`);
   await page.close();
 }
 

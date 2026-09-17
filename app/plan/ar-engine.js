@@ -1511,6 +1511,25 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
 
   async function startExperience(purpose) {
     if (!state.selected) return toast('Choose a product first.');
+    // A second tap before the first call reaches mountARExperience() would
+    // insert nothing new — mountARExperience() reuses #ar-experience if it
+    // already exists — but it would re-run addEventListener('click', ...) on
+    // the SAME #close-outline button a second time, so one tap of "Close
+    // outline" would fire closeAreaOutline() twice. The button that starts
+    // this is disabled for exactly as long as this function is in flight.
+    if (state.startingExperience) return;
+    state.startingExperience = true;
+    const arButton = $('#ar-button');
+    if (arButton) arButton.disabled = true;
+    try {
+      await startExperienceInner(purpose);
+    } finally {
+      state.startingExperience = false;
+      if (arButton) arButton.disabled = false;
+    }
+  }
+
+  async function startExperienceInner(purpose) {
     const product = state.selected;
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
