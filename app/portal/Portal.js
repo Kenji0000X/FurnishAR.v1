@@ -525,7 +525,10 @@ export default function Portal({ initialProducts }) {
                 <td>
                   {product.name}
                   <small>
-                    {product.category} · {product.color}{product.modelGlb ? ' · 3D model' : ''}
+                    {product.category} · {product.color}
+                    {product.modelGlb
+                      ? ' · 3D model'
+                      : <span className="missing-model"> · no 3D model — will not show in AR</span>}
                   </small>
                 </td>
                 <td>

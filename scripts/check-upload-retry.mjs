@@ -30,6 +30,7 @@ const STORE = '21f61742-6d5d-4239-9592-05b2a79a0453';
 const PRODUCT = '5a6a9821-98f1-4b14-bec9-ddd8272d6819';
 
 let uploadAttempts = 0;
+let assetRowLands = true;   // flipped to reproduce a file that stores but never links
 const productWrites = [];   // { method, conflicted }
 const existingSlugs = new Set();
 
@@ -101,7 +102,13 @@ const supabase = createServer((req, res) => {
     if (req.url.startsWith('/storage/v1/object/upload/sign')) {
       return send(200, { url: `/object/upload/sign/furniture-models/${STORE}/${PRODUCT}/model.glb?token=x` });
     }
-    if (req.url.startsWith('/rest/v1/product_assets')) return send(201, null);
+    if (req.url.startsWith('/rest/v1/product_assets')) {
+      // The read-back uploadModel() now does before calling an upload done.
+      if (req.method === 'GET') {
+        return send(200, assetRowLands ? [{ object_path: `${STORE}/${PRODUCT}/model.glb` }] : []);
+      }
+      return send(201, null);
+    }
     send(200, []);
   });
 });
@@ -179,6 +186,33 @@ check('no "you already have a product with that name" on a retry of your own upl
 check('the retry succeeded and the dialog closed',
   await page.locator('dialog.form-dialog[open]').count() === 0);
 check('the file did reach Storage on the second attempt', uploadAttempts === 2, `${uploadAttempts} attempt(s)`);
+
+console.log('--- the file stores but the row never lands ---');
+{
+  // Exactly the state behind "this piece has no 3D model uploaded yet" for a
+  // model the owner watched upload: bytes in Storage, nothing pointing at them.
+  // Silent before the read-back; the owner only found out in AR, later.
+  assetRowLands = false;
+  await page.click('button:has-text("+ Add product")');
+  await page.waitForSelector('dialog.form-dialog[open]', { timeout: 10000 });
+  await page.fill('input[name="name"]', 'Unlinked Bench');
+  await page.fill('input[name="price"]', '900');
+  await page.fill('input[name="stock"]', '1');
+  await page.fill('input[name="width"]', '60');
+  await page.fill('input[name="height"]', '40');
+  await page.fill('input[name="depth"]', '35');
+  await page.setInputFiles('input[name="modelFile"]', {
+    name: 'model.glb', mimeType: 'model/gltf-binary', buffer: makeTestGlb(256 * 1024)
+  });
+  await page.click('dialog.form-dialog button[type="submit"]');
+  await page.waitForTimeout(3000);
+
+  const unlinkedError = (await page.locator('dialog.form-dialog .form-error').textContent().catch(() => '')) || '';
+  check('an upload that never links is reported, not called a success',
+    /could not be linked/i.test(unlinkedError), unlinkedError.trim().slice(0, 100));
+  check('the dialog stays open rather than claiming the model is saved',
+    await page.locator('dialog.form-dialog[open]').count() > 0);
+}
 
 await browser.close();
 stop();
