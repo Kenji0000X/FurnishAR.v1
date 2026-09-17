@@ -24,6 +24,12 @@ const APP_PORT = 4942;
 const KEY = 'sb_publishable_armodelcheck0';
 const STORE = '21f61742-6d5d-4239-9592-05b2a79a0453';
 const GLB = readFileSync(new URL('../public/models/cane-back-armchair.glb', import.meta.url));
+// Real compressed models, produced with gltf-transform from the same armchair.
+// Compression is how a 60 MB export gets under the upload limit at all, and a
+// plain GLTFLoader refuses these outright — so "it got smaller" has to mean
+// "and it still loads", proved on the real files rather than asserted.
+const DRACO_GLB = readFileSync(new URL('../tests/fixtures/draco-webp-armchair.glb', import.meta.url));
+const MESHOPT_GLB = readFileSync(new URL('../tests/fixtures/meshopt-armchair.glb', import.meta.url));
 
 /** One product per failure mode; the path's middle segment picks the behaviour. */
 const CASES = [
@@ -31,7 +37,9 @@ const CASES = [
   { id: 'aaaaaaa2-0000-4000-8000-000000000002', slug: 'no-model-chair', name: 'No Model Chair', behaviour: null },
   { id: 'aaaaaaa3-0000-4000-8000-000000000003', slug: 'server-error-chair', name: 'Server Error Chair', behaviour: 'fail500' },
   { id: 'aaaaaaa4-0000-4000-8000-000000000004', slug: 'protected-chair', name: 'Protected Chair', behaviour: 'html' },
-  { id: 'aaaaaaa5-0000-4000-8000-000000000005', slug: 'corrupt-chair', name: 'Corrupt Chair', behaviour: 'corrupt' }
+  { id: 'aaaaaaa5-0000-4000-8000-000000000005', slug: 'corrupt-chair', name: 'Corrupt Chair', behaviour: 'corrupt' },
+  { id: 'aaaaaaa6-0000-4000-8000-000000000006', slug: 'draco-chair', name: 'Draco Chair', behaviour: 'draco' },
+  { id: 'aaaaaaa7-0000-4000-8000-000000000007', slug: 'meshopt-chair', name: 'Meshopt Chair', behaviour: 'meshopt' }
 ];
 
 const catalogRow = ({ id, slug, name, behaviour }) => ({
@@ -72,8 +80,11 @@ const supabase = createServer((req, res) => {
         res.writeHead(200, { 'Content-Type': 'model/gltf-binary', ...cors });
         return res.end(broken);
       }
-      res.writeHead(200, { 'Content-Type': 'model/gltf-binary', 'Content-Length': GLB.length, ...cors });
-      return res.end(GLB);
+      const body = req.url.includes('/draco/') ? DRACO_GLB
+        : req.url.includes('/meshopt/') ? MESHOPT_GLB
+        : GLB;
+      res.writeHead(200, { 'Content-Type': 'model/gltf-binary', 'Content-Length': body.length, ...cors });
+      return res.end(body);
     }
 
     if (req.url.startsWith('/auth/v1/health')) return send(200, { name: 'GoTrue' });
@@ -179,6 +190,18 @@ console.log('--- the file is not a readable .glb ---');
   const message = await launchAR(byId('corrupt-chair'));
   check('says the file is corrupt and can be re-uploaded',
     /corrupt or incomplete/i.test(message), message.slice(0, 95));
+}
+
+console.log('--- a Draco-compressed model with WebP textures (1.37 MB -> 131 KB) ---');
+{
+  const message = await launchAR(byId('draco-chair'));
+  check('a compressed model still loads', !message, message.slice(0, 110));
+}
+
+console.log('--- a meshopt-compressed model ---');
+{
+  const message = await launchAR(byId('meshopt-chair'));
+  check('a meshopt model still loads', !message, message.slice(0, 110));
 }
 
 await browser.close();
