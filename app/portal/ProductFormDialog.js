@@ -15,6 +15,10 @@ const SHAPES = ['sofa', 'table', 'chair', 'bed', 'shelf', 'desk'];
  */
 export default function ProductFormDialog({ product, session, onClose, onSaved }) {
   const dialogRef = useRef(null);
+  // The row this dialog created, if a previous attempt got that far and then
+  // failed on the upload. A ref, not state: it must survive a re-render
+  // without causing one, and it is never read during render.
+  const createdId = useRef(null);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');   // 'Saving…' | 'Uploading model… 42%'
 
@@ -62,10 +66,19 @@ export default function ProductFormDialog({ product, session, onClose, onSaved }
       if (usingSupabase()) {
         const storeUuid = session?.user?.storeUuid;
         if (!storeUuid) throw new Error('Your store is still awaiting approval.');
+        // Saving is two steps — create the row, then upload the model — and
+        // the second can fail on its own (a refused file, a dropped
+        // connection). The row from the first attempt still exists, so a
+        // straight retry used to insert it a second time and collide with
+        // `unique (store_id, slug)`: PostgREST 409, reported as "you already
+        // have a product with that name", about the product you had just
+        // half-created yourself. Remembering the id turns the retry into the
+        // update it should always have been.
         const saved = await supabase().saveProduct(
-          { ...payload, id: values.id || undefined },
+          { ...payload, id: values.id || createdId.current || undefined },
           storeUuid
         );
+        createdId.current = saved.id;
         if (modelFile) {
           setStatus('Uploading model… 0%');
           await supabase().uploadModel(modelFile, {

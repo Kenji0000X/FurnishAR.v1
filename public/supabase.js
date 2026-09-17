@@ -415,8 +415,21 @@ function putWithProgress(url, file, mime, onProgress) {
       if (event.lengthComputable) onProgress(event.loaded / event.total);
     };
     xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve();
-      else reject(new Error(`The model could not be uploaded (${xhr.status}).`));
+      if (xhr.status >= 200 && xhr.status < 300) return resolve();
+      // Storage says WHY in the body — "The object exceeded the maximum
+      // allowed size", "mime type not supported", a policy refusal. Throwing
+      // away that body and reporting only the status code is what made a
+      // failed upload impossible to diagnose from the browser.
+      let detail = null;
+      try { detail = JSON.parse(xhr.responseText); } catch { detail = xhr.responseText || null; }
+      const reason = (detail && typeof detail === 'object')
+        ? (detail.message || detail.error || detail.msg || '')
+        : String(detail || '');
+      const error = new Error(reason
+        ? friendlyError({ message: reason, status: xhr.status })
+        : `The model could not be uploaded (${xhr.status}).`);
+      error.status = xhr.status;
+      reject(error);
     };
     xhr.onerror = () => reject(new Error('The upload was interrupted. Check your connection and try again.'));
     xhr.ontimeout = () => reject(new Error('The upload stalled and timed out. Check your connection and try again.'));
@@ -706,8 +719,17 @@ export function friendlyError(error) {
   if (/Email not confirmed/i.test(message)) return 'Confirm your email address first — check your inbox.';
   // Reads the constant rather than repeating the number, which is how this
   // came to still say 50 after the bucket was raised to 100.
+  //
+  // Storage enforces the BUCKET's file_size_limit, which is a different number
+  // from this app's MAX_MODEL_BYTES and only matches it once
+  // 0005_raise_model_limit.sql has actually been run against the project. A
+  // file that passes the check in uploadModel() and is then refused here means
+  // exactly that gap, so say so instead of quoting a limit the server does not
+  // agree with.
   if (/exceeded the maximum allowed size|Payload too large/i.test(message)) {
-    return `That model is larger than the ${MAX_MODEL_BYTES / 1048576} MB limit.`;
+    return `Supabase refused that model as too large. This app allows ${MAX_MODEL_BYTES / 1048576} MB, `
+      + 'but the storage bucket enforces its own limit — if it still refuses a file under that, run '
+      + 'supabase/migrations/0005_raise_model_limit.sql against the project to raise the bucket to 100 MB.';
   }
   return message;
 }
