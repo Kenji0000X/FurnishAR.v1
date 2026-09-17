@@ -153,14 +153,17 @@ async function route(request, context) {
     if (!/^[\w-]+\/[\w-]+\/[\w.-]+$/.test(objectPath)) {
       return json(400, { error: 'Bad model path.' });
     }
+    // A redirect with no destination is worse than an error: the browser
+    // follows it to nonsense and the loader reports something unrelated.
+    const target = publicObjectUrl('furniture-models', objectPath);
+    if (!target) {
+      return json(503, { error: 'This deployment cannot resolve model URLs: SUPABASE_URL is not set.' });
+    }
     // Built by hand rather than with Response.redirect so the cache header
     // survives — without it every model placement re-hits this function.
     return new Response(null, {
       status: 302,
-      headers: {
-        Location: publicObjectUrl('furniture-models', objectPath),
-        'Cache-Control': 'public, max-age=3600'
-      }
+      headers: { Location: target, 'Cache-Control': 'public, max-age=3600' }
     });
   }
 
