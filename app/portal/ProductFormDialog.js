@@ -116,15 +116,20 @@ export default function ProductFormDialog({ product, session, onClose, onSaved }
 
           if (result.stillTooBig) {
             throw new Error(
-              `This model is ${formatBytes(result.originalBytes)} and will not fit even after `
-              + `resizing its textures (${formatBytes(result.finalBytes)}). It has more detail than `
-              + 'AR needs — reduce the mesh in your 3D tool and export again.'
+              `This model is ${formatBytes(result.originalBytes)}. Compressing its geometry, `
+              + `resizing its textures and reducing its detail got it to `
+              + `${formatBytes(result.finalBytes)}, which is still over the `
+              + `${formatBytes(UPLOAD_LIMIT_BYTES)} limit. It is likely several pieces exported `
+              + 'together — export just this one, or reduce it in your 3D tool, and try again.'
             );
           }
           if (result.changed) {
             setShrunkNote(
               `Model shrunk from ${formatBytes(result.originalBytes)} to `
               + `${formatBytes(result.finalBytes)} so it fits and loads quickly for shoppers.`
+              + (result.simplified
+                ? ' Some fine detail was reduced to get it there; check it looks right in AR.'
+                : ' Nothing was removed — the same model, stored more efficiently.')
             );
           }
 

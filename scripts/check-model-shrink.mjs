@@ -16,10 +16,14 @@
  */
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, rmSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { NodeIO } from '@gltf-transform/core';
-import { makeOversizedGlb } from './make-oversized-glb.mjs';
+import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
+import { MeshoptDecoder } from 'meshoptimizer/decoder';
+import { makeOversizedGlb, makeGeometryHeavyGlb } from './make-oversized-glb.mjs';
 
 const SB_PORT = 4951;
 const APP_PORT = 4952;
@@ -29,6 +33,8 @@ const PRODUCT = '5a6a9821-98f1-4b14-bec9-ddd8272d6819';
 const LIMIT = 40 * 1024 * 1024;   // must match UPLOAD_LIMIT_BYTES in the dialog
 
 let uploadedBytes = null;
+let productCount = 0;
+const scratch = mkdtempSync(join(tmpdir(), 'shrink-check-'));
 
 const supabase = createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -64,7 +70,14 @@ const supabase = createServer((req, res) => {
       return send(200, [{ role: 'owner', stores: { id: STORE, slug: 'sc-variety', name: 'S&C Variety Store', plan: 'freemium' } }]);
     }
     if (req.url.startsWith('/rest/v1/products')) {
-      if (req.method === 'POST') return send(201, [{ id: PRODUCT, store_id: STORE, slug: 'big' }]);
+      if (req.method === 'POST') {
+        productCount += 1;
+        // Still a real 36-character uuid: the proxy refuses an object path whose
+        // middle segment is not one, so a counter tacked on the end would fail
+        // the upload for a reason that has nothing to do with shrinking.
+        const id = `${PRODUCT.slice(0, -1)}${productCount}`;
+        return send(201, [{ id, store_id: STORE, slug: `big-${productCount}` }]);
+      }
       if (req.method === 'PATCH') return send(200, [{ id: PRODUCT, store_id: STORE }]);
       return send(200, []);
     }
@@ -84,13 +97,6 @@ if (await fetch(`http://127.0.0.1:${APP_PORT}/portal`).then(() => true).catch(()
   console.error(`Something is already listening on ${APP_PORT}. Stop it first.`);
   process.exit(1);
 }
-
-console.log('building an oversized model…');
-const oversized = await makeOversizedGlb(
-  readFileSync(new URL('../public/models/cane-back-armchair.glb', import.meta.url)),
-  45 * 1024 * 1024
-);
-console.log(`  ${(oversized.length / 1048576).toFixed(1)} MB, limit is ${LIMIT / 1048576} MB`);
 
 const app = spawn('npx', ['next', 'start', '-p', String(APP_PORT)], {
   env: { ...process.env, SUPABASE_URL: `http://127.0.0.1:${SB_PORT}`, SUPABASE_PUBLISHABLE_KEY: KEY, FURNISHAR_JWT_SECRET: 'shrink-check' },
@@ -120,64 +126,98 @@ await page.fill('input[name="password"]', 'x');
 await page.click('form.login-form button[type="submit"]');
 await page.waitForSelector('.dashboard', { timeout: 20000 }).catch(() => {});
 
-await page.click('button:has-text("+ Add product")');
-await page.waitForSelector('dialog.form-dialog[open]', { timeout: 10000 });
-await page.fill('input[name="name"]', 'Oversized Cabinet');
-await page.fill('input[name="price"]', '7500');
-await page.fill('input[name="stock"]', '1');
-await page.fill('input[name="width"]', '100');
-await page.fill('input[name="height"]', '100');
-await page.fill('input[name="depth"]', '100');
-await page.setInputFiles('input[name="modelFile"]', {
-  name: 'oversized.glb', mimeType: 'model/gltf-binary', buffer: oversized
-});
+/** Uploads one oversized model through the real dialog and inspects the result. */
+async function uploadAndInspect(name, bytes) {
+  uploadedBytes = null;
+  await page.click('button:has-text("+ Add product")');
+  await page.waitForSelector('dialog.form-dialog[open]', { timeout: 10000 });
+  await page.fill('input[name="name"]', name);
+  await page.fill('input[name="price"]', '7500');
+  await page.fill('input[name="stock"]', '1');
+  await page.fill('input[name="width"]', '100');
+  await page.fill('input[name="height"]', '100');
+  await page.fill('input[name="depth"]', '100');
+  // Through a file on disk, not a buffer: Playwright refuses to marshal more
+  // than 50 MB inline, and an oversized model is by definition more than that.
+  const staged = join(scratch, `oversized-${Date.now()}.glb`);
+  writeFileSync(staged, bytes);
+  await page.setInputFiles('input[name="modelFile"]', staged);
 
-// Watch for the shrinking status, which is the owner-visible part of this.
-const statuses = new Set();
-const poll = setInterval(async () => {
-  const text = await page.locator('dialog.form-dialog button[type="submit"]').innerText().catch(() => '');
-  if (text) statuses.add(text.replace(/\d+/g, 'N'));
-}, 120);
+  const statuses = new Set();
+  const poll = setInterval(async () => {
+    const text = await page.locator('dialog.form-dialog button[type="submit"]').innerText().catch(() => '');
+    if (text) statuses.add(text.replace(/\d+/g, 'N'));
+  }, 120);
 
-console.log('uploading…');
-await page.click('dialog.form-dialog button[type="submit"]');
-await page.waitForSelector('dialog.form-dialog[open]', { state: 'detached', timeout: 180000 }).catch(() => {});
-clearInterval(poll);
+  await page.click('dialog.form-dialog button[type="submit"]');
+  await page.waitForSelector('dialog.form-dialog[open]', { state: 'detached', timeout: 240000 }).catch(() => {});
+  clearInterval(poll);
 
-const shown = [...statuses].join(' | ');
-const dialogError = (await page.locator('dialog.form-dialog .form-error').textContent().catch(() => '')) || '';
+  const error = (await page.locator('dialog.form-dialog .form-error').textContent().catch(() => '')) || '';
+  // Close a dialog still open from a failure, so the next case can start.
+  await page.keyboard.press('Escape').catch(() => {});
+  await page.waitForTimeout(500);
+  return { statuses: [...statuses], error: error.trim() };
+}
 
-check('the owner was told it was being shrunk, not left staring at "Saving…"',
-  [...statuses].some(s => /shrink|reading|checking/i.test(s)), shown.slice(0, 120));
-check('the upload was not rejected for being too large', !/too large|will not fit/i.test(dialogError),
-  dialogError.trim().slice(0, 100));
-check('something actually reached Storage', Boolean(uploadedBytes), `${uploadedBytes?.length ?? 0} bytes`);
+/** Everything both cases must satisfy. */
+async function assertShrunk(label, original) {
+  check(`${label}: the upload was not rejected`, !/will not fit|still over/i.test(original.error),
+    original.error.slice(0, 110));
+  check(`${label}: something reached Storage`, Boolean(uploadedBytes), `${uploadedBytes?.length ?? 0} bytes`);
+  if (!uploadedBytes) return;
 
-if (uploadedBytes) {
-  check('what reached Storage is under the limit',
+  check(`${label}: what reached Storage is under the limit`,
     uploadedBytes.length <= LIMIT,
-    `${(uploadedBytes.length / 1048576).toFixed(1)} MB from ${(oversized.length / 1048576).toFixed(1)} MB`);
+    `${(uploadedBytes.length / 1048576).toFixed(1)} MB from ${(original.size / 1048576).toFixed(1)} MB`);
 
-  // The part that matters most: smaller is worthless if it no longer loads.
   let parsed = null;
   try {
-    parsed = await new NodeIO().readBinary(new Uint8Array(uploadedBytes));
+    parsed = await new NodeIO()
+      .registerExtensions(ALL_EXTENSIONS)
+      .registerDependencies({ 'meshopt.decoder': MeshoptDecoder })
+      .readBinary(new Uint8Array(uploadedBytes));
   } catch (error) {
-    parsed = null;
-    console.log('   parse error:', error.message.slice(0, 120));
+    console.log('   parse error:', error.message.slice(0, 140));
   }
-  check('the shrunk file is still a valid glTF document', Boolean(parsed));
+  check(`${label}: the shrunk file is still a valid glTF document`, Boolean(parsed));
   if (parsed) {
-    check('it still has its mesh geometry', parsed.getRoot().listMeshes().length > 0,
+    check(`${label}: it still has its mesh geometry`, parsed.getRoot().listMeshes().length > 0,
       `${parsed.getRoot().listMeshes().length} mesh(es)`);
-    check('it still has its textures', parsed.getRoot().listTextures().length > 0,
-      `${parsed.getRoot().listTextures().length} texture(s)`);
   }
+}
+
+console.log('--- a texture-heavy model (4k maps) ---');
+{
+  const bytes = await makeOversizedGlb(
+    readFileSync(new URL('../public/models/cane-back-armchair.glb', import.meta.url)),
+    45 * 1024 * 1024
+  );
+  console.log(`  built ${(bytes.length / 1048576).toFixed(1)} MB, limit is ${LIMIT / 1048576} MB`);
+  const run = await uploadAndInspect('Texture Heavy Cabinet', bytes);
+  check('texture-heavy: the owner saw it being worked on',
+    run.statuses.some(s => /shrink|compress|reading|checking|simplif/i.test(s)),
+    run.statuses.join(' | ').slice(0, 120));
+  await assertShrunk('texture-heavy', { error: run.error, size: bytes.length });
+}
+
+console.log('--- a geometry-heavy model, no textures at all ---');
+{
+  // The reported case: 60.4 MB in, 60.4 MB out, because only textures were
+  // ever touched and this file has none.
+  const bytes = await makeGeometryHeavyGlb(60 * 1024 * 1024);
+  console.log(`  built ${(bytes.length / 1048576).toFixed(1)} MB with 0 textures`);
+  const run = await uploadAndInspect('Geometry Heavy Cabinet', bytes);
+  check('geometry-heavy: the owner saw it being worked on',
+    run.statuses.some(s => /shrink|compress|reading|checking|simplif/i.test(s)),
+    run.statuses.join(' | ').slice(0, 120));
+  await assertShrunk('geometry-heavy', { error: run.error, size: bytes.length });
 }
 
 await browser.close();
 stop();
 supabase.close();
+rmSync(scratch, { recursive: true, force: true });
 
 console.log(problems.length ? `\nFAILED: ${problems.join('; ')}` : '\nan oversized model is shrunk automatically and still loads');
 process.exit(problems.length ? 1 : 0);
