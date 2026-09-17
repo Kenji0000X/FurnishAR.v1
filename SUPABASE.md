@@ -434,10 +434,43 @@ the file smaller.
 Make the file smaller. It is the better answer anyway, and not a compromise:
 this app is built for phones on mobile connections in Mamburao, and a 50 MB
 model is a multi-minute download for **every shopper who opens it**, not just
-once for the owner who uploaded it. Furniture models routinely come out of a 3D
-tool at tens of megabytes and compress to single digits with no visible loss —
-Draco or meshopt geometry compression, and textures resized to 1–2k. A 2 MB
-model that loads is worth more than a 60 MB one nobody waits for.
+once for the owner who uploaded it. A 2 MB model that loads is worth more than
+a 60 MB one nobody waits for.
+
+### Shrinking a model
+
+One command, no account, nothing installed permanently:
+
+```bash
+npx @gltf-transform/cli optimize big.glb small.glb \
+  --compress draco --texture-size 1024 --texture-compress webp
+```
+
+On this repo's own Cane Back Armchair that is **1.37 MB → 131 KB**, a 90%
+reduction, and the result still loads in the planner — there is a check for
+exactly that, see below. Applied to a 60 MB export the same settings typically
+land in low single-digit megabytes.
+
+The order of the wins is worth knowing, because it tells you what to reach for:
+
+| Step | What it does | Armchair |
+| --- | --- | --- |
+| `--texture-size 1024` + `--texture-compress webp` | Resizes and re-encodes textures. **Usually most of the file.** | the bulk of the saving |
+| `--compress draco` | Compresses geometry. | 1.37 MB → 1.02 MB on its own |
+
+Textures dominate almost every real furniture model, so start there. A 4k
+texture on a chair nobody will view from 10 cm away is pure download time.
+
+If a model still will not fit after that, it has more geometry than it needs —
+`--simplify` reduces triangle count, and it is worth looking at in the 3D tool
+before blaming the limit.
+
+**Compressed models load because the planner decodes them.** A plain
+GLTFLoader refuses Draco and meshopt files outright, so the app attaches a
+self-hosted Draco decoder (`public/draco/`, ~750 KB, fetched only when a
+compressed model is actually opened) and the meshopt decoder. Both
+`scripts/check-ar-model.mjs` cases load real compressed files, so this cannot
+quietly regress into "it got smaller and stopped working".
 
 This does not need watching constantly, but it does need watching:
 

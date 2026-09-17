@@ -33,6 +33,8 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
   /* ===== THREE loading, escaping helpers ===== */
   let THREE = null;
   let GLTFLoader = null;
+  let dracoLoader = null;      // set by loadThreeJS; decodes Draco geometry
+  let meshoptDecoder = null;   // set by loadThreeJS; decodes meshopt geometry
 
   async function loadThreeJS() {
     if (THREE) return;
@@ -40,6 +42,30 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       THREE = await import('three');
       const { GLTFLoader: Loader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
       GLTFLoader = Loader;
+
+      // Decoders for compressed geometry, loaded alongside the loader.
+      //
+      // A plain GLTFLoader reads only uncompressed glTF, and refuses a
+      // Draco or meshopt file outright — "no DRACOLoader instance provided".
+      // That matters because compression is how a model gets under the upload
+      // limit at all: a 60 MB export routinely becomes single digits, and
+      // without these the owner's reward for doing the right thing would be a
+      // file that no longer loads. Every shopper who opens it downloads the
+      // smaller file too, on a phone, which is the whole point.
+      try {
+        const { DRACOLoader } = await import('three/examples/jsm/loaders/DRACOLoader.js');
+        const { MeshoptDecoder: Meshopt } = await import('three/examples/jsm/libs/meshopt_decoder.module.js');
+        // Self-hosted under /draco/, not a CDN: the decoder is ~750 KB and is
+        // fetched only when a compressed model is actually opened.
+        dracoLoader = new DRACOLoader().setDecoderPath('/draco/');
+        meshoptDecoder = Meshopt;
+      } catch (decoderError) {
+        // An uncompressed model still loads without these, so this is not
+        // fatal — but a compressed one will not, and that is worth saying.
+        console.warn('[AR] compressed-model decoders unavailable:', decoderError?.message);
+        dracoLoader = null;
+        meshoptDecoder = null;
+      }
       return true;
     } catch (error) {
       console.error('[AR] THREE.js unavailable:', error?.message);
@@ -656,6 +682,10 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
           + `(HTTP ${issue.status}). On a protected preview deployment, that protection blocks it.${measure}`
         : `The model could not be downloaded (HTTP ${issue.status}).${measure}`;
     }
+    if (issue.kind === 'no-decoder') {
+      return `This model is compressed, and the decoder for it did not load — the file itself is `
+        + `fine. Reload the page; if it keeps happening the 3D decoder files are not being served.${measure}`;
+    }
     if (issue.kind === 'parse-failed') {
       return `The model downloaded but could not be read — the .glb looks corrupt or incomplete. `
         + `Re-upload it from the store portal.${measure}`;
@@ -684,6 +714,14 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       if (/text\/html/i.test(type)) {
         return { kind: 'fetch-failed', status: response.status, html: true };
       }
+      // A compressed model with no decoder attached fails the same way a
+      // broken file does, and three.js says which — "No DRACOLoader instance
+      // provided". Telling someone their file is corrupt when it is fine and
+      // merely compressed sends them re-exporting a model that was never the
+      // problem, so the two are separated by what the loader actually said.
+      if (/DRACOLoader|KHR_draco|meshopt|EXT_meshopt|KTX2|KHR_texture_basisu/i.test(error?.message || '')) {
+        return { kind: 'no-decoder', detail: error?.message || '' };
+      }
       return { kind: 'parse-failed', detail: error?.message || '' };
     } catch (headError) {
       return { kind: 'network', detail: headError?.message || error?.message || '' };
@@ -706,6 +744,10 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
 
     try {
       const loader = new GLTFLoader();
+      // Harmless when the model is uncompressed; the loader only calls a
+      // decoder if the file declares the matching extension.
+      if (dracoLoader) loader.setDRACOLoader(dracoLoader);
+      if (meshoptDecoder) loader.setMeshoptDecoder(meshoptDecoder);
       const gltf = await new Promise((resolve, reject) => {
         loader.load(
           modelPath,
