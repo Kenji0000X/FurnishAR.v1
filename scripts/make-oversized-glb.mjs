@@ -7,7 +7,7 @@
  * size it claims, and the shrinker has to do actual work rather than getting a
  * free win from PNG's own deflate.
  */
-import { NodeIO } from '@gltf-transform/core';
+import { NodeIO, Document } from '@gltf-transform/core';
 import { deflateSync, crc32 } from 'node:zlib';
 
 /** Minimal PNG encoder: IHDR, one IDAT, IEND. Enough for a decodable image. */
@@ -82,4 +82,33 @@ export async function makeOversizedGlb(sourceGlb, targetBytes) {
   }
 
   return Buffer.from(await io.writeBinary(doc));
+}
+
+/**
+ * A .glb that is large because of GEOMETRY, with no textures at all — the
+ * shape of file that came back from the first version of the shrinker
+ * unchanged, because it only ever resized textures. Scanned and CAD furniture
+ * looks like this.
+ */
+export async function makeGeometryHeavyGlb(targetBytes) {
+  const doc = new Document();
+  const buffer = doc.createBuffer();
+  const scene = doc.createScene();
+
+  // ~72 bytes per triangle once positions and normals are written.
+  const triangles = Math.ceil(targetBytes / 72);
+  const positions = new Float32Array(triangles * 9);
+  const normals = new Float32Array(triangles * 9);
+  for (let i = 0; i < positions.length; i++) {
+    positions[i] = Math.random() * 2 - 1;
+    normals[i] = Math.random() * 2 - 1;
+  }
+
+  const primitive = doc.createPrimitive()
+    .setAttribute('POSITION', doc.createAccessor().setType('VEC3').setArray(positions).setBuffer(buffer))
+    .setAttribute('NORMAL', doc.createAccessor().setType('VEC3').setArray(normals).setBuffer(buffer))
+    .setMaterial(doc.createMaterial('plain'));
+  scene.addChild(doc.createNode('dense').setMesh(doc.createMesh('dense').addPrimitive(primitive)));
+
+  return Buffer.from(await new NodeIO().writeBinary(doc));
 }

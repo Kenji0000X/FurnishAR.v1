@@ -440,20 +440,44 @@ a 60 MB one nobody waits for.
 ### The portal shrinks oversized models by itself
 
 **A store owner does not have to do any of this.** If the file they choose is
-over 40 MB, the portal resizes its textures in the browser before uploading —
-"Shrinking model… 60%" in place of the save button — and says what it did:
-*"Model shrunk from 48.4 MB to 4.9 MB so it fits and loads quickly for
-shoppers."* Those are real numbers from `npm run check:shrink`, which drives a
-48 MB model with 2048-pixel textures through the actual portal and then parses
-what reached Storage to confirm it is still a valid model with its meshes and
-textures intact. Smaller and broken would be worse than not shrinking at all.
+over 40 MB, the portal shrinks it in the browser before uploading — "Shrinking
+model… 60%" in place of the save button — and says what it did: *"Model shrunk
+from 48.4 MB to 4.9 MB so it fits and loads quickly for shoppers."*
+`npm run check:shrink` drives oversized models through the actual portal and
+then parses what reached Storage to confirm it is still a valid glTF document
+with its meshes intact. Smaller and broken would be worse than not shrinking at
+all.
 
-It works down through 2048, 1024 and 512-pixel texture budgets until the file
-fits, and it never touches geometry: losing texture resolution is invisible at
-the distance someone looks at a chair, but decimating a mesh changes the
-silhouette, and this app's entire claim is that what you see on the floor is
-the real size and shape of the thing. A model that cannot fit on textures alone
-is refused with that explanation rather than quietly mangled.
+A model is oversized for one of two reasons, and they need opposite treatment:
+
+- **Textures** — a chair with 4k maps. The portal works down through 2048, 1024
+  and 512-pixel budgets, re-encoding to WebP where the browser supports it.
+  Losing texture resolution is invisible at the distance someone looks at a
+  chair.
+- **Geometry** — a scanned or CAD piece with a million triangles, often with no
+  textures at all. Resizing textures does nothing to it.
+
+The first version of this only did textures, and a 60.4 MB geometry-heavy model
+came back out at 60.4 MB with the owner told to go fix it in a 3D tool. That
+was the wrong call. **Compressing geometry is not the same as damaging it**:
+meshopt re-encodes the same vertices smaller and moves none of them. Measured
+on a 48 MB geometry-only model: 16.4 MB, nothing simplified, nothing visibly
+changed. So every attempt now ends in a meshopt pass, and the cheapest rung —
+compress only, touch no texture — is tried first.
+
+**Simplification, actually removing triangles, is still the last resort** and
+still stops at a quarter of the original count, because that one does change
+the silhouette and this app's entire claim is that what you see on the floor is
+the real shape of the thing. When it happens the owner is told so explicitly
+(*"Some fine detail was reduced to get it there; check it looks right in AR"*)
+rather than finding out with a camera pointed at their living room. When
+compression alone was enough, they are told that too: *"Nothing was removed —
+the same model, stored more efficiently."*
+
+All of it is safe to upload because the planner decodes it: `loadThreeJS` in
+`app/plan/ar-engine.js` attaches both the Draco and meshopt decoders. A
+shrinker whose output the viewer cannot open would just move the failure later
+and somewhere harder to diagnose.
 
 The limit it targets is 40 MB, deliberately under Supabase's 50 — a model that
 only just fits still costs every shopper that download on a phone.
