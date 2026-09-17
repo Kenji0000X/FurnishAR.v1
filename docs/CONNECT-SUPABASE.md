@@ -78,7 +78,7 @@ Then a second query with `supabase/seed.sql`, **Run**. That creates the three
 pilot shops and the Cane Back Armchair, so there is something to look at.
 
 This also creates the `furniture-models` storage bucket. Check
-**Storage** — you should see it, public, with a 50 MB limit.
+**Storage** — you should see it, public, with a 100 MB limit.
 
 <details>
 <summary>With the Supabase CLI instead</summary>

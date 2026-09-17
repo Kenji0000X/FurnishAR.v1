@@ -30,7 +30,7 @@ a Mamburao retailer, one avoided return covers months of subscription.
 | Price | Free | ₱499 / store / month |
 | Products | Up to 8 published | Unlimited |
 | AR placement and measurement | Yes | Yes |
-| 3D model upload (50 MB/file) | Yes | Yes |
+| 3D model upload (100 MB/file) | Yes | Yes |
 | Store profile on every listing | Yes | Yes |
 | Featured placement at the top of the catalogue | — | Yes |
 

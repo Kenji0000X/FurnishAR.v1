@@ -78,6 +78,16 @@ const supabase = createServer((req, res) => {
       });
     }
 
+    // 0005: bytes uploaded per store. Refuses a non-admin outright, the same
+    // as the real function — an empty result would read as "nothing
+    // uploaded", not "you may not ask".
+    if (req.url.startsWith('/rest/v1/rpc/storage_usage')) {
+      if (!isAdmin(req)) return send(403, { message: 'Only a platform administrator may view storage usage' });
+      return send(200, [
+        { store_id: 's1', store_name: 'S&C Variety Store', store_slug: 'sc-variety', file_count: 1, total_bytes: 31457280 }
+      ]);
+    }
+
     // The queue: RLS returns nothing to a non-admin rather than erroring.
     if (req.url.startsWith('/rest/v1/store_applications')) {
       return send(200, isAdmin(req) ? applications : []);
@@ -276,6 +286,10 @@ console.log('--- the superadmin ---');
     (body.match(/\d+(\.\d+)? [KMG]B/) || ['none'])[0]);
   check('flags a listing with no model attached',
     /Unmodelled Side Table/.test(body) && /no 3D model/i.test(body));
+
+  console.log('--- storage usage, now that a single file can be 100 MB ---');
+  check('shows how much each store has uploaded',
+    /S&C Variety Store/.test(body) && /Usage by store/i.test(body));
 
   console.log('--- approving ---');
   await page.click('button:has-text("Approve")');

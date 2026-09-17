@@ -32,10 +32,12 @@ function timeAgo(iso) {
 }
 
 /**
- * The bucket's own limit is 50 MB, but a model that big will stall on the
- * 3G-ish connections this is built for, so the console flags well before it.
+ * The bucket's own limit is 100 MB (0005_raise_model_limit.sql), but a model
+ * that big will take minutes on the 3G-ish connections this is built for, so
+ * the console flags well before the hard ceiling — this is a "worth a second
+ * look" line, not the actual limit.
  */
-const OVERSIZED_BYTES = 15 * 1024 * 1024;
+const OVERSIZED_BYTES = 40 * 1024 * 1024;
 const isOversized = bytes => Number(bytes) > OVERSIZED_BYTES;
 
 function formatBytes(bytes) {
@@ -185,24 +187,27 @@ export default function AdminConsole() {
   const [audit, setAudit] = useState([]);
   const [models, setModels] = useState([]);
   const [missingModels, setMissingModels] = useState([]);
+  const [usage, setUsage] = useState([]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
     const sb = supabase();
-    const [queue, allStores, recent, uploads, missing] = await Promise.all([
+    const [queue, allStores, recent, uploads, missing, storageUsage] = await Promise.all([
       sb.listApplications(tab === 'pending' ? 'pending' : null).catch(() => []),
       sb.listAllStores().catch(() => []),
       sb.listAudit(25).catch(() => []),
       sb.listUploadedModels(200).catch(() => []),
-      sb.listMissingModels(200).catch(() => [])
+      sb.listMissingModels(200).catch(() => []),
+      sb.listStorageUsage().catch(() => [])
     ]);
     setApplications(queue);
     setStores(allStores);
     setAudit(recent);
     setModels(uploads);
     setMissingModels(missing);
+    setUsage(storageUsage);
 
     // One lookup per pending application. They are separate calls because each
     // is a separate security-definer check; there are only ever a handful.
@@ -466,6 +471,32 @@ export default function AdminConsole() {
             </div>
           </>
         )}
+
+        {/* Bytes, not files: a per-file cap says nothing about the total the
+            project's storage plan actually bills or caps. Raising the per-file
+            limit without anywhere to watch the total would be the same mistake
+            with worse timing — a quota hit discovered by an owner's upload
+            failing, not by anyone looking. */}
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Against your storage plan</p>
+            <h2>Usage by store</h2>
+          </div>
+        </div>
+        <div className="inventory-table-wrap">
+          <table>
+            <thead><tr><th>Store</th><th>Files</th><th>Storage used</th></tr></thead>
+            <tbody>
+              {usage.length ? usage.map(row => (
+                <tr key={row.store_id}>
+                  <td>{row.store_name}</td>
+                  <td>{row.file_count}</td>
+                  <td>{formatBytes(row.total_bytes)}</td>
+                </tr>
+              )) : <tr><td colSpan={3}>No files uploaded yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section className="plan-section" aria-labelledby="audit-title">

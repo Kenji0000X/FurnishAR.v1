@@ -74,7 +74,7 @@ psql "$DATABASE_URL" -f supabase/seed.sql
 ```
 
 The migration also creates the `furniture-models` storage bucket and its
-policies. Confirm it under **Storage** — it should be public, 50 MB limit.
+policies. Confirm it under **Storage** — it should be public, 100 MB limit.
 
 ## 3. Turn on the parts the app expects
 
@@ -247,10 +247,13 @@ forged or erased through the app.
 
 Further down the console, **3D files** lists every model uploaded across every
 store — the shop it belongs to, the product, the file size and when it landed —
-including drafts, which a non-member would never be shown. Anything over 15 MB
-is flagged: the storage bucket allows 50 MB, but a file that size will stall on
-a phone in Mamburao. Below it, any listing with no model attached is called out,
-because those cannot be placed in AR at all.
+including drafts, which a non-member would never be shown. Anything over 40 MB
+is flagged: the storage bucket allows up to 100 MB, but a file that big will
+take minutes on a phone in Mamburao, so 40 MB is a "look at this" line, not
+the actual ceiling. Below it, any listing with no model attached is called
+out, because those cannot be placed in AR at all. Below that, **Usage by
+store** totals the bytes each shop has uploaded — see Costs and limits below
+for why that number is worth watching now that a single file can be 100 MB.
 
 This view is **read-only, deliberately**. `0004_admin_model_visibility.sql` adds
 two SELECT policies and no write policy, so an operator can see a problem but
@@ -359,6 +362,37 @@ the catalogue starts serving it from Supabase.
 
 ## Costs and limits
 
-The free tier covers this pilot: 500 MB database, 1 GB storage, 50 000 monthly
-active users. A 1.4 MB model like the armchair means roughly 700 pieces before
-storage becomes a question. The bucket caps uploads at 50 MB each.
+The free tier covers this pilot for a while: 500 MB database, **1 GB storage**,
+50 000 monthly active users. A 1.4 MB model like the armchair means roughly
+700 pieces before storage becomes a question — that was true at the old 50 MB
+per-file cap and is still true today, because most real models will not be
+anywhere near the ceiling.
+
+The ceiling itself changed. `0005_raise_model_limit.sql` raises the bucket's
+`file_size_limit` to **100 MB per file** — asked for so a store owner is not
+turned away for a legitimately detailed model. What that changes is the worst
+case, not the typical one: **one badly optimised upload can now be 100 MB
+instead of 50**, and it is entirely possible for a handful of large files to
+use up the free tier's 1 GB faster than 700 small ones ever would. Twenty
+50 MB files is already the whole free allowance.
+
+This does not need watching constantly, but it does need watching:
+
+- **Settings → Usage** in the Supabase dashboard shows the project's real
+  storage total against the plan.
+- The console's **Usage by store** table (`public.storage_usage()`, added by
+  0005) shows the same total broken down per shop, from inside the app,
+  without needing dashboard access.
+- If the free tier's 1 GB stops being enough, the paid tier's storage is
+  billed per GB beyond it — cheap at this scale, but not free, and worth
+  deciding on deliberately rather than discovering by way of a failed upload.
+
+Nothing about raising the per-file cap changes how fast the *app* runs.
+Uploads go straight from the browser to Storage — never through this app's
+own server or its database — so a 100 MB file does not load the app any more
+than a 5 MB one does, and fifty owners uploading fifty models at once are
+fifty independent uploads, not fifty requests competing for one server. The
+only place the new limit shows up as slower is the browser doing the actual
+upload, on whatever connection it has — which is real, and is why the portal
+now shows upload progress as a percentage instead of a static "Uploading…",
+so a slow upload reads as working rather than stuck.

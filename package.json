@@ -14,7 +14,8 @@
     "check:portal": "node scripts/check-portal.mjs",
     "check:mobile": "node scripts/check-mobile.mjs",
     "check:admin": "node scripts/check-admin.mjs",
-    "check:auth": "node scripts/check-auth-errors.mjs"
+    "check:auth": "node scripts/check-auth-errors.mjs",
+    "check:upload": "node scripts/check-upload-progress.mjs"
   },
   "engines": {
     "node": ">=20"
