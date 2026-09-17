@@ -465,14 +465,35 @@ on a 48 MB geometry-only model: 16.4 MB, nothing simplified, nothing visibly
 changed. So every attempt now ends in a meshopt pass, and the cheapest rung —
 compress only, touch no texture — is tried first.
 
-**Simplification, actually removing triangles, is still the last resort** and
-still stops at a quarter of the original count, because that one does change
-the silhouette and this app's entire claim is that what you see on the floor is
-the real shape of the thing. When it happens the owner is told so explicitly
-(*"Some fine detail was reduced to get it there; check it looks right in AR"*)
-rather than finding out with a camera pointed at their living room. When
+Measured end to end by `npm run check:shrink`, through the real portal:
+
+| what went in | what reached Storage | what it cost |
+| --- | --- | --- |
+| 48.4 MB, 2048-pixel textures | 4.6 MB | textures resized, 3 meshes intact |
+| 60.0 MB, no textures at all | 20.5 MB | nothing simplified |
+| 100.0 MB, no textures at all | 34.1 MB | nothing simplified |
+
+A 100 MB model fits without a triangle being removed, which is the whole point:
+the size problem is almost always an encoding problem, not a detail problem.
+
+**Simplification, actually removing triangles, is still the last resort**,
+because that one does change the silhouette and this app's entire claim is that
+what you see on the floor is the real shape of the thing. But it now goes as
+far as it has to — down to a twentieth of the original count if nothing else
+will fit — because an owner who cannot get their piece under the limit cannot
+sell it in AR at all, and a roughened model they have been warned about is
+worth more to them than a refusal. A light reduction reads *"Some fine detail
+was reduced to get it there"*; anything at or below a quarter says so in plain
+numbers: *"It needed heavy reduction to fit — about 10% of the original detail
+is left. Check it still looks right in AR before you publish it."* When
 compression alone was enough, they are told that too: *"Nothing was removed —
 the same model, stored more efficiently."*
+
+One parse happens before any of this, to see which of the two problems the file
+actually has. Rungs that cannot possibly help are then skipped outright —
+resizing textures on a model whose images are a rounding error, or re-encoding
+geometry when the images *are* the file. On a 100 MB upload each wasted pass is
+real seconds on a phone.
 
 All of it is safe to upload because the planner decodes it: `loadThreeJS` in
 `app/plan/ar-engine.js` attaches both the Draco and meshopt decoders. A

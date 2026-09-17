@@ -214,6 +214,15 @@ console.log('--- a geometry-heavy model, no textures at all ---');
   await assertShrunk('geometry-heavy', { error: run.error, size: bytes.length });
 }
 
+console.log('--- 100 MB, the largest file the portal accepts at all ---');
+{
+  // The explicit ask: a 100 MB model must still come out usable, not refused.
+  const bytes = await makeGeometryHeavyGlb(100 * 1024 * 1024);
+  console.log(`  built ${(bytes.length / 1048576).toFixed(1)} MB`);
+  const run = await uploadAndInspect('Hundred Megabyte Cabinet', bytes);
+  await assertShrunk('100 MB', { error: run.error, size: bytes.length });
+}
+
 await browser.close();
 stop();
 supabase.close();

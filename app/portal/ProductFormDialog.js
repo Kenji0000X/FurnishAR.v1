@@ -124,12 +124,18 @@ export default function ProductFormDialog({ product, session, onClose, onSaved }
             );
           }
           if (result.changed) {
+            // How it got there matters to the owner: "stored more efficiently"
+            // and "a twentieth of its triangles" are very different pieces of
+            // news about the thing customers are about to look at.
+            const cost = !result.simplified
+              ? ' Nothing was removed — the same model, stored more efficiently.'
+              : result.simplifyRatio <= 0.25
+                ? ` It needed heavy reduction to fit — about ${Math.round(result.simplifyRatio * 100)}%`
+                  + ' of the original detail is left. Check it still looks right in AR before you publish it.'
+                : ' Some fine detail was reduced to get it there; check it looks right in AR.';
             setShrunkNote(
               `Model shrunk from ${formatBytes(result.originalBytes)} to `
-              + `${formatBytes(result.finalBytes)} so it fits and loads quickly for shoppers.`
-              + (result.simplified
-                ? ' Some fine detail was reduced to get it there; check it looks right in AR.'
-                : ' Nothing was removed — the same model, stored more efficiently.')
+              + `${formatBytes(result.finalBytes)} so it fits and loads quickly for shoppers.${cost}`
             );
           }
 

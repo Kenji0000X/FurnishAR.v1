@@ -26,10 +26,12 @@
  * nothing. Measured on a 48 MB geometry-only model: 16.4 MB, no visible
  * change, nothing simplified.
  *
- * Simplification — actually removing triangles — is still the last resort, and
- * still conservative, because that one does change the silhouette and this
- * app's whole claim is that what you see on the floor is the real shape of the
- * thing.
+ * Simplification — actually removing triangles — is still the last resort,
+ * because that one does change the silhouette and this app's whole claim is
+ * that what you see on the floor is the real shape of the thing. It goes as
+ * far as it has to, though: an owner who cannot get their piece under the
+ * limit cannot sell it in AR at all, and a roughened model they are warned
+ * about is worth more to them than a refusal. Whatever it cost is reported.
  *
  * Everything this produces is loadable: the planner has the meshopt decoder
  * attached (see loadThreeJS in app/plan/ar-engine.js), which is what makes
@@ -37,10 +39,18 @@
  */
 
 /** Texture budgets to try, largest first. 2048 is already generous for AR. */
-const TEXTURE_BUDGETS = [2048, 1024, 512];
+const TEXTURE_BUDGETS = [2048, 1024, 512, 256];
 
-/** Triangle ratios for the last-resort pass. Never below a quarter. */
-const SIMPLIFY_RATIOS = [0.5, 0.25];
+/**
+ * Triangle ratios for the last-resort passes.
+ *
+ * The first two are conservative. The last two are not, and they exist because
+ * the alternative is worse: a file that will not fit is a piece the owner
+ * simply cannot sell in AR, and a roughened silhouette they are warned about
+ * beats no model at all. Nothing gets here that 256-pixel textures and a
+ * quarter of its triangles could not already fit.
+ */
+const SIMPLIFY_RATIOS = [0.5, 0.25, 0.1, 0.05];
 
 /** Re-encode to WebP where supported — typically half the size of JPEG. */
 function bestImageType() {
@@ -156,14 +166,40 @@ export async function compressGlb(file, { maxBytes, onProgress = () => {} } = {}
     return io.writeBinary(doc);
   }
 
+  // Which of the two problems this actually is.
+  //
+  // Worth one parse up front, because every rung below re-encodes the whole
+  // file and on a 100 MB model that is real seconds each. Resizing textures on
+  // a model whose images are a rounding error cannot possibly get it under the
+  // limit, and neither can compressing geometry alone when the images ARE the
+  // file — so the rungs that cannot help are not attempted at all.
+  let imageBytes = 0;
+  try {
+    const probe = await io.readBinary(original);
+    for (const texture of probe.getRoot().listTextures()) {
+      imageBytes += texture.getImage()?.byteLength ?? 0;
+    }
+  } catch {
+    // Unreadable here means unreadable in every rung too; let the ladder run
+    // and report honestly rather than guessing at a shape we cannot see.
+  }
+  const texturesDominate = imageBytes > originalBytes * 0.5;
+  const texturesAreTrivial = imageBytes < originalBytes * 0.1;
+
   // The ladder, cheapest first. A geometry-heavy model — the case that used to
   // come back unchanged — is usually done at the first rung, without a single
   // texture being touched.
   const rungs = [
-    { textureBudget: null, simplifyRatio: null, label: 'compressing' },
-    ...TEXTURE_BUDGETS.map(budget => ({ textureBudget: budget, simplifyRatio: null, label: 'compressing' })),
+    // Compress only. Skipped when the images are most of the file: re-encoding
+    // geometry that is a third of a texture-heavy model will not save it.
+    ...(texturesDominate ? [] : [{ textureBudget: null, simplifyRatio: null, label: 'compressing' }]),
+    // Textures, progressively smaller. Skipped when there is nothing to resize.
+    ...(texturesAreTrivial
+      ? []
+      : TEXTURE_BUDGETS.map(budget => ({ textureBudget: budget, simplifyRatio: null, label: 'compressing' }))),
+    // Last resort: fewer triangles, with the textures already as small as they go.
     ...SIMPLIFY_RATIOS.map(ratio => ({
-      textureBudget: TEXTURE_BUDGETS[TEXTURE_BUDGETS.length - 1],
+      textureBudget: texturesAreTrivial ? null : TEXTURE_BUDGETS[TEXTURE_BUDGETS.length - 1],
       simplifyRatio: ratio,
       label: 'simplifying'
     }))
@@ -187,7 +223,7 @@ export async function compressGlb(file, { maxBytes, onProgress = () => {} } = {}
     }
 
     if (!smallest || output.byteLength < smallest.bytes.byteLength) {
-      smallest = { bytes: output, simplified: Boolean(rung.simplifyRatio) };
+      smallest = { bytes: output, simplifyRatio: rung.simplifyRatio || null };
     }
     if (output.byteLength <= maxBytes) {
       onProgress('done', 1);
@@ -196,7 +232,8 @@ export async function compressGlb(file, { maxBytes, onProgress = () => {} } = {}
         originalBytes,
         finalBytes: output.byteLength,
         changed: true,
-        simplified: Boolean(rung.simplifyRatio)
+        simplified: Boolean(rung.simplifyRatio),
+        simplifyRatio: rung.simplifyRatio || null
       };
     }
   }
@@ -210,7 +247,8 @@ export async function compressGlb(file, { maxBytes, onProgress = () => {} } = {}
     originalBytes,
     finalBytes: smallest.bytes.byteLength,
     changed: true,
-    simplified: smallest.simplified,
+    simplified: Boolean(smallest.simplifyRatio),
+    simplifyRatio: smallest.simplifyRatio,
     stillTooBig: true
   };
 }
