@@ -476,11 +476,17 @@ async function assertUsableGlb(file, kind) {
       'That is not a .glb model. Export it as binary glTF (.glb) — a .gltf, .zip or .obj will not work in AR.'
     );
   }
+  // Only a file SHORTER than its header claims is definitely broken — that is
+  // a transfer that stopped early, and three.js will fail on it. A file longer
+  // than its declared length is unusual but not fatal: some exporters pad, and
+  // the loader reads the declared length and ignores the rest. Refusing those
+  // would reject working models, which is a worse failure than accepting an
+  // odd one.
   const declaredLength = header.getUint32(8, true);
-  if (declaredLength !== file.size) {
+  if (declaredLength > file.size) {
     throw new Error(
-      `That .glb looks incomplete — its header declares ${declaredLength} bytes but the file is ${file.size}. `
-      + 'Re-export or re-download it and try again.'
+      `That .glb is incomplete — its header declares ${declaredLength} bytes but the file is only ${file.size}. `
+      + 'The download or export probably stopped early; get it again and retry.'
     );
   }
 }
