@@ -1075,6 +1075,39 @@ footer {
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .85rem; }
 .product-form textarea { resize: vertical; }
 
+/*
+   Five named groups instead of one 16-field grid — see the comment in
+   ProductFormDialog.js for why. The only two rules doing real work here are
+   proximity ones: the gap BETWEEN fieldsets (.product-form's 1rem gap, plus
+   each section's own 1.1rem top padding — 2.1rem total) is more than double
+   the gap WITHIN one (.form-grid's .85rem), so five groups read as five
+   groups without needing boxes or shadows to say so.
+
+   The legend reuses .filter-group's own mono/uppercase/tracked-out label —
+   the same "section title" this app already uses on the catalogue's filter
+   panel, not a new pattern invented for this one form.
+*/
+.form-section {
+  display: grid; gap: .85rem;
+  padding: 0; border: 0;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--rule);
+}
+.product-form > .form-section:first-child { padding-top: 0; border-top: 0; }
+.form-section > legend {
+  padding: 0;
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint);
+}
+
+/* The AR box override is the one group most owners will never open — it
+   defaults to the dimensions above. Recessed rather than boxed, so the eye
+   settles on the required groups above it and treats this one as optional
+   at a glance, before reading a word of the legend. */
+.form-section-optional { opacity: .82; }
+.form-section-optional > legend { color: var(--ink-faint); }
+.form-section-note { margin-top: -.4rem; }
+
 /* -------------------------------------------------------------- toast ---- */
 
 .toast {

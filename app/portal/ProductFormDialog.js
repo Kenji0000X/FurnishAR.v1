@@ -185,44 +185,93 @@ export default function ProductFormDialog({ product, session, onClose, onSaved }
       <form className="product-form" onSubmit={handleSubmit}>
         <input type="hidden" name="id" defaultValue={product?.id ?? ''} />
 
-        <div className="form-grid">
-          <label>Product name<input name="name" required maxLength={90} defaultValue={value('name')} /></label>
-          <label>
-            Category
-            <select name="category" defaultValue={value('category') || 'Storage'}>
-              {CATEGORIES.map(category => <option key={category}>{category}</option>)}
-            </select>
-          </label>
-          <label>Style<input name="style" required defaultValue={value('style') || 'Modern'} /></label>
-          <label>Colour<input name="color" required defaultValue={value('color') || 'Natural'} /></label>
-          <label>Price (PHP)<input name="price" type="number" min="0" step="1" required defaultValue={value('price')} /></label>
-          <label>In stock<input name="stock" type="number" min="0" step="1" required defaultValue={value('stock')} /></label>
-          <label>Width (cm)<input name="width" type="number" min="1" required defaultValue={dimension('width')} /></label>
-          <label>Height (cm)<input name="height" type="number" min="1" required defaultValue={dimension('height')} /></label>
-          <label>Depth (cm)<input name="depth" type="number" min="1" required defaultValue={dimension('depth')} /></label>
-          <label>
-            Preview shape
-            <select name="model" defaultValue={value('model') || 'shelf'}>
-              {SHAPES.map(shape => (
-                <option key={shape} value={shape}>
-                  {shape[0].toUpperCase() + shape.slice(1)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="form-wide">
-            3D model (.glb)
-            <input name="modelFile" type="file" accept=".glb,model/gltf-binary" />
-            <small className="field-note">
-              Uploaded to your store&apos;s folder. Up to 50 MB. Leave empty to keep the current model.
-            </small>
-          </label>
-          <label>Android GLB path<input name="modelGlb" type="text" placeholder="models/example.glb" defaultValue={value('modelGlb')} /></label>
-          <label>iPhone USDZ path<input name="modelUsdz" type="text" placeholder="models/example.usdz" defaultValue={value('modelUsdz')} /></label>
-          <label>AR box width (cm)<input name="modelWidth" type="number" min="1" step="0.1" placeholder="same as width" defaultValue={bounds('width')} /></label>
-          <label>AR box height (cm)<input name="modelHeight" type="number" min="1" step="0.1" placeholder="same as height" defaultValue={bounds('height')} /></label>
-          <label>AR box depth (cm)<input name="modelDepth" type="number" min="1" step="0.1" placeholder="same as depth" defaultValue={bounds('depth')} /></label>
-        </div>
+        {/*
+          Five groups, not one 16-field grid.
+
+          Grouped by what the field is FOR, not the order the columns happened
+          to fall in — proximity is the whole fix here. "Width/Height/Depth"
+          used to sit directly beside "AR box width/height/depth", four fields
+          apart in a flat grid with identical styling. They measure two
+          different things (the real piece vs. its AR placement box) and
+          looked like one list of six near-duplicate labels. Splitting them
+          into their own fieldsets, with more space between groups than
+          within one, is the only change here — every name, input and
+          behaviour below is unchanged.
+
+          It also chunks the decision: sixteen ungrouped fields is a "where do
+          I even start" wall; five short, named steps is a form. The AR box
+          group is marked (optional) and visually recedes — it defaults to
+          the dimensions above when left blank, so most owners never need to
+          open it.
+        */}
+        <fieldset className="form-section">
+          <legend>Basics</legend>
+          <div className="form-grid">
+            <label>Product name<input name="name" required maxLength={90} defaultValue={value('name')} /></label>
+            <label>
+              Category
+              <select name="category" defaultValue={value('category') || 'Storage'}>
+                {CATEGORIES.map(category => <option key={category}>{category}</option>)}
+              </select>
+            </label>
+            <label>Style<input name="style" required defaultValue={value('style') || 'Modern'} /></label>
+            <label>Colour<input name="color" required defaultValue={value('color') || 'Natural'} /></label>
+          </div>
+        </fieldset>
+
+        <fieldset className="form-section">
+          <legend>Pricing &amp; stock</legend>
+          <div className="form-grid">
+            <label>Price (PHP)<input name="price" type="number" min="0" step="1" required defaultValue={value('price')} /></label>
+            <label>In stock<input name="stock" type="number" min="0" step="1" required defaultValue={value('stock')} /></label>
+          </div>
+        </fieldset>
+
+        <fieldset className="form-section">
+          <legend>Dimensions (cm)</legend>
+          <div className="form-grid">
+            <label>Width<input name="width" type="number" min="1" required defaultValue={dimension('width')} /></label>
+            <label>Height<input name="height" type="number" min="1" required defaultValue={dimension('height')} /></label>
+            <label>Depth<input name="depth" type="number" min="1" required defaultValue={dimension('depth')} /></label>
+          </div>
+        </fieldset>
+
+        <fieldset className="form-section">
+          <legend>3D model</legend>
+          <div className="form-grid">
+            <label className="form-wide">
+              Model file (.glb)
+              <input name="modelFile" type="file" accept=".glb,model/gltf-binary" />
+              <small className="field-note">
+                Uploaded to your store&apos;s folder. Up to 50 MB. Leave empty to keep the current model.
+              </small>
+            </label>
+            <label>
+              Preview shape
+              <select name="model" defaultValue={value('model') || 'shelf'}>
+                {SHAPES.map(shape => (
+                  <option key={shape} value={shape}>
+                    {shape[0].toUpperCase() + shape.slice(1)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>Android GLB path<input name="modelGlb" type="text" placeholder="models/example.glb" defaultValue={value('modelGlb')} /></label>
+            <label className="form-wide">
+              iPhone USDZ path<input name="modelUsdz" type="text" placeholder="models/example.usdz" defaultValue={value('modelUsdz')} />
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset className="form-section form-section-optional">
+          <legend>AR box size (optional)</legend>
+          <p className="field-note form-section-note">Leave blank to use the dimensions above.</p>
+          <div className="form-grid">
+            <label>Width<input name="modelWidth" type="number" min="1" step="0.1" placeholder="same as width" defaultValue={bounds('width')} /></label>
+            <label>Height<input name="modelHeight" type="number" min="1" step="0.1" placeholder="same as height" defaultValue={bounds('height')} /></label>
+            <label>Depth<input name="modelDepth" type="number" min="1" step="0.1" placeholder="same as depth" defaultValue={bounds('depth')} /></label>
+          </div>
+        </fieldset>
 
         <label>
           Description
