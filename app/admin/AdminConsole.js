@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { initBackend, usingSupabase, supabase, backendReason } from '../portal/backend.js';
 
 /**
@@ -174,6 +175,7 @@ function ApplicationCard({ application, account, onApprove, onReject, busy }) {
 }
 
 export default function AdminConsole() {
+  const router = useRouter();
   const [state, setState] = useState('loading'); // loading | denied | ready | offline
   const [reason, setReason] = useState('');
   const [tab, setTab] = useState('pending');
@@ -212,31 +214,59 @@ export default function AdminConsole() {
     setAccounts(Object.fromEntries(looked));
   }, [tab]);
 
+  /**
+   * Ask the server who is asking, and act on the answer.
+   *
+   * Returns nothing and throws nothing: every path ends in a state, and the
+   * unauthorised one ends in leaving. Written as its own function because it
+   * has to run again later — on a page restored from the back-forward cache,
+   * where React does not re-mount and an effect would never fire twice.
+   */
+  const verify = useCallback(async () => {
+    await initBackend();
+
+    if (!usingSupabase()) {
+      setReason(backendReason() || 'No database is connected.');
+      setState('offline');
+      return;
+    }
+
+    // The server answers this, and answers "no" for anyone who is not in
+    // platform_admins. It decides the view; RLS decides the data.
+    const admin = await supabase().isPlatformAdmin();
+    if (!admin) {
+      // Sent away rather than shown a locked door. replace() and not push()
+      // deliberately: this leaves no /admin entry in history, so pressing Back
+      // returns to wherever they really came from instead of bouncing them
+      // against the same refusal.
+      setState('denied');
+      router.replace('/portal');
+      return;
+    }
+
+    await load();
+    setState('ready');
+  }, [load, router]);
+
   useEffect(() => {
     let active = true;
-    (async () => {
-      await initBackend();
-      if (!active) return;
-
-      if (!usingSupabase()) {
-        setReason(backendReason() || 'No database is connected.');
-        setState('offline');
-        return;
-      }
-
-      // The server answers this, and answers "no" for anyone who is not in
-      // platform_admins. It decides the view; RLS decides the data.
-      const admin = await supabase().isPlatformAdmin();
-      if (!active) return;
-      if (!admin) {
-        setState('denied');
-        return;
-      }
-      await load();
-      if (active) setState('ready');
-    })();
+    verify().catch(() => { if (active) { setState('denied'); router.replace('/portal'); } });
     return () => { active = false; };
-  }, [load]);
+  }, [verify, router]);
+
+  /**
+   * A page restored from the back-forward cache comes back exactly as it was —
+   * same DOM, same React state, no effects re-run. Next serves this route
+   * no-store, which disqualifies it from that cache in Chrome and Firefox, but
+   * Safari has historically restored no-store pages anyway. So the restore is
+   * caught and the check redone: an account signed out in another tab, or an
+   * admin whose access was revoked, does not get to keep the queue on screen.
+   */
+  useEffect(() => {
+    const onShow = event => { if (event.persisted) verify().catch(() => {}); };
+    window.addEventListener('pageshow', onShow);
+    return () => window.removeEventListener('pageshow', onShow);
+  }, [verify]);
 
   useEffect(() => {
     if (state === 'ready') load().catch(() => {});
@@ -286,20 +316,10 @@ export default function AdminConsole() {
   }
 
   if (state === 'denied') {
-    // Deliberately says nothing about whether the queue has anything in it, or
-    // who the administrators are.
-    return (
-      <div className="login-panel">
-        <div className="login-copy">
-          <span className="secure-mark" aria-hidden="true">⌑</span>
-          <h2>Not available to this account.</h2>
-          <p>
-            The platform console is limited to platform administrators. If you run a store,
-            your own dashboard is in the <a href="/portal">store portal</a>.
-          </p>
-        </div>
-      </div>
-    );
+    // On the way to /portal. Nothing is said about the console, the queue, or
+    // who the administrators are — an account that may not be here is not told
+    // what it is missing, and there is no locked door to rattle.
+    return <p className="card-copy">Taking you to the store portal…</p>;
   }
 
   const pending = applications.filter(a => a.status === 'pending');
@@ -307,6 +327,17 @@ export default function AdminConsole() {
 
   return (
     <section className="admin-console">
+      {/* Only rendered once the server has confirmed an admin is asking. It
+          used to sit in page.js, where it greeted everybody who typed the URL. */}
+      <section className="admin-intro">
+        <p className="eyebrow">Platform administration</p>
+        <h1 id="console-title">Store applications</h1>
+        <p>
+          Check each applicant before approving. Approving creates their store and lets
+          them publish furniture that shoppers will see.
+        </p>
+      </section>
+
       <div className="dashboard-top">
         <div>
           <p className="eyebrow">Platform administration</p>
