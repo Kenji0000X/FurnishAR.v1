@@ -115,7 +115,7 @@ async function getDirectClient() {
 }
 
 /** One PostgREST call through the proxy, as the signed-in user when there is one. */
-async function restCall(path, options = {}) {
+async function restCall(path, options = {}, retried = false) {
   const headers = { Accept: 'application/json', ...(options.headers || {}) };
   if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
   if (options.body) headers['Content-Type'] = 'application/json';
@@ -125,10 +125,13 @@ async function restCall(path, options = {}) {
   let body = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = text; }
 
-  if (response.status === 401 && session?.refresh_token) {
-    // The access token expired mid-session; renew once and retry.
+  if (response.status === 401 && !retried && session?.refresh_token) {
+    // The access token expired mid-session; renew once and retry. refreshSession
+    // is shared, so several calls expiring together renew once between them
+    // rather than racing to spend the same rotating refresh token.
+    // `retried` stops this from recursing if the renewed token is refused too.
     const renewed = await refreshSession();
-    if (renewed) return restCall(path, options);
+    if (renewed) return restCall(path, options, true);
   }
   if (!response.ok) {
     const error = new Error(friendlyError(body || { message: `Request failed (${response.status})` }));
@@ -178,14 +181,48 @@ function secondsFromMessage(message) {
   return match ? Number(match[1]) : 0;
 }
 
-async function refreshSession() {
-  if (!session?.refresh_token) return false;
-  try {
-    const renewed = await authCall('refresh', { refreshToken: session.refresh_token });
-    if (renewed?.access_token) { storeSession(renewed); return true; }
-  } catch { /* fall through */ }
-  storeSession(null);
-  return false;
+/** The one refresh allowed to be in flight at a time. See refreshSession(). */
+let refreshInFlight = null;
+
+/**
+ * Renews the access token — at most once at a time, deliberately.
+ *
+ * GoTrue ROTATES refresh tokens: spending R1 issues R2 and invalidates R1. The
+ * dashboard fires several requests at once (the console alone loads six in a
+ * Promise.all), so when a token expires they all 401 together. Without this
+ * guard each one spent the same R1: the first won, and every other came back
+ * with GoTrue's `400 Invalid Refresh Token: Already Used` — which the caller
+ * then surfaced as a bare "JWT expired", and whose storeSession(null) could
+ * wipe the perfectly good session the winner had just stored. That is the
+ * 401 -> refresh 400 -> 401 loop, and it needed nothing more exotic than two
+ * requests landing in the same second.
+ *
+ * So: one refresh, shared. Everyone else waits for its answer.
+ */
+function refreshSession() {
+  if (!session?.refresh_token) return Promise.resolve(false);
+  if (refreshInFlight) return refreshInFlight;
+
+  const spending = session.refresh_token;
+  refreshInFlight = (async () => {
+    try {
+      const renewed = await authCall('refresh', { refreshToken: spending });
+      if (!renewed?.access_token) throw new Error('the refresh returned no access token');
+      storeSession(renewed);
+      return true;
+    } catch (error) {
+      // If the stored token has moved on while this was in flight, another
+      // refresh already succeeded and this failure is only GoTrue refusing the
+      // duplicate. Keep the good session rather than signing the person out.
+      if (session?.refresh_token && session.refresh_token !== spending) return true;
+      storeSession(null);
+      return false;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+
+  return refreshInFlight;
 }
 
 /* ------------------------------------------------------------- mapping ----- */
@@ -644,12 +681,34 @@ export function friendlyError(error) {
   if (/Freemium plan limited/i.test(message)) return message;
   if (/premium plan feature/i.test(message)) return 'Featured placement is available on the premium plan.';
   if (/duplicate key.*products_store_id_slug/i.test(message)) return 'You already have a product with that name.';
-  if (/row-level security/i.test(message)) return 'That item belongs to another store.';
+
+  // Session problems, before the row-level-security mapping below and not
+  // after it. An expired token makes auth.uid() null, which makes every
+  // is_store_member() check false, which makes an ordinary save fail RLS — so
+  // an expired session used to be reported as "that item belongs to another
+  // store", sending people to hunt a permissions problem they did not have.
+  if (/JWT expired|PGRST301|invalid claim|JWSError|jwt malformed|bad_jwt/i.test(`${code} ${message}`)) {
+    return 'Your session expired. Sign in again, then retry — nothing was saved.';
+  }
+  if (/Invalid Refresh Token|refresh_token_not_found|Already Used/i.test(`${code} ${message}`)) {
+    return 'Your session ended. Sign in again to continue.';
+  }
+
+  // Reached only when the caller really is signed in and really is reaching
+  // for another shop's row — but say the other possibility too, because from
+  // the outside the two look identical.
+  if (/row-level security/i.test(message)) {
+    return 'That item belongs to another store. If it is yours, your session may have expired — sign in again and retry.';
+  }
   if (/Invalid login credentials/i.test(message)) return 'That email and password do not match an account.';
   if (/User already registered/i.test(message)) return 'An account already exists for that email. Sign in instead.';
   if (/Password should be at least/i.test(message)) return 'Use a password of at least 6 characters.';
   if (/Email not confirmed/i.test(message)) return 'Confirm your email address first — check your inbox.';
-  if (/exceeded the maximum allowed size|Payload too large/i.test(message)) return 'That model is larger than the 50 MB limit.';
+  // Reads the constant rather than repeating the number, which is how this
+  // came to still say 50 after the bucket was raised to 100.
+  if (/exceeded the maximum allowed size|Payload too large/i.test(message)) {
+    return `That model is larger than the ${MAX_MODEL_BYTES / 1048576} MB limit.`;
+  }
   return message;
 }
 

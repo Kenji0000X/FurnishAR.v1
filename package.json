@@ -15,7 +15,8 @@
     "check:mobile": "node scripts/check-mobile.mjs",
     "check:admin": "node scripts/check-admin.mjs",
     "check:auth": "node scripts/check-auth-errors.mjs",
-    "check:upload": "node scripts/check-upload-progress.mjs"
+    "check:upload": "node scripts/check-upload-progress.mjs",
+    "check:session": "node scripts/check-session-refresh.mjs"
   },
   "engines": {
     "node": ">=20"
