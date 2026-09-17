@@ -31,7 +31,23 @@ function asNodeRequest(request) {
   return { method: request.method, headers: Object.fromEntries(request.headers) };
 }
 
+/**
+ * Statuses the fetch spec forbids a body on. Constructing a Response with one
+ * throws a TypeError rather than ignoring it.
+ *
+ * This is not a theoretical nicety: GoTrue answers /auth/v1/logout with 204,
+ * so `Response.json(null, { status: 204 })` threw on every single sign-out and
+ * the handler below turned it into a 500. Signing out APPEARED to work —
+ * public/supabase.js clears the local session whatever the call returns — so
+ * the only symptom was a 500 in the console and a refresh token left alive at
+ * Supabase instead of being revoked.
+ */
+const NULL_BODY_STATUSES = new Set([101, 103, 204, 205, 304]);
+
 function json(status, body, extraHeaders = {}) {
+  if (NULL_BODY_STATUSES.has(status)) {
+    return new Response(null, { status, headers: extraHeaders });
+  }
   return Response.json(body, { status, headers: extraHeaders });
 }
 

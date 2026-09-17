@@ -207,22 +207,18 @@ console.log('--- the way in ---');
 
 console.log('--- a signed-out visitor ---');
 {
+  // Asked to sign in, rather than silently redirected. The console used to
+  // bounce everyone to /portal, which meant the portal's own
+  // "Superadmin sign-in →" link led to a page that never asked for
+  // credentials — there was no way to sign in as the superadmin at all.
   const page = await browser.newPage();
   await page.goto(`http://127.0.0.1:${APP_PORT}/admin`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(3000);
   const body = await page.locator('body').innerText();
-  check('is sent to the store portal', page.url().endsWith('/portal'), page.url());
+  check('is offered a sign-in form', await page.locator('form.login-form').isVisible());
+  check('stays on /admin instead of being bounced', page.url().endsWith('/admin'), page.url());
   check('is never shown the console headings', !/Store applications/i.test(body));
   check('sees no applicant data', !body.includes('rattan@shop.ph') && !body.includes('Mindoro Rattan'));
-
-  // replace(), not push() — so Back goes where they came from, not back onto
-  // /admin to be turned away again.
-  await page.goBack({ waitUntil: 'domcontentloaded' }).catch(() => {});
-  await page.waitForTimeout(2500);
-  const afterBack = await page.locator('body').innerText();
-  check('pressing Back does not land on the console',
-    !/Store applications/i.test(afterBack) && !afterBack.includes('rattan@shop.ph'),
-    page.url());
   await page.close();
 }
 
@@ -234,7 +230,15 @@ console.log('--- a store owner (signed in, but not an admin) ---');
   await page.waitForTimeout(2500);
   await page.waitForTimeout(1000);
   const body = await page.locator('body').innerText();
-  check('is sent to the store portal', page.url().endsWith('/portal'), page.url());
+  // Told plainly, not dumped back into their own dashboard. The silent
+  // redirect made following the portal's superadmin link look like it had
+  // signed you into the wrong account: you simply reappeared in your shop.
+  check('is told this account is not an administrator',
+    /not an administrator/i.test(body), body.slice(0, 80).replace(/\n/g, ' '));
+  check('stays on /admin rather than reappearing in a store dashboard',
+    page.url().endsWith('/admin'), page.url());
+  check('is offered a way to sign in as someone else',
+    await page.locator('button:has-text("Sign in as someone else")').isVisible());
   check('is never shown the console headings', !/Store applications/i.test(body));
   check('sees no applicant email', !body.includes('rattan@shop.ph'));
   check('sees no applicant phone', !body.includes('+63431234567'));
@@ -248,6 +252,42 @@ console.log('--- a store owner (signed in, but not an admin) ---');
   await page.waitForTimeout(2500);
   check('the signed-in portal offers them no console link',
     !(await page.locator('a[href="/admin"]').count()));
+  await page.close();
+}
+
+console.log('--- signing in AT /admin, which is what the portal link promises ---');
+{
+  // The gap this covers: /admin had no sign-in form. It inspected whatever
+  // session happened to exist and redirected everyone else, so the only way
+  // to reach the console was to sign in at /portal first and then navigate —
+  // undocumented, and the opposite of what "Superadmin sign-in →" says.
+  const page = await browser.newPage();
+  await page.goto(`http://127.0.0.1:${APP_PORT}/admin`, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('form.login-form', { timeout: 20000 });
+  await page.fill('input[name="email"]', 'admin@furnishar.ph');
+  await page.fill('input[name="password"]', 'whatever');
+  await page.click('form.login-form button[type="submit"]');
+  await page.waitForTimeout(3000);
+  const body = await page.locator('body').innerText();
+  check('signing in here reaches the console', /Store applications/i.test(body),
+    page.url());
+  check('and it is the real queue', body.includes('Mindoro Rattan'));
+  await page.close();
+}
+
+{
+  // The same form must NOT let a store owner in, and must not tell them why
+  // the address they used is different from the one that would work.
+  const page = await browser.newPage();
+  await page.goto(`http://127.0.0.1:${APP_PORT}/admin`, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('form.login-form', { timeout: 20000 });
+  await page.fill('input[name="email"]', 'owner@furnishar.ph');
+  await page.fill('input[name="password"]', 'whatever');
+  await page.click('form.login-form button[type="submit"]');
+  await page.waitForTimeout(3000);
+  const body = await page.locator('body').innerText();
+  check('a store owner signing in here is refused', !/Store applications/i.test(body));
+  check('and sees no applicant data', !body.includes('rattan@shop.ph'));
   await page.close();
 }
 

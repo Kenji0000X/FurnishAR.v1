@@ -54,6 +54,13 @@ const supabase = createServer((req, res) => {
       }
       return send(201, null);
     }
+    // GoTrue answers a sign-out with 204 No Content — no body at all. That
+    // is not a detail: a 204 may not carry one, so building the proxy's reply
+    // with Response.json() threw, and every sign-out came back 500.
+    if (req.url.startsWith('/auth/v1/logout')) {
+      res.writeHead(204);
+      return res.end();
+    }
     if (req.url.startsWith('/auth/v1/health')) {
       // Supabase answers 401 without a valid apikey, whatever the project's
       // state — which is why the probe has to send one.
@@ -261,6 +268,26 @@ await run('sign-in rate limit is handled too', {
   which: 'login', setUp: 'rate-limit-empty',
   expect: (text, { disabled }) => noJunk(text) && /too many|wait/i.test(text) && disabled
 });
+
+console.log('--- signing out ---');
+{
+  const check = (label, ok, detail = '') => {
+    console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${label}${detail ? ` — ${detail}` : ''}`);
+    if (!ok) problems.push(label);
+  };
+  // Straight at the proxy: the browser clears its own session whatever this
+  // returns, so a 500 here was invisible in the UI and showed up only as a
+  // console error and a refresh token left alive at Supabase.
+  const response = await fetch(`http://127.0.0.1:${APP_PORT}/api/sb/auth/logout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accessToken: 'whatever' })
+  });
+  const body = await response.text();
+  check('a sign-out is not a 500', response.status !== 500, `HTTP ${response.status}`);
+  check('it passes GoTrue\'s 204 through as a 204', response.status === 204, `HTTP ${response.status}`);
+  check('and sends no body with it, as 204 requires', body === '', JSON.stringify(body.slice(0, 40)));
+}
 
 await browser.close();
 stop(app);
