@@ -23,6 +23,35 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 const pageErrors = [];
 page.on('pageerror', e => pageErrors.push(e.message));
 
+// Check the stylesheet actually loaded before testing anything that depends on
+// it. Nearly every assertion below reads a computed style, so a stylesheet
+// that 404s or arrives as text/plain shows up as three unrelated feature
+// failures — "the toggle does not change the page", "the nav is not
+// collapsed" — and sends you hunting through CSS that was never the problem.
+// (Which is exactly what a stale `next-server` left running on this port
+// did: it served HTML pointing at chunk hashes its own build had, while the
+// files on disk belonged to a newer one.)
+console.log('--- the stylesheet is actually being served ---');
+await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
+const sheets = await page.evaluate(() =>
+  [...document.querySelectorAll('link[rel="stylesheet"]')].map(l => l.href));
+let styleOk = sheets.length > 0;
+for (const href of sheets) {
+  const response = await page.request.get(href);
+  const type = response.headers()['content-type'] || '';
+  if (!response.ok() || !type.includes('text/css')) {
+    styleOk = false;
+    console.log(`   ${href} → HTTP ${response.status()} ${type}`);
+  }
+}
+check('every stylesheet loads as text/css', styleOk, `${sheets.length} sheet(s)`);
+if (!styleOk) {
+  console.log('\nThe stylesheet did not load, so every style assertion below would be noise.');
+  console.log('Usually a stale server: kill any `next-server` process, rebuild, restart.');
+  await browser.close();
+  process.exit(1);
+}
+
 console.log('--- the skip link, on every route ---');
 // The bug: it pointed at #catalog, which exists only on the home page.
 for (const route of ['/', '/plan', '/portal']) {
