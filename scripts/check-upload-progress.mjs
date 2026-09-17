@@ -17,6 +17,7 @@
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
+import { makeTestGlb } from './make-test-glb.mjs';
 
 const SB_PORT = 4801;
 const APP_PORT = 4802;
@@ -123,7 +124,7 @@ await page.fill('input[name="depth"]', '40');
 await page.setInputFiles('input[name="modelFile"]', {
   name: 'model.glb',
   mimeType: 'model/gltf-binary',
-  buffer: Buffer.alloc(FILE_MB * 1024 * 1024, 1)
+  buffer: makeTestGlb(FILE_MB * 1024 * 1024)
 });
 
 const percentagesSeen = new Set();

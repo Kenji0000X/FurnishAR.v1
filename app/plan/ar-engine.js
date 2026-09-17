@@ -630,14 +630,77 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     return { draw(mvp, color) { gl.useProgram(program); gl.bindBuffer(gl.ARRAY_BUFFER, buffer); const position = gl.getAttribLocation(program, 'p'); gl.enableVertexAttribArray(position); gl.vertexAttribPointer(position, 3, gl.FLOAT, false, 0, 0); gl.uniformMatrix4fv(gl.getUniformLocation(program, 'mvp'), false, mvp); gl.uniform4fv(gl.getUniformLocation(program, 'color'), color); gl.drawArrays(gl.TRIANGLES, 0, 36); } };
   }
 
+  /**
+   * Why the last model load failed, for the message shown in its place.
+   *
+   * Every one of these used to end at the same sentence — "3D preview
+   * unavailable on this device" — which is a guess, and usually the wrong one.
+   * A piece with no model uploaded, a file the server will not serve, and a
+   * corrupt .glb are not device problems, and telling a shop owner their phone
+   * is at fault sends them to replace the one thing that was working.
+   */
+  function modelFailureMessage() {
+    const measure = ' Use the measurement fields to check fit.';
+    const issue = state.modelIssue;
+    if (!issue) return `3D preview unavailable on this device.${measure}`;
+
+    if (issue.kind === 'no-model') {
+      return `This piece has no 3D model uploaded yet, so there is nothing to place.${measure}`;
+    }
+    if (issue.kind === 'no-three') {
+      return `The 3D engine did not finish loading. Check your connection and reload the page.${measure}`;
+    }
+    if (issue.kind === 'fetch-failed') {
+      return issue.html
+        ? `The model could not be downloaded — the server sent a web page instead of a file `
+          + `(HTTP ${issue.status}). On a protected preview deployment, that protection blocks it.${measure}`
+        : `The model could not be downloaded (HTTP ${issue.status}).${measure}`;
+    }
+    if (issue.kind === 'parse-failed') {
+      return `The model downloaded but could not be read — the .glb looks corrupt or incomplete. `
+        + `Re-upload it from the store portal.${measure}`;
+    }
+    if (issue.kind === 'network') {
+      return `The model could not be reached. Check your connection and try again.${measure}`;
+    }
+    return `3D preview unavailable on this device.${measure}`;
+  }
+
+  /**
+   * GLTFLoader reports "failed to load" and almost nothing else, so when it
+   * fails, ask the server directly what happened. Only on the failure path —
+   * a model that loads costs nothing extra.
+   */
+  async function diagnoseModelFailure(modelPath, error) {
+    try {
+      const response = await fetch(modelPath, { method: 'HEAD', cache: 'no-store' });
+      if (!response.ok) {
+        const type = response.headers.get('content-type') || '';
+        return { kind: 'fetch-failed', status: response.status, html: /text\/html/i.test(type) };
+      }
+      const type = response.headers.get('content-type') || '';
+      // 200, but HTML: an interstitial (SSO, a protection page) standing in
+      // for the file. The loader sees bytes that are not a model.
+      if (/text\/html/i.test(type)) {
+        return { kind: 'fetch-failed', status: response.status, html: true };
+      }
+      return { kind: 'parse-failed', detail: error?.message || '' };
+    } catch (headError) {
+      return { kind: 'network', detail: headError?.message || error?.message || '' };
+    }
+  }
+
   async function loadScaledModel(product) {
+    state.modelIssue = null;
     if (!THREE) await loadThreeJS();
     if (!THREE || !GLTFLoader) {
+      state.modelIssue = { kind: 'no-three' };
       return null;
     }
 
     const modelPath = product.modelGlb;
     if (!modelPath) {
+      state.modelIssue = { kind: 'no-model' };
       return null;
     }
 
@@ -697,7 +760,8 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       console.log(`[AR] ${product.name} scaled to ${targetBounds.width}×${targetBounds.height}×${targetBounds.depth} cm`);
       return model;
     } catch (error) {
-      console.error(`[AR] Could not load ${modelPath}:`, error?.name, error?.message);
+      state.modelIssue = await diagnoseModelFailure(modelPath, error);
+      console.error(`[AR] Could not load ${modelPath}:`, state.modelIssue, error?.name, error?.message);
       return null;
     }
   }
@@ -1173,9 +1237,17 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     stage.innerHTML = '';
     stage.appendChild(canvas);
 
-    if (!model || !THREE || !canvas.getContext('webgl2', { alpha: true })) {
+    // Only a missing WebGL2 context is genuinely about the device. Everything
+    // else — no model uploaded, a model the server would not serve, a file
+    // that is not a readable .glb — has its own sentence, because they have
+    // their own fixes and none of them is "get a better phone".
+    const webgl = canvas.getContext('webgl2', { alpha: true });
+    if (!model || !THREE || !webgl) {
       setARMode('illustration-only');
-      stage.innerHTML = '<div class="fallback-message glass">3D preview unavailable on this device. Use the measurement fields to check fit.</div>';
+      const message = !webgl
+        ? 'This device cannot show the 3D preview — it has no WebGL2. Use the measurement fields to check fit.'
+        : modelFailureMessage();
+      stage.innerHTML = `<div class="fallback-message glass">${escapeHtml(message)}</div>`;
       $('#ar-tray').hidden = true;
       return;
     }

@@ -449,8 +449,45 @@ function putWithProgress(url, file, mime, onProgress) {
  *
  * `onProgress`, if given, is called with a 0–1 fraction as the upload runs.
  */
+/**
+ * Is this actually a .glb?
+ *
+ * A .glb is a container with a fixed 12-byte header: the ASCII magic "glTF",
+ * a version, and the total byte length of the file. Reading it costs one slice
+ * and catches what people really upload by mistake — a .gltf JSON renamed, a
+ * zip, a half-finished download, a file that stopped copying — before any of
+ * it is stored, and long before a shopper points a camera at it and is told
+ * their device is at fault. Storage checks the mime type the browser claims;
+ * it does not look inside, so nothing else in the chain does this.
+ */
+async function assertUsableGlb(file, kind) {
+  if (kind !== 'glb') return;
+  let header;
+  try {
+    header = new DataView(await file.slice(0, 12).arrayBuffer());
+  } catch {
+    throw new Error('That file could not be read. Try choosing it again.');
+  }
+  if (header.byteLength < 12) throw new Error('That file is too small to be a .glb model.');
+
+  // 0x46546C67 is "glTF" read little-endian.
+  if (header.getUint32(0, true) !== 0x46546c67) {
+    throw new Error(
+      'That is not a .glb model. Export it as binary glTF (.glb) — a .gltf, .zip or .obj will not work in AR.'
+    );
+  }
+  const declaredLength = header.getUint32(8, true);
+  if (declaredLength !== file.size) {
+    throw new Error(
+      `That .glb looks incomplete — its header declares ${declaredLength} bytes but the file is ${file.size}. `
+      + 'Re-export or re-download it and try again.'
+    );
+  }
+}
+
 export async function uploadModel(file, { storeUuid, productId, kind = 'glb', onProgress } = {}) {
   if (!file) throw new Error('Choose a file first.');
+  await assertUsableGlb(file, kind);
   if (file.size > MAX_MODEL_BYTES) {
     throw new Error(
       `That file is ${(file.size / 1048576).toFixed(1)} MB. The limit is ${MAX_MODEL_BYTES / 1048576} MB.`

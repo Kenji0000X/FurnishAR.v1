@@ -261,6 +261,26 @@ cannot edit or delete another shop's furniture — that stays the owner's job in
 their own portal. Seeing everything and owning everything are different powers,
 and only one of them is needed to run the platform.
 
+### When a model will not show in AR
+
+The planner used to answer every one of these with the same sentence — *"3D
+preview unavailable on this device"* — which is a guess, and usually the wrong
+one. It now names the cause, and each one has its own fix:
+
+| What the planner says | What is actually wrong | What to do |
+| --- | --- | --- |
+| "This piece has no 3D model uploaded yet" | The product row exists; `product_assets` has no `glb` for it. Usually an upload that failed after the product was created. | Open the piece in the store portal and upload the model again. The console's **3D files** section lists every listing in this state. |
+| "The model could not be downloaded (HTTP 4xx/5xx)" | Storage would not serve the file — missing object, private bucket, or a Storage error. | Check the object exists under **Storage → furniture-models**, and that the bucket is **public**. |
+| "…the server sent a web page instead of a file" | Something returned HTML where the model should be — on Vercel this is usually **Deployment Protection** on a preview URL intercepting the request. | Either test on the production domain, or **Project Settings → Deployment Protection** and allow the preview. |
+| "…the .glb looks corrupt or incomplete" | The bytes are not a readable glTF-binary. | Re-export from the 3D tool and upload again. |
+| "This device cannot show the 3D preview — it has no WebGL2" | Genuinely the device. This is the only one that is. | Use the measurement fields, or a newer phone. |
+
+Uploads are checked before they are stored, so most of the last case never gets
+that far: `uploadModel()` reads the 12-byte glTF header and refuses a file whose
+magic is not `glTF` or whose declared length does not match the file — a renamed
+`.gltf`, a `.zip`, a half-finished download. Storage only checks the mime type
+the browser claims, and nothing else in the chain looks inside the file.
+
 **If you are locked out** — no admin account, or the console is unreachable —
 the SQL editor still works:
 

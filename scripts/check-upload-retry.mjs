@@ -21,6 +21,7 @@
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
+import { makeTestGlb } from './make-test-glb.mjs';
 
 const SB_PORT = 4911;
 const APP_PORT = 4912;
@@ -146,7 +147,7 @@ async function fillAndSubmit() {
   await page.fill('input[name="height"]', '45');
   await page.fill('input[name="depth"]', '40');
   await page.setInputFiles('input[name="modelFile"]', {
-    name: 'model.glb', mimeType: 'model/gltf-binary', buffer: Buffer.alloc(512 * 1024, 1)
+    name: 'model.glb', mimeType: 'model/gltf-binary', buffer: makeTestGlb(512 * 1024)
   });
   await page.click('dialog.form-dialog button[type="submit"]');
   await page.waitForTimeout(2500);
