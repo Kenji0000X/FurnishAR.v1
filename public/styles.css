@@ -41,7 +41,6 @@
   --accent: #c0502a;
   --accent-ink: #b44a26;
   --accent-lifted: #e08159;
-  --accent-wash: rgba(192, 80, 42, .08);
   --on-accent: #ffffff;    /*  4.8:1 on the accent fill */
   --deep: #12332c;
 
@@ -85,9 +84,10 @@
   --header-h: 68px;
   --tap: 44px;             /* minimum touch target on coarse pointers */
 
-  /* Legacy tokens still referenced by scripts */
-  --forest: var(--deep);
-  --success: #1f6b4c;
+  /* --forest and --success used to live here as "legacy tokens still
+     referenced by scripts". Nothing referenced them — not the stylesheet, not
+     a script, not a component — so they were removed along with the comment
+     that kept claiming otherwise. --accent-wash went the same way. */
   --danger: #a93a22;
 
   /* Status colours, so a theme can move them. --ok used to be a bare #276749
@@ -132,7 +132,6 @@
   --accent: #d2603a;
   --accent-ink: #f0906c;   /*  7.71:1 on --paper */
   --accent-lifted: #f0906c;
-  --accent-wash: rgba(240, 144, 108, .12);
   --on-accent: #16100d;    /*  4.91:1 on the accent fill */
   --deep: #0c1a16;
 
@@ -148,7 +147,6 @@
   --glass-line: rgba(238, 242, 239, .14);
 
   --ok: #6dd39b;
-  --success: #6dd39b;
   --danger: #ff8a70;
   --on-deep: #eef2ef;
 }
@@ -166,7 +164,6 @@
     --accent: #d2603a;
     --accent-ink: #f0906c;
     --accent-lifted: #f0906c;
-    --accent-wash: rgba(240, 144, 108, .12);
     --on-accent: #16100d;
     --deep: #0c1a16;
 
@@ -180,7 +177,6 @@
     --glass-line: rgba(238, 242, 239, .14);
 
     --ok: #6dd39b;
-    --success: #6dd39b;
     --danger: #ff8a70;
     --on-deep: #eef2ef;
   }
@@ -999,7 +995,7 @@ footer {
 /* ------------------------------------------------------------ dialogs ---- */
 /* Floating: frosted backdrop, frosted panel, one hard edge. */
 
-.product-dialog, .form-dialog {
+.form-dialog {
   width: min(880px, calc(100% - 2rem));
   max-height: calc(100dvh - 3rem);
   margin: auto;
@@ -1014,7 +1010,7 @@ footer {
 }
 /* Entrance and exit. The panel travels 8px and scales 2% — enough to read as
    motion, small enough that nothing jumps. */
-.product-dialog, .form-dialog {
+.form-dialog {
   opacity: 1; transform: none;
   transition:
     opacity var(--dur-base) var(--ease-out),
@@ -1022,23 +1018,23 @@ footer {
     overlay var(--dur-base) allow-discrete,
     display var(--dur-base) allow-discrete;
 }
-.product-dialog:not([open]), .form-dialog:not([open]) {
+.form-dialog:not([open]) {
   opacity: 0; transform: translateY(8px) scale(.98);
   transition-timing-function: var(--ease-in);
 }
 @starting-style {
-  .product-dialog[open], .form-dialog[open] { opacity: 0; transform: translateY(8px) scale(.98); }
+  .form-dialog[open] { opacity: 0; transform: translateY(8px) scale(.98); }
 }
 
-.product-dialog::backdrop, .form-dialog::backdrop {
+.form-dialog::backdrop {
   background: rgba(20, 20, 19, .34);
   backdrop-filter: blur(6px);
   opacity: 1;
   transition: opacity var(--dur-base) var(--ease-out), overlay var(--dur-base) allow-discrete, display var(--dur-base) allow-discrete;
 }
-.product-dialog:not([open])::backdrop, .form-dialog:not([open])::backdrop { opacity: 0; }
+.form-dialog:not([open])::backdrop { opacity: 0; }
 @starting-style {
-  .product-dialog[open]::backdrop, .form-dialog[open]::backdrop { opacity: 0; }
+  .form-dialog[open]::backdrop { opacity: 0; }
 }
 .dialog-close { transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .dialog-close {
@@ -1287,7 +1283,6 @@ footer {
 /* A skeleton in the shape of the real card, so the layout never jumps when
    the catalog arrives. */
 
-.product-grid.is-loading { pointer-events: none; }
 .skeleton-card { border: 1px solid var(--rule); background: var(--paper-raised); }
 .skeleton-image { height: 210px; border-bottom: 1px solid var(--rule); }
 .skeleton-info { display: grid; gap: .6rem; padding: 1.1rem; }
@@ -1465,7 +1460,7 @@ footer {
   a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 9pt; color: #444; }
 
   /* A card split across a page break is unreadable. */
-  .product-card, .store-card, .inventory-row, tr { break-inside: avoid; }
+  .product-card, .store-card, tr { break-inside: avoid; }
   h1, h2, h3 { break-after: avoid; }
 
   .product-grid { display: grid !important; grid-template-columns: repeat(2, 1fr) !important; }
