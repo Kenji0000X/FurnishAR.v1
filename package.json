@@ -16,7 +16,8 @@
     "check:admin": "node scripts/check-admin.mjs",
     "check:auth": "node scripts/check-auth-errors.mjs",
     "check:upload": "node scripts/check-upload-progress.mjs",
-    "check:session": "node scripts/check-session-refresh.mjs"
+    "check:session": "node scripts/check-session-refresh.mjs",
+    "check:retry": "node scripts/check-upload-retry.mjs"
   },
   "engines": {
     "node": ">=20"
