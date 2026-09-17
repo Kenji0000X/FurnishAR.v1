@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { initBackend, usingSupabase, supabase, backendReason, api, demoSession } from './backend.js';
 import Link from 'next/link';
 import ProductFormDialog from './ProductFormDialog.js';
+import PasswordField from '../PasswordField.js';
+import ConfirmDialog from '../ConfirmDialog.js';
 import { peso } from '../format.js';
 
 const FREEMIUM_LIMIT = 8;
@@ -104,14 +106,12 @@ function LoginPanel({ onSubmit, error, busy, cooldown, onShowSignup }) {
             type="email"
             required
             autoComplete="email"
-            defaultValue="owner@furnishar.ph"
             aria-invalid={error ? 'true' : undefined}
           />
         </label>
-        <label>
-          Password
-          <input name="password" type="password" required autoComplete="current-password" defaultValue="furnishar" />
-        </label>
+        {/* This used to carry defaultValue="furnishar" — the demo account's
+            password, prefilled on the live sign-in form for every visitor. */}
+        <PasswordField autoComplete="current-password" />
         <button className="button button-primary" type="submit" disabled={busy || cooldown > 0}>
           {cooldown > 0 || busy
             ? submitLabel({ busy, cooldown, busyText: 'Signing in…' })
@@ -144,7 +144,7 @@ function SignupPanel({ onSubmit, message, busy, cooldown, onShowLogin }) {
       <form className="login-form" onSubmit={onSubmit}>
         <label>Store name<input name="storeName" type="text" required autoComplete="organization" maxLength={120} /></label>
         <label>Contact email<input name="email" type="email" required autoComplete="email" /></label>
-        <label>Password<input name="password" type="password" required autoComplete="new-password" minLength={8} /></label>
+        <PasswordField autoComplete="new-password" minLength={8} />
         <label>Contact number<input name="phone" type="tel" required autoComplete="tel" inputMode="tel" /></label>
         <label>
           What will you list?
@@ -230,6 +230,7 @@ export default function Portal({ initialProducts }) {
   const [loginError, setLoginError] = useState('');
   const [signupMessage, setSignupMessage] = useState(null);
   const [editing, setEditing] = useState(undefined); // undefined = closed
+  const [pendingDelete, setPendingDelete] = useState(null); // product awaiting confirmation
   const [notice, setNotice] = useState('');
   const [cooldown, setCooldown] = useState(0);       // seconds left after a 429
   // Whether to show a way through to the platform console. The server answers
@@ -405,8 +406,13 @@ export default function Portal({ initialProducts }) {
     toast('Signed out.');
   }
 
-  async function handleDelete(product) {
-    if (!window.confirm(`Delete "${product.name}"? This cannot be undone.`)) return;
+  /** Opens the confirmation. The deletion itself happens in performDelete. */
+  function handleDelete(product) {
+    setPendingDelete(product);
+  }
+
+  async function performDelete(product) {
+    setPendingDelete(null);
     try {
       if (usingSupabase()) await supabase().deleteProduct(product.id);
       else await api(`/api/products/${product.id}`, { method: 'DELETE', token: session.token });
@@ -563,6 +569,17 @@ export default function Portal({ initialProducts }) {
             await reloadInventory().catch(() => {});
             toast(message);
           }}
+        />
+      )}
+
+      {pendingDelete && (
+        <ConfirmDialog
+          title="Delete this product?"
+          body={`"${pendingDelete.name}" will be removed from your catalog and from any
+                 shopper's saved plan. This cannot be undone.`}
+          confirmLabel="Delete product"
+          onConfirm={() => performDelete(pendingDelete)}
+          onCancel={() => setPendingDelete(null)}
         />
       )}
 

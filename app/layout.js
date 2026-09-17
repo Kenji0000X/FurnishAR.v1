@@ -6,6 +6,9 @@
 import '../public/styles.css';
 import SiteHeader from './SiteHeader.js';
 import SiteFooter from './SiteFooter.js';
+import ScrollProgress from './ScrollProgress.js';
+import PageTools from './PageTools.js';
+import CookieNotice from './CookieNotice.js';
 
 export const metadata = {
   title: {
@@ -27,24 +30,64 @@ export const metadata = {
 };
 
 export const viewport = {
-  themeColor: '#14483e',
-  colorScheme: 'light',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#14483e' },
+    { media: '(prefers-color-scheme: dark)', color: '#0e1513' }
+  ],
+  colorScheme: 'light dark',
   width: 'device-width',
-  initialScale: 1,
-  // The AR view positions its own controls in centimetres of real space; a
-  // pinch-zoom of the page on top of that fights the measurement readout.
-  maximumScale: 1,
-  userScalable: false
+  initialScale: 1
+  // Pinch-zoom is deliberately NOT disabled here.
+  //
+  // It used to be, so that a page zoom could not fight the AR view's
+  // centimetre readout. But this is the ROOT layout: that locked zoom on the
+  // catalogue, the product pages, the store portal and the admin console too,
+  // where there is nothing to fight and plenty of small type. Taking magnify
+  // away from someone who needs it to read a price is a real cost, and WCAG
+  // 1.4.4 says so.
+  //
+  // The AR view blocks the gesture where it actually matters instead —
+  // `touch-action: none` on the camera surface — so the planner still behaves
+  // and every other page can be zoomed.
 };
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/*
+          Applies the saved theme BEFORE first paint.
+
+          This has to be a blocking inline script in <head>. Anything later —
+          a useEffect, a deferred bundle — runs after the browser has already
+          painted, which is the white flash every dark-mode site gets wrong at
+          least once. It is small and has no dependencies for that reason.
+
+          Absence of a stored value deliberately leaves data-theme unset, so
+          the CSS media query keeps control and the OS preference still wins.
+        */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('furnishar-theme');`
+              + `if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;}catch(e){}})()`
+          }}
+        />
+      </head>
       <body>
-        <a className="skip-link" href="#catalog">Skip to catalog</a>
+        {/* Targets the <main> below, not #catalog.
+            #catalog exists only on the home page, so on /plan, /portal,
+            /admin and every product page this link used to go nowhere at
+            all — the one control a keyboard user reaches first, and on four
+            routes out of five it did nothing. */}
+        <a className="skip-link" href="#main">Skip to content</a>
         <SiteHeader />
-        <main>{children}</main>
+        <ScrollProgress />
+        {/* tabIndex -1 so the jump actually moves focus, not just the
+            scroll position; without it the next Tab returns to the header. */}
+        <main id="main" tabIndex={-1}>{children}</main>
         <SiteFooter />
+        <PageTools />
+        <CookieNotice />
       </body>
     </html>
   );

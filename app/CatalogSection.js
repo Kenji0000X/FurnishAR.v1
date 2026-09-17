@@ -3,28 +3,7 @@
 import { useMemo, useState } from 'react';
 import ProductCard from './ProductCard.js';
 import { colorFor } from './format.js';
-
-const CATEGORIES = ['Sofa', 'Table', 'Chair', 'Bed', 'Storage'];
-const STORES = [
-  { slug: 'sc-variety', name: 'S&C Variety Store' },
-  { slug: 'tiampion', name: 'Tiampion Buildings' },
-  { slug: 'sanros', name: 'Sanros General Merchandise' }
-];
-
-const NO_LIMIT = 240;
-const EMPTY = { search: '', category: '', store: '', width: NO_LIMIT, color: '' };
-
-function matches(product, f) {
-  const haystack =
-    `${product.name} ${product.store} ${product.category} ${product.style} ${product.color}`.toLowerCase();
-  return (
-    (!f.search || haystack.includes(f.search.toLowerCase())) &&
-    (!f.category || product.category === f.category) &&
-    (!f.store || product.storeId === f.store) &&
-    product.dimensions.width <= f.width &&
-    (!f.color || product.color === f.color)
-  );
-}
+import { matches, NO_LIMIT, EMPTY_FILTERS as EMPTY } from './catalog-filter.js';
 
 /**
  * The grid and its filters.
@@ -39,6 +18,27 @@ export default function CatalogSection({ products }) {
 
   const colors = useMemo(
     () => [...new Set(products.map(product => product.color))],
+    [products]
+  );
+
+  // Derived from what is actually in the catalogue, not from a hardcoded list.
+  //
+  // The store list used to be three names written into this file. Approving a
+  // fourth store in the admin console published its products but left it out
+  // of the filter, so its pieces could not be narrowed to — and a category
+  // outside the fixed five was equally unreachable. Anything the catalogue
+  // contains is now offered, and anything it does not is not.
+  const stores = useMemo(() => {
+    const seen = new Map();
+    for (const product of products) {
+      if (product.storeId && !seen.has(product.storeId)) seen.set(product.storeId, product.store);
+    }
+    return [...seen].map(([slug, name]) => ({ slug, name: name || slug }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [products]);
+
+  const categories = useMemo(
+    () => [...new Set(products.map(product => product.category).filter(Boolean))].sort(),
     [products]
   );
   const found = useMemo(
@@ -85,7 +85,7 @@ export default function CatalogSection({ products }) {
               onChange={event => set({ category: event.target.value })}
             >
               <option value="">All furniture</option>
-              {CATEGORIES.map(category => (
+              {categories.map(category => (
                 <option key={category}>{category}</option>
               ))}
             </select>
@@ -95,7 +95,7 @@ export default function CatalogSection({ products }) {
             <legend>Store</legend>
             <select value={filters.store} onChange={event => set({ store: event.target.value })}>
               <option value="">All local stores</option>
-              {STORES.map(store => (
+              {stores.map(store => (
                 <option key={store.slug} value={store.slug}>
                   {store.name}
                 </option>

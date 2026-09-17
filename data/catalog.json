@@ -25,5 +25,57 @@
     "arReady": true,
     "featured": true,
     "updatedAt": "2026-09-15T00:00:00Z"
+  },
+  {
+    "name": "Check Bench 1789637061785",
+    "storeId": "sc-variety",
+    "store": "S&C Variety Store",
+    "category": "Storage",
+    "style": "Modern",
+    "color": "Natural",
+    "price": 1234,
+    "stock": 9,
+    "dimensions": {
+      "width": 120,
+      "height": 45,
+      "depth": 40
+    },
+    "model": "shelf",
+    "description": "",
+    "modelBounds": {
+      "width": 120,
+      "height": 45,
+      "depth": 40
+    },
+    "featured": false,
+    "updatedAt": "2026-09-17T09:24:55.056Z",
+    "arReady": true,
+    "id": "storage-c85fc0eb"
+  },
+  {
+    "name": "Check Bench 1789637738929",
+    "storeId": "sc-variety",
+    "store": "S&C Variety Store",
+    "category": "Storage",
+    "style": "Modern",
+    "color": "Natural",
+    "price": 1234,
+    "stock": 9,
+    "dimensions": {
+      "width": 120,
+      "height": 45,
+      "depth": 40
+    },
+    "model": "shelf",
+    "description": "",
+    "modelBounds": {
+      "width": 120,
+      "height": 45,
+      "depth": 40
+    },
+    "featured": false,
+    "updatedAt": "2026-09-17T09:36:12.191Z",
+    "arReady": true,
+    "id": "storage-6a88eba3"
   }
 ]

@@ -89,7 +89,107 @@
   --forest: var(--deep);
   --success: #1f6b4c;
   --danger: #a93a22;
+
+  /* Status colours, so a theme can move them. --ok used to be a bare #276749
+     on .verification-ok, which is a dark green that disappears on a dark
+     surface. */
+  --ok: #276749;
+  --on-deep: #eef2ef;      /* text on the --deep block */
 }
+
+/* ---------------------------------------------------------------------------
+   DARK THEME
+
+   Only the tokens are redefined — not one layout or component rule below
+   changes. That is the whole payoff of having had a token layer already: the
+   dark theme is a palette swap, so the two themes cannot drift apart as
+   components are added.
+
+   Two selectors, deliberately:
+     [data-theme="dark"]  — the explicit choice, set by the toggle.
+     @media + :not([data-theme="light"]) — the OS preference, which must NOT
+     win over someone who has explicitly asked for light.
+
+   Contrast is measured, like the light palette above, and held to WCAG AA:
+   body text at 4.5:1 and large/display type at 3:1 minimum.
+
+   The paper tones inverted to near-black would vibrate against the warm
+   accent, so the dark surfaces keep a little of the green in --deep. It reads
+   as the same brand at night rather than a different product.
+--------------------------------------------------------------------------- */
+
+:root[data-theme="dark"] {
+  --paper: #101715;
+  --paper-raised: #182220;
+  --paper-sunken: #0b1210;
+
+  --ink: #eef2ef;          /* 16.08:1 on --paper */
+  --ink-muted: #b3bcb8;    /*  9.35:1 on --paper */
+  --ink-faint: #9aa4a0;    /*  7.09:1 on --paper, 6.36:1 on raised — AA */
+
+  /* The warm accent is too dark to read on a dark surface, so small text uses
+     the lifted weight and the fill keeps the original hue for brand identity. */
+  --accent: #d2603a;
+  --accent-ink: #f0906c;   /*  7.71:1 on --paper */
+  --accent-lifted: #f0906c;
+  --accent-wash: rgba(240, 144, 108, .12);
+  --on-accent: #16100d;    /*  4.91:1 on the accent fill */
+  --deep: #0c1a16;
+
+  --rule: rgba(238, 242, 239, .20);
+  --rule-strong: rgba(238, 242, 239, .82);
+
+  /* The hard offset block is the brand's one shadow. On a dark page an ink
+     shadow is invisible, so it inverts to light. */
+  --hard: 5px 5px 0 rgba(238, 242, 239, .82);
+  --hard-sm: 3px 3px 0 rgba(238, 242, 239, .82);
+
+  --glass: rgba(24, 34, 32, .72);
+  --glass-line: rgba(238, 242, 239, .14);
+
+  --ok: #6dd39b;
+  --success: #6dd39b;
+  --danger: #ff8a70;
+  --on-deep: #eef2ef;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #101715;
+    --paper-raised: #182220;
+    --paper-sunken: #0b1210;
+
+    --ink: #eef2ef;
+    --ink-muted: #b3bcb8;
+    --ink-faint: #9aa4a0;
+
+    --accent: #d2603a;
+    --accent-ink: #f0906c;
+    --accent-lifted: #f0906c;
+    --accent-wash: rgba(240, 144, 108, .12);
+    --on-accent: #16100d;
+    --deep: #0c1a16;
+
+    --rule: rgba(238, 242, 239, .20);
+    --rule-strong: rgba(238, 242, 239, .82);
+
+    --hard: 5px 5px 0 rgba(238, 242, 239, .82);
+    --hard-sm: 3px 3px 0 rgba(238, 242, 239, .82);
+
+    --glass: rgba(24, 34, 32, .72);
+    --glass-line: rgba(238, 242, 239, .14);
+
+    --ok: #6dd39b;
+    --success: #6dd39b;
+    --danger: #ff8a70;
+    --on-deep: #eef2ef;
+  }
+}
+
+/* Form controls, scrollbars and the like are drawn by the browser; this tells
+   it which set to draw. Set on the element so it follows the toggle. */
+:root[data-theme="dark"] { color-scheme: dark; }
+:root[data-theme="light"] { color-scheme: light; }
 
 /* --------------------------------------------------------------- base ---- */
 
@@ -776,7 +876,7 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 
 .ar-status { margin-top: .8rem; color: var(--ink-faint); font-size: .75rem; }
 
-.fit-verdict { padding: 1.2rem; border: 1px solid var(--rule-strong); background: var(--deep); color: #eef2ef; }
+.fit-verdict { padding: 1.2rem; border: 1px solid var(--rule-strong); background: var(--deep); color: var(--on-deep); }
 .fit-verdict.fail { background: var(--accent); }
 .fit-verdict .verdict-icon {
   display: grid; place-items: center;
@@ -811,7 +911,7 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 /* -------------------------------------------------------------- admin ---- */
 
 .login-panel { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--rule-strong); }
-.login-copy { padding: 2rem; border-right: 1px solid var(--rule-strong); background: var(--deep); color: #eef2ef; }
+.login-copy { padding: 2rem; border-right: 1px solid var(--rule-strong); background: var(--deep); color: var(--on-deep); }
 .secure-mark { margin-bottom: 1.2rem; color: var(--accent-lifted); }
 .login-copy h2 { font-size: 1.5rem; }
 .login-copy p { margin-top: .8rem; font-size: .8125rem; opacity: .8; }
@@ -856,7 +956,7 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .missing-model { color: var(--accent-ink); font-weight: 600; }
 
 .verification-ok, .verification-warning { font-family: var(--mono); font-size: .72rem; }
-.verification-ok { color: #276749; }
+.verification-ok { color: var(--ok); }
 .verification-warning { color: var(--accent-ink); }
 
 .inventory-summary {
@@ -1201,6 +1301,176 @@ footer {
 }
 @keyframes skeleton { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
+/* ------------------------------------------------------- page chrome ---- */
+/* The controls that sit on top of every page: theme switch, mobile menu,
+   scroll progress, the floating tools and the storage notice. */
+
+.header-tools { display: flex; align-items: center; gap: .35rem; margin-left: .4rem; }
+
+.theme-toggle, .nav-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: var(--tap); height: var(--tap);
+  border: 1px solid transparent;
+  color: var(--ink-muted);
+  font-size: 1rem;
+  transition: color var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out),
+              background var(--dur-fast) var(--ease-out);
+}
+.theme-toggle:hover, .nav-toggle:hover {
+  border-color: var(--rule-strong); color: var(--ink); background: var(--paper-raised);
+}
+.theme-toggle:active, .nav-toggle:active { transform: scale(.94); transition-duration: var(--dur-press); }
+
+/* Shown only where the nav collapses. */
+.nav-toggle { display: none; }
+
+.main-nav { align-items: center; }
+
+/* A hairline under the sticky header. Only transform is animated, so it never
+   triggers layout while the page is scrolling. */
+.scroll-progress {
+  position: sticky; z-index: 39; top: var(--header-h);
+  height: 2px;
+  background: transparent;
+  pointer-events: none;
+}
+.scroll-progress span {
+  display: block; height: 100%;
+  background: var(--accent);
+  transform-origin: 0 50%;
+  transform: scaleX(0);
+}
+
+/* ---- floating tools ---- */
+
+.page-tools {
+  position: fixed; z-index: 35; right: var(--gutter); bottom: 1.2rem;
+  display: flex; flex-direction: column; gap: .5rem;
+}
+
+.page-tool {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: var(--tap); height: var(--tap);
+  border: 1px solid var(--rule-strong);
+  background: var(--paper-raised);
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 1rem;
+  transition: transform var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out),
+              opacity var(--dur-base) var(--ease-out);
+}
+.page-tool:hover { transform: translate(-2px, -2px); box-shadow: var(--hard-sm); }
+.page-tool:active { transform: translate(1px, 1px); box-shadow: none; transition-duration: var(--dur-press); }
+
+.contact-float { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.contact-float:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+
+/* Back to top is only useful once there is something to go back up past.
+   visibility (not just opacity) so it cannot be clicked while invisible. */
+.to-top { opacity: 0; visibility: hidden; }
+.to-top.is-shown { opacity: 1; visibility: visible; }
+
+/* ---- storage notice ---- */
+
+.cookie-notice {
+  position: fixed; z-index: 45; left: var(--gutter); bottom: 1.2rem;
+  display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+  max-width: 34rem;
+  padding: 1rem 1.15rem;
+  border: 1px solid var(--rule-strong);
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--hard-sm);
+}
+.cookie-notice p { flex: 1 1 16rem; font-size: .8125rem; color: var(--ink-muted); }
+
+/* ---- password reveal ---- */
+
+.password-field { position: relative; display: block; }
+/* Room for the button, so a long password never runs underneath it. */
+.password-field input { width: 100%; padding-right: calc(var(--tap) + .25rem); }
+.password-reveal {
+  position: absolute; top: 50%; right: .15rem;
+  transform: translateY(-50%);
+  display: inline-flex; align-items: center; justify-content: center;
+  width: var(--tap); height: var(--tap);
+  color: var(--ink-faint);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.password-reveal:hover { color: var(--ink); }
+.password-reveal[aria-pressed="true"] { color: var(--accent-ink); }
+
+/* ---- confirmation ---- */
+
+.confirm-dialog {
+  width: min(28rem, calc(100vw - 2rem));
+  padding: 1.6rem;
+  border: 1px solid var(--rule-strong);
+  background: var(--paper-raised);
+  color: var(--ink);
+  box-shadow: var(--hard);
+}
+.confirm-dialog::backdrop { background: rgba(10, 14, 13, .45); backdrop-filter: blur(2px); }
+.confirm-dialog h2 { font-size: 1.15rem; margin-bottom: .55rem; }
+.confirm-dialog p { color: var(--ink-muted); font-size: .875rem; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: .6rem; margin-top: 1.4rem; }
+
+.button-danger { background: var(--danger); border-color: var(--danger); color: var(--on-accent); }
+.button-danger:hover { background: var(--ink); border-color: var(--ink); color: var(--paper); box-shadow: var(--hard); }
+
+/* ---- 404 ---- */
+
+.not-found {
+  max-width: var(--maxw); margin: 0 auto;
+  padding: clamp(4rem, 14vh, 8rem) var(--gutter);
+}
+.not-found h1 { font-size: clamp(2.2rem, 7vw, 4rem); margin: .5rem 0 1rem; }
+.not-found-lede { max-width: 38rem; color: var(--ink-muted); font-size: 1.0625rem; }
+.not-found-actions { display: flex; flex-wrap: wrap; gap: .75rem; margin: 2rem 0 1.5rem; }
+.not-found-note { color: var(--ink-faint); font-size: .8125rem; }
+
+/* ------------------------------------------------------------- print ---- */
+/*
+   Printing is how a shopper takes a shortlist to the store, and how an owner
+   files an order. So the page is stripped to the things that survive on
+   paper: no fixed chrome to overprint the content, no glass, no dark theme
+   burning a cartridge, and links spelled out because a URL you cannot click
+   is only useful if you can read it.
+*/
+
+@media print {
+  /* Dark tokens would print as a solid block of ink. */
+  :root, :root[data-theme="dark"] {
+    --paper: #fff; --paper-raised: #fff; --paper-sunken: #fff;
+    --ink: #000; --ink-muted: #333; --ink-faint: #444;
+    --rule: #999; --rule-strong: #000;
+    --hard: none; --hard-sm: none;
+    --glass: #fff;
+  }
+
+  /* Anything pinned to the viewport prints on top of the content, usually on
+     page one, and the rest are controls that do nothing on paper. */
+  .site-header, .scroll-progress, .page-tools, .cookie-notice, .skip-link,
+  .filters, .toast, .theme-toggle, .nav-toggle, .product-actions,
+  .dialog-close, .ar-layer { display: none !important; }
+
+  body { background: #fff; color: #000; font-size: 11pt; }
+  main { padding: 0; }
+
+  /* Spell out real destinations, but not internal anchors or mailto — "(#top)"
+     on paper is noise. */
+  a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 9pt; color: #444; }
+
+  /* A card split across a page break is unreadable. */
+  .product-card, .store-card, .inventory-row, tr { break-inside: avoid; }
+  h1, h2, h3 { break-after: avoid; }
+
+  .product-grid { display: grid !important; grid-template-columns: repeat(2, 1fr) !important; }
+}
+
 /* --------------------------------------------------------- responsive ---- */
 
 @media (max-width: 1020px) {
@@ -1219,13 +1489,43 @@ footer {
   .login-copy { border-right: 0; border-bottom: 1px solid var(--rule-strong); }
 }
 
+/* ---- the nav collapses into a menu ----
+   At 760px the three links plus the call to action stop fitting beside the
+   brand without shrinking the type past readable. Below that the nav becomes
+   a panel under the header.
+
+   Closed, it is `display: none` rather than merely invisible: a menu that is
+   off-screen but still in the tab order sends a keyboard user through links
+   they cannot see, which is worse than not having the menu. */
+@media (max-width: 760px) {
+  .nav-toggle { display: inline-flex; }
+
+  .main-nav {
+    display: none;
+    position: absolute; top: 100%; left: 0; right: 0;
+    flex-direction: column; align-items: stretch; gap: 0;
+    padding: .5rem var(--gutter) 1rem;
+    border-bottom: 1px solid var(--rule);
+    background: var(--glass);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+  }
+  .site-header.menu-open .main-nav { display: flex; }
+
+  .main-nav .nav-link {
+    padding: .85rem 0;
+    border-bottom: 1px solid var(--rule);
+    font-size: .9375rem;
+  }
+  .main-nav .header-action { margin-top: .9rem; justify-content: center; }
+}
+
 @media (max-width: 640px) {
   :root { --header-h: 58px; }
   .site-header { gap: .85rem; }
   .brand { font-size: .9375rem; }
-  .main-nav { gap: .85rem; }
-  .nav-link { font-size: .7rem; white-space: nowrap; }
-  .header-action { display: none; }
+  .nav-link { white-space: nowrap; }
+  .cookie-notice { left: var(--gutter); right: var(--gutter); max-width: none; }
   .hero { padding-top: 2.5rem; }
   .hero-room { zoom: .62; }
   .hero-room .room-sofa { left: 40px; }
@@ -1295,7 +1595,12 @@ footer {
     transition-duration: 1ms !important;
   }
   .button:hover, .product-card:hover, .product-card:focus-within,
-  .color-option:hover, .header-action:active, .button:active { transform: none; }
+  .color-option:hover, .header-action:active, .button:active,
+  .page-tool:hover, .page-tool:active,
+  .theme-toggle:active, .nav-toggle:active { transform: none; }
+  /* The progress bar still fills, it just does not glide there. The reveal
+     button keeps its translateY, which is layout, not motion. */
+  .password-reveal { transform: translateY(-50%); }
   .nav-link:after { transform: scaleX(1); opacity: 0; }
   .nav-link.active:after { opacity: 1; }
   .skeleton-image, .skeleton-line { animation: none; background: var(--paper-sunken); }

@@ -19,7 +19,8 @@
     "check:session": "node scripts/check-session-refresh.mjs",
     "check:retry": "node scripts/check-upload-retry.mjs",
     "check:ar": "node scripts/check-ar-model.mjs",
-    "check:shrink": "node scripts/check-model-shrink.mjs"
+    "check:shrink": "node scripts/check-model-shrink.mjs",
+    "check:chrome": "node scripts/check-chrome.mjs"
   },
   "engines": {
     "node": ">=20"
