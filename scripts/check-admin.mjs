@@ -199,10 +199,20 @@ console.log('--- a signed-out visitor ---');
 {
   const page = await browser.newPage();
   await page.goto(`http://127.0.0.1:${APP_PORT}/admin`, { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(2500);
+  await page.waitForTimeout(3000);
   const body = await page.locator('body').innerText();
-  check('is refused', /not available to this account/i.test(body));
+  check('is sent to the store portal', page.url().endsWith('/portal'), page.url());
+  check('is never shown the console headings', !/Store applications/i.test(body));
   check('sees no applicant data', !body.includes('rattan@shop.ph') && !body.includes('Mindoro Rattan'));
+
+  // replace(), not push() — so Back goes where they came from, not back onto
+  // /admin to be turned away again.
+  await page.goBack({ waitUntil: 'domcontentloaded' }).catch(() => {});
+  await page.waitForTimeout(2500);
+  const afterBack = await page.locator('body').innerText();
+  check('pressing Back does not land on the console',
+    !/Store applications/i.test(afterBack) && !afterBack.includes('rattan@shop.ph'),
+    page.url());
   await page.close();
 }
 
@@ -212,8 +222,10 @@ console.log('--- a store owner (signed in, but not an admin) ---');
   await signIn(page, 'owner@furnishar.ph');
   await page.goto(`http://127.0.0.1:${APP_PORT}/admin`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(2500);
+  await page.waitForTimeout(1000);
   const body = await page.locator('body').innerText();
-  check('is refused', /not available to this account/i.test(body));
+  check('is sent to the store portal', page.url().endsWith('/portal'), page.url());
+  check('is never shown the console headings', !/Store applications/i.test(body));
   check('sees no applicant email', !body.includes('rattan@shop.ph'));
   check('sees no applicant phone', !body.includes('+63431234567'));
   check('sees no other store\'s 3D files', !body.includes('armchair.glb') && !body.includes('Cane Back Armchair'));
@@ -277,6 +289,32 @@ console.log('--- the superadmin ---');
   const after = await page.locator('body').innerText();
   check('reports the approval', /approved/i.test(after));
   check('records who did it in the activity log', /admin@furnishar\.ph/.test(after));
+  await page.close();
+}
+
+console.log('--- signing out, then pressing Back onto the console ---');
+{
+  // The reported case: read the queue, sign out, and try to walk back into it.
+  // The queue holds applicants' email addresses and phone numbers, so a shared
+  // or borrowed phone must not hand them to whoever picks it up next.
+  const page = await browser.newPage();
+  await signIn(page, 'admin@furnishar.ph');
+  await page.goto(`http://127.0.0.1:${APP_PORT}/admin`, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.review-card', { timeout: 20000 }).catch(() => {});
+  check('the admin could read the queue to begin with',
+    (await page.locator('body').innerText()).includes('rattan@shop.ph'));
+
+  await page.goto(`http://127.0.0.1:${APP_PORT}/portal`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(1500);
+  await page.click('button:has-text("Sign out")').catch(() => {});
+  await page.waitForTimeout(1500);
+
+  await page.goBack({ waitUntil: 'domcontentloaded' }).catch(() => {});
+  await page.waitForTimeout(3000);
+  const afterBack = await page.locator('body').innerText();
+  check('Back after signing out shows no applicant email', !afterBack.includes('rattan@shop.ph'));
+  check('Back after signing out shows no applicant phone', !afterBack.includes('+63431234567'));
+  check('Back after signing out shows no console headings', !/Store applications/i.test(afterBack));
   await page.close();
 }
 

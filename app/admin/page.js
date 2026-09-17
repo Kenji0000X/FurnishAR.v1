@@ -18,17 +18,20 @@ export const metadata = {
   robots: { index: false, follow: false, nocache: true }
 };
 
+/**
+ * The page itself says nothing.
+ *
+ * The headings used to live here, server-rendered for whoever asked — so a
+ * signed-out visitor who typed /admin, or pressed Back onto it, was met by
+ * "Platform administration — Store applications — check each applicant before
+ * approving", and only then told they were not allowed. That advertised the
+ * surface, and the URL worked for everyone. Everything the console says now
+ * lives inside AdminConsole, which renders nothing until the server has
+ * confirmed who is asking, and sends anybody else to the store portal.
+ */
 export default function AdminPage() {
   return (
     <section className="view admin-view active" aria-labelledby="console-title">
-      <section className="admin-intro">
-        <p className="eyebrow">Platform administration</p>
-        <h1 id="console-title">Store applications</h1>
-        <p>
-          Check each applicant before approving. Approving creates their store and lets
-          them publish furniture that shoppers will see.
-        </p>
-      </section>
       <AdminConsole />
     </section>
   );
