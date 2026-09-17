@@ -23,6 +23,14 @@ const KEY = 'sb_publishable_adminmock00000';
 const ADMIN_TOKEN = 'token-for-the-admin';
 const OWNER_TOKEN = 'token-for-a-store-owner';
 
+// Toggled by the "stray membership" test below. The real bug this guards:
+// the app assumed an admin account is never a store_members row for any
+// shop, but nothing enforced that in the data — an admin who once signed up
+// for a store, or was added to one by hand, keeps that row. This flag
+// reproduces that state on demand rather than changing what every other
+// test in this file sees.
+let adminHasStrayMembership = false;
+
 let applications = [
   {
     id: 'app-1', store_name: 'Mindoro Rattan Works', contact_email: 'rattan@shop.ph',
@@ -98,7 +106,15 @@ const supabase = createServer((req, res) => {
         : []);
     }
     if (req.url.startsWith('/rest/v1/admin_audit')) return send(200, isAdmin(req) ? audit : []);
-    if (req.url.startsWith('/rest/v1/store_members')) return send(200, []);
+    if (req.url.startsWith('/rest/v1/store_members')) {
+      if (isAdmin(req) && adminHasStrayMembership) {
+        return send(200, [{
+          role: 'owner',
+          stores: { id: 's-nino', slug: 'nino-nakano', name: 'Nino Nakano Store', plan: 'freemium' }
+        }]);
+      }
+      return send(200, []);
+    }
 
     // Models and listings across every store. RLS (0004) returns these only to
     // an admin — a store owner sees nothing outside their own shop.
@@ -317,6 +333,29 @@ console.log('--- the superadmin, who owns no store ---');
   check('is offered the console from where they land',
     await page.locator('.login-form a[href="/admin"]').count() > 0);
   await page.close();
+}
+
+console.log('--- the reported bug: an admin whose account also owns a real store ---');
+{
+  // Sign in as the superadmin, then click "Store portal" — this is exactly
+  // the reported flow. The portal used to decide "operator view or store
+  // dashboard" purely on whether a membership row existed, so an admin
+  // account that also happened to carry one (from testing, from signing up
+  // before being promoted, from anything) fell straight through into that
+  // OTHER store's dashboard — the exact bug: "Nino Nakano Store" instead of
+  // the platform console.
+  adminHasStrayMembership = true;
+  const page = await browser.newPage();
+  await signIn(page, 'admin@furnishar.ph');
+  const body = await page.locator('body').innerText();
+  check('is not shown the stray store\'s dashboard',
+    !/Nino Nakano/i.test(body) && !/Welcome back/i.test(body));
+  check('is told what they actually are, not sent to someone else\'s shop',
+    /platform operator/i.test(body));
+  check('is offered the console from where they land',
+    await page.locator('.login-form a[href="/admin"]').count() > 0);
+  await page.close();
+  adminHasStrayMembership = false;
 }
 
 console.log('--- the superadmin ---');

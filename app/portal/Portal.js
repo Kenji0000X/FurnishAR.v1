@@ -447,7 +447,22 @@ export default function Portal({ initialProducts }) {
 
   const user = session?.user;
   const loggedIn = Boolean(session?.token && user);
-  const awaitingApproval = loggedIn && usingSupabase() && !user.storeUuid;
+  // A platform admin must never see a store's dashboard here, whatever the
+  // membership data says. The design has always assumed an admin account is
+  // never a store_members row for any shop — see PendingPanel below, "an
+  // admin deliberately never becomes a member of anybody's shop" — but that
+  // was only ever an assumption about the DATA, never something this branch
+  // actually checked. The branch below decided purely on `!user.storeUuid`,
+  // so an admin account that also happened to carry a real membership (from
+  // testing, from signing up before being promoted, from anything) fell
+  // straight through into that OTHER store's dashboard instead of the
+  // operator view — the exact bug reported: sign in as the superadmin,
+  // click "Store portal", and land on someone else's shop.
+  //
+  // `isAdmin` now takes priority over whatever storeUuid says, so this is
+  // guaranteed by the branch itself rather than by hoping the membership
+  // table never disagrees with the design.
+  const awaitingApproval = loggedIn && usingSupabase() && (isAdmin || !user.storeUuid);
 
   if (!loggedIn) {
     return mode === 'signup'
