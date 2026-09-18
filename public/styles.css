@@ -94,7 +94,36 @@
      on .verification-ok, which is a dark green that disappears on a dark
      surface. */
   --ok: #276749;
-  --on-deep: #eef2ef;      /* text on the --deep block */
+  --on-deep: #eef2ef;      /* text on the --deep block — 12.1:1 on it */
+  /* Secondary prose on the deep block. This used to be written inline as
+     rgba(238,242,239,.82), which no contrast checker can read: a composited
+     alpha is not a colour any tool can measure without knowing what it landed
+     on. Flattened against --deep it is this, and now it is checkable. Both
+     themes share it because the dark --deep is darker still (8.7:1 light,
+     11.3:1 dark). */
+  --on-deep-muted: #c6d0cc;
+
+  /* Accent sitting on an --ink ground: the footer wordmark, its mark, and the
+     footer column headings.
+     This needs its own token because --ink is one of the two tokens that
+     INVERT between themes, so a block painted with `background: var(--ink)`
+     is dark by day and light by night. --accent-lifted is a light coral and
+     was being used here unconditionally, which reads at 6.5:1 on the dark
+     footer and 2.1:1 on the light one — a failure nobody could see without
+     switching themes, and the reason this pair is now in
+     scripts/check-contrast.mjs. */
+  --on-ink-accent: #e08159;   /* 6.54:1 on the light theme's --ink */
+
+  /* The ground under the two full-bleed home-page bands.
+     It starts as --deep and has to be its own token because the bands are
+     doing a different job from the deep panels: a panel is a block ON the
+     page, and these are stretches OF the page, so what they need is to READ
+     as a different stretch. In the light theme --deep does that on its own —
+     dark green on cream. In the dark theme it does not: --deep is #0c1a16
+     against a #101715 page, 1.02:1, which is two shades of the same black and
+     no band at all. The dark value below lifts rather than sinks, at 1.23:1,
+     so the alternation survives the theme it was not designed in. */
+  --band: #12332c;
 }
 
 /* ---------------------------------------------------------------------------
@@ -149,6 +178,8 @@
   --ok: #6dd39b;
   --danger: #ff8a70;
   --on-deep: #eef2ef;
+  --on-ink-accent: #b44a26;   /* 4.71:1 on the dark theme's --ink */
+  --band: #1b2b26;            /* lifts off the page instead of sinking into it */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -179,6 +210,8 @@
     --ok: #6dd39b;
     --danger: #ff8a70;
     --on-deep: #eef2ef;
+    --on-ink-accent: #b44a26;   /* 4.71:1 on the dark theme's --ink */
+    --band: #1b2b26;            /* lifts off the page instead of sinking into it */
   }
 }
 
@@ -980,19 +1013,170 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .inventory-table-wrap td small { display: block; margin-top: .2rem; font-family: var(--mono); font-size: var(--micro); color: var(--ink-faint); }
 .table-actions { display: flex; gap: .4rem; justify-content: end; }
 
+/* -------------------------------------------------------------- bands ---- */
+/*
+   The page used to be one unbroken sheet of paper from the header to the
+   footer: hero, grid, done. Everything had the same ground, so nothing had a
+   rank, and a visitor scrolling past the grid had no signal that there was
+   anything else — the page just ran out.
+
+   A band is a full-bleed section on the deep tone. It is not decoration: the
+   alternation is the page's structure, and the two dark bands are the two
+   moments the page is saying something rather than listing something (here is
+   how this works; here is what to do next). The grid and the questions stay on
+   paper, where reading and comparing happen.
+
+   Full-bleed, but the content inside is held to --maxw like every other
+   section, so a band never widens the measure of its own text.
+*/
+
+.band {
+  padding: clamp(3rem, 7vw, 5.5rem) var(--gutter);
+  border-top: 1px solid var(--rule-strong);
+}
+.band-inner { max-width: var(--maxw); margin: 0 auto; }
+
+.band-deep { background: var(--band); color: var(--on-deep); }
+/* The micro-labels are --ink-faint by default, which is a paper colour and
+   disappears here. This is the one place the eyebrow changes weight. */
+.band-deep .eyebrow, .band-deep .step-number { color: var(--accent-lifted); }
+.band-deep h2, .band-deep h3 { color: var(--on-deep); }
+.band-deep .section-heading { border-color: rgba(238, 242, 239, .28); }
+
+/* ---- the three steps ---- */
+
+.step-list {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  margin: clamp(1.75rem, 4vw, 2.75rem) 0 0;
+  padding: 0; list-style: none;
+  border-top: 1px solid rgba(238, 242, 239, .28);
+}
+.step-item {
+  display: flex; flex-direction: column; align-items: flex-start; gap: .55rem;
+  padding: 1.75rem 1.75rem 1.75rem 0;
+  border-right: 1px solid rgba(238, 242, 239, .18);
+}
+.step-item:last-child { border-right: 0; }
+.step-item:not(:first-child) { padding-left: 1.75rem; }
+.step-item h3 { font-size: 1.3rem; }
+.step-item p { max-width: 24rem; font-size: .9375rem; color: var(--on-deep-muted); }
+
+/* Pushed to the bottom so the three links sit on one line even when the
+   paragraphs above them are different lengths. */
+.step-link {
+  margin-top: auto; padding-top: .9rem;
+  display: inline-flex; align-items: center; gap: .4rem; min-height: var(--tap);
+  color: var(--accent-lifted);
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .14em; text-transform: uppercase;
+  text-decoration: none;
+}
+.step-link span { transition: transform var(--dur-fast) var(--ease-out); }
+.step-link:hover, .step-link:focus-visible { text-decoration: underline; }
+.step-link:hover span { transform: translateX(3px); }
+
+/* ---- the closing call to action ---- */
+
+.band-cta .band-inner { max-width: 46rem; }
+.band-cta h2 { margin: .8rem 0 1rem; font-size: clamp(2rem, 5vw, 3.1rem); letter-spacing: -.04em; }
+.band-cta .band-text { font-size: 1.0625rem; color: var(--on-deep-muted); }
+.band-actions { display: flex; flex-wrap: wrap; gap: .8rem; margin-top: 2rem; }
+/* The hard shadow is an ink block, which is invisible against the deep tone;
+   on this ground the offset has to be the light one. */
+.band-deep .button { border-color: var(--on-deep); color: var(--on-deep); }
+.band-deep .button:hover { box-shadow: 5px 5px 0 var(--on-deep); }
+.band-deep .button-primary { background: var(--on-deep); color: var(--deep); }
+.band-deep .button-primary:hover {
+  background: var(--accent); border-color: var(--accent); color: var(--on-accent);
+}
+
+/* ----------------------------------------------------------------- faq ---- */
+/*
+   <details>, not a div with a state hook: it opens before hydration, it is
+   announced as a disclosure without a line of ARIA, and find-in-page can open
+   a closed answer. A hand-rolled accordion loses all three.
+*/
+
+.faq-section {
+  max-width: var(--maxw); margin: 0 auto;
+  padding: clamp(3rem, 7vw, 5rem) var(--gutter);
+}
+.faq-list { border-top: 1px solid var(--rule-strong); }
+.faq-item { border-bottom: 1px solid var(--rule); }
+
+.faq-item summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 1.5rem;
+  min-height: var(--tap);
+  padding: 1.15rem 0;
+  cursor: pointer;
+  font-size: 1.0625rem; font-weight: 700; letter-spacing: -.02em;
+  list-style: none;
+}
+/* Safari still draws its own triangle without this. */
+.faq-item summary::-webkit-details-marker { display: none; }
+.faq-item summary:hover { color: var(--accent-ink); }
+
+/* A plus that becomes a minus. Two bars, one of which rotates away — cheaper
+   and steadier than swapping a glyph, which reflows the row as it changes. */
+.faq-item summary i {
+  position: relative; flex: 0 0 auto; width: 14px; height: 14px;
+}
+.faq-item summary i::before, .faq-item summary i::after {
+  content: ""; position: absolute; left: 0; top: 50%;
+  width: 14px; height: 1.5px; background: currentColor;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.faq-item summary i::after { transform: rotate(90deg); }
+.faq-item[open] summary i::after { transform: rotate(0deg); }
+
+.faq-item p {
+  max-width: 52rem;
+  padding: 0 0 1.35rem;
+  color: var(--ink-muted); font-size: .9375rem;
+}
+
 /* ------------------------------------------------------------- footer ---- */
 
 footer {
-  display: grid; gap: .5rem;
-  padding: clamp(2.5rem, 6vw, 4rem) var(--gutter);
+  padding: clamp(2.5rem, 6vw, 4rem) var(--gutter) 1.5rem;
   border-top: 1px solid var(--rule-strong);
   background: var(--ink); color: var(--paper);
 }
+.footer-inner {
+  display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 2fr);
+  gap: clamp(2rem, 6vw, 5rem);
+  max-width: var(--maxw); margin: 0 auto;
+}
+.footer-about { display: grid; gap: .5rem; align-content: start; }
 .footer-brand { color: var(--paper); }
-.footer-brand > span:last-child span { color: var(--accent-lifted); }
+.footer-brand > span:last-child span { color: var(--on-ink-accent); }
 .footer-brand .brand-mark i { background: var(--paper); }
-.footer-brand .brand-mark i:nth-child(3) { background: var(--accent-lifted); }
-.footer-brand p, footer p { font-size: .75rem; opacity: .6; }
+.footer-brand .brand-mark i:nth-child(3) { background: var(--on-ink-accent); }
+.footer-about p { font-size: .75rem; opacity: .6; }
+
+.footer-columns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; }
+.footer-column h2 {
+  margin-bottom: .75rem;
+  font-family: var(--mono); font-size: var(--micro); font-weight: 500;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--on-ink-accent);
+}
+.footer-column ul { list-style: none; display: grid; gap: .1rem; }
+.footer-column a {
+  display: inline-flex; align-items: center; min-height: var(--tap);
+  color: var(--paper); font-size: .875rem; text-decoration: none;
+  opacity: .82;
+}
+.footer-column a:hover, .footer-column a:focus-visible { opacity: 1; text-decoration: underline; }
+
+.build-stamp {
+  max-width: var(--maxw);
+  margin: clamp(2rem, 5vw, 3rem) auto 0;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(242, 241, 236, .16);
+  font-size: .75rem; opacity: .6;
+}
 
 /* ------------------------------------------------------------ dialogs ---- */
 /* Floating: frosted backdrop, frosted panel, one hard edge. */
@@ -1479,7 +1663,27 @@ footer {
     --rule: #999; --rule-strong: #000;
     --hard: none; --hard-sm: none;
     --glass: #fff;
+    /* The deep tone was left out of this list, so the two bands and the footer
+       printed as solid rectangles of toner with white text knocked out of
+       them — three of them, on a page someone printed to read. */
+    --deep: #fff; --on-deep: #000; --accent-lifted: #000;
+    --band: #fff; --on-deep-muted: #333; --on-ink-accent: #000;
   }
+
+  /* The backgrounds are set directly rather than through a token, so resetting
+     the token alone does not reach them. */
+  .band-deep, footer { background: #fff !important; color: #000 !important; }
+  .band-deep h2, .band-deep h3, .band-deep .eyebrow, .band-deep .step-number,
+  .footer-brand, .footer-column a, .footer-column h2 { color: #000 !important; }
+  .step-item p, .band-cta .band-text { color: #333 !important; }
+  .step-list, .step-item, .build-stamp { border-color: #999 !important; }
+  .band-actions, .step-link { display: none !important; }
+
+  /* A closed <details> prints as a heading with the answer missing. On paper
+     there is nothing to expand, so every answer is open. */
+  .faq-item { break-inside: avoid; }
+  .faq-item > p { display: block !important; }
+  .faq-item summary i { display: none; }
 
   /* Anything pinned to the viewport prints on top of the content, usually on
      page one, and the rest are controls that do nothing on paper. */
@@ -1504,15 +1708,42 @@ footer {
 /* --------------------------------------------------------- responsive ---- */
 
 @media (max-width: 1020px) {
-  .hero { grid-template-columns: 1fr; }
+  /* minmax(0, 1fr), not 1fr.
+     A grid track defaults to a minimum of min-content, so `1fr` is really
+     `minmax(auto, 1fr)` and any child that refuses to shrink — the fixed-width
+     room illustration here, a <select> as wide as its longest option in the
+     catalogue below — pushes the track past the viewport and takes the whole
+     page with it. That is where the home page's 62px of horizontal scroll at
+     360px came from: one column, two tracks that were never allowed to be
+     narrower than their contents. */
+  .hero { grid-template-columns: minmax(0, 1fr); }
   .hero-room { width: 560px; height: 420px; min-height: 0; zoom: .86; }
   .planner-layout, .conditions { grid-template-columns: 1fr 1fr; }
   .verdict-card { grid-column: 1 / -1; }
 }
 
+@media (max-width: 960px) {
+  /* Three columns of prose stop working long before the page gets narrow: the
+     measure collapses to a few words a line while the padding stays. The
+     vertical rule between steps becomes a horizontal one so the sequence still
+     reads as three separated steps rather than one long paragraph. */
+  .step-list { grid-template-columns: 1fr; border-top: 0; }
+  .step-item {
+    padding: 1.4rem 0;
+    border-right: 0; border-top: 1px solid rgba(238, 242, 239, .28);
+  }
+  .step-item:not(:first-child) { padding-left: 0; }
+  .step-link { margin-top: .2rem; }
+
+  .footer-inner { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 820px) {
-  .catalog-layout { grid-template-columns: 1fr; }
+  .catalog-layout { grid-template-columns: minmax(0, 1fr); }
   .filters { position: static; padding-bottom: 1.5rem; }
+  /* A <select> is as wide as its longest option unless it is told otherwise,
+     and "All local stores" plus a long shop name is wider than a phone. */
+  .filters select, .filters input { max-width: 100%; }
   .dialog-layout { grid-template-columns: 1fr; }
   .dialog-image { min-height: 230px; border-right: 0; border-bottom: 1px solid var(--rule); }
   .login-panel { grid-template-columns: 1fr; }
@@ -1552,12 +1783,19 @@ footer {
 
 @media (max-width: 640px) {
   :root { --header-h: 58px; }
+  .footer-columns { grid-template-columns: 1fr 1fr; }
+  .faq-item summary { font-size: .9375rem; }
   .site-header { gap: .85rem; }
   .brand { font-size: .9375rem; }
   .nav-link { white-space: nowrap; }
   .cookie-notice { left: var(--gutter); right: var(--gutter); max-width: none; }
   .hero { padding-top: 2.5rem; }
-  .hero-room { zoom: .62; }
+  /* .62 leaves the scene 347px wide, which is wider than the content box of
+     a 360px phone and was one of the two things scrolling the home page
+     sideways. .5 fits it inside a 320px viewport, the narrowest this has to
+     survive. The children below are already positioned for the small scene;
+     only its scale changes. */
+  .hero-room { zoom: .5; }
   .hero-room .room-sofa { left: 40px; }
   .hero-room .room-table { left: 250px; }
   .hero-room .room-chair { right: 20px; }
@@ -1569,7 +1807,10 @@ footer {
   .tag-sofa { left: 140px; }
   .tag-chair { right: 20px; }
   .section-heading { flex-direction: column; align-items: start; gap: .5rem; }
-  .product-grid { grid-template-columns: 1fr 1fr; }
+  /* minmax(0, …) for the same reason as the layout tracks above: a bare 1fr
+     will not go below the card's min-content width, so two cards plus the gap
+     came to 404px whatever the viewport was. */
+  .product-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .product-image { height: 150px; }
   .product-name { font-size: .875rem; }
   .product-meta { display: block; }
@@ -1627,7 +1868,11 @@ footer {
   .button:hover, .product-card:hover, .product-card:focus-within,
   .color-option:hover, .header-action:active, .button:active,
   .page-tool:hover, .page-tool:active,
-  .theme-toggle:active, .nav-toggle:active { transform: none; }
+  .theme-toggle:active, .nav-toggle:active,
+  .step-link:hover span { transform: none; }
+  /* The plus/minus still ends up as a minus, it just does not swing there.
+     The rotation is the icon's state, not an animation, so it is kept and
+     only its duration is flattened by the rule above. */
   /* The progress bar still fills, it just does not glide there. The reveal
      button keeps its translateY, which is layout, not motion. */
   .password-reveal { transform: translateY(-50%); }
