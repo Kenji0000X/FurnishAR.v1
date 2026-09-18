@@ -27,7 +27,7 @@ const supabase = createServer((req, res) => {
   let raw = '';
   req.on('data', c => { raw += c; });
   req.on('end', () => {
-    calls.push({ url: req.url, method: req.method, headers: req.headers });
+    calls.push({ url: req.url, method: req.method, headers: req.headers, body: raw });
 
     if (req.url.startsWith('/auth/v1/signup') || req.url.includes('grant_type=password')) {
       if (scenario === 'rate-limit-empty') return send(429, null);          // no body at all
@@ -60,6 +60,12 @@ const supabase = createServer((req, res) => {
     if (req.url.startsWith('/auth/v1/logout')) {
       res.writeHead(204);
       return res.end();
+    }
+    // GoTrue's own resend endpoint. Answers 200 with an empty body on success,
+    // same as the real one.
+    if (req.url.startsWith('/auth/v1/resend')) {
+      if (scenario === 'resend-fails') return send(400, { code: 'over_email_send_rate_limit', msg: 'rate limited' });
+      return send(200, {});
     }
     if (req.url.startsWith('/auth/v1/health')) {
       // Supabase answers 401 without a valid apikey, whatever the project's
@@ -220,6 +226,40 @@ await run('a successful sign-up calls Supabase and files the store application',
   }
 });
 
+console.log('--- a sign-up that still needs confirmation offers to resend it ---');
+{
+  // Closes the other half of the reported gap: an applicant who never saw
+  // their confirmation email, right where they are told they need one,
+  // rather than only in the admin console after their application stalls.
+  scenario = 'ok';
+  calls.length = 0;
+  const page = await browser.newPage();
+  await page.goto(`http://127.0.0.1:${APP_PORT}/portal`, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('form.login-form', { timeout: 20000 });
+  await page.click('button:has-text("New store? Sign up")');
+  await page.waitForSelector('input[name="storeName"]');
+  await page.fill('input[name="storeName"]', 'Mock Furniture');
+  await page.fill('input[name="email"]', 'new@shop.ph');
+  await page.fill('input[name="password"]', 'a-long-password');
+  await page.fill('input[name="phone"]', '+63431234567');
+  await page.click('form.login-form button[type="submit"]');
+  await page.waitForSelector('text=Resend the confirmation email', { timeout: 10000 });
+
+  const check = (label, ok, detail = '') => {
+    console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${label}${detail ? ` — ${detail}` : ''}`);
+    if (!ok) problems.push(label);
+  };
+  check('offers to resend, right where the applicant is told they need to confirm', true);
+
+  await page.click('button:has-text("Resend the confirmation email")');
+  await page.waitForSelector('text=Sent to new@shop.ph', { timeout: 10000 });
+  const resent = calls.find(c => c.url.startsWith('/auth/v1/resend'));
+  check('actually asks GoTrue to resend it', Boolean(resent));
+  check('for the address just signed up with, not a stale one',
+    resent && JSON.parse(resent.body).email === 'new@shop.ph');
+  await page.close();
+}
+
 console.log('--- misconfiguration is reported, not crashed ---');
 {
   // A secret key where the publishable one belongs used to throw inside the
@@ -287,6 +327,39 @@ console.log('--- signing out ---');
   check('a sign-out is not a 500', response.status !== 500, `HTTP ${response.status}`);
   check('it passes GoTrue\'s 204 through as a 204', response.status === 204, `HTTP ${response.status}`);
   check('and sends no body with it, as 204 requires', body === '', JSON.stringify(body.slice(0, 40)));
+}
+
+console.log('--- resending a confirmation email ---');
+{
+  const check = (label, ok, detail = '') => {
+    console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${label}${detail ? ` — ${detail}` : ''}`);
+    if (!ok) problems.push(label);
+  };
+  // The gap this closes: an applicant whose confirmation email never arrived
+  // had no way to ask for it again, so "email not confirmed" was a dead end
+  // for both them and the admin reviewing their application.
+  const callsBefore = calls.length;
+  const response = await fetch(`http://127.0.0.1:${APP_PORT}/api/sb/auth/resend`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'stuck@shop.ph' })
+  });
+  check('a resend request succeeds', response.ok, `HTTP ${response.status}`);
+
+  const forwarded = calls.slice(callsBefore).find(c => c.url.startsWith('/auth/v1/resend'));
+  check('it actually reaches GoTrue\'s resend endpoint', Boolean(forwarded));
+  const sent = forwarded ? JSON.parse(forwarded.body) : {};
+  check('asking to resend a SIGNUP confirmation, not some other type', sent.type === 'signup', JSON.stringify(sent));
+  check('for the applicant\'s own address, not the platform\'s', sent.email === 'stuck@shop.ph', JSON.stringify(sent));
+
+  scenario = 'resend-fails';
+  const failed = await fetch(`http://127.0.0.1:${APP_PORT}/api/sb/auth/resend`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'stuck@shop.ph' })
+  });
+  check('a failed resend is reported, not silently swallowed at the proxy', !failed.ok, `HTTP ${failed.status}`);
+  scenario = 'ok';
 }
 
 await browser.close();

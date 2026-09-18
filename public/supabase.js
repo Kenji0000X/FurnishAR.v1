@@ -642,6 +642,36 @@ export async function signUp({ email, password, storeName, phone, message }) {
   };
 }
 
+/**
+ * Asks Supabase to send the account-confirmation email again.
+ *
+ * The gap this closes: `approve_store_application` refuses an applicant whose
+ * email is not confirmed, correctly — but until now there was nothing to do
+ * about that except wait, because the confirmation email is a one-shot thing
+ * Supabase sends once at sign-up. If it landed in spam, or the applicant
+ * mistyped nothing but simply never saw it, the application sat "pending"
+ * forever with no way forward for the applicant or the admin reviewing them.
+ *
+ * Deliberately does not throw on "already confirmed" — asking again for
+ * something that already happened is not a failure worth alarming anyone
+ * over, and the caller (sign-up panel or admin console) already knows to
+ * re-check rather than trust this call's success alone.
+ */
+export async function resendConfirmation(email) {
+  if (mode === 'direct') {
+    const supabase = await getDirectClient();
+    const { error } = await supabase.auth.resend({ type: 'signup', email });
+    if (error && !/already confirmed/i.test(error.message || '')) throw new Error(friendlyError(error));
+    return true;
+  }
+  try {
+    await authCall('resend', { email });
+  } catch (error) {
+    if (!/already confirmed/i.test(error.message || '')) throw error;
+  }
+  return true;
+}
+
 export async function signIn({ email, password }) {
   if (mode === 'direct') {
     const supabase = await getDirectClient();

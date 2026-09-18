@@ -60,12 +60,49 @@ const slugify = value =>
  * re-checks the same facts in its own transaction, so this is a convenience,
  * never the check itself.
  */
-function AccountState({ account }) {
+/**
+ * "Email not confirmed" used to be a dead end — the applicant's account
+ * exists, but Supabase only ever sent that one confirmation email at
+ * sign-up, and if it landed in spam or was never seen, there was nothing an
+ * admin (or the applicant) could do except wait indefinitely. Approve stayed
+ * disabled with no path forward. This button asks Supabase to send it again.
+ */
+function ResendConfirmation({ email }) {
+  const [state, setState] = useState('idle'); // idle | sending | sent | error
+
+  async function resend() {
+    setState('sending');
+    try {
+      await supabase().resendConfirmation(email);
+      setState('sent');
+    } catch {
+      setState('error');
+    }
+  }
+
+  if (state === 'sent') return <span className="verification-note">Sent — ask them to check spam too.</span>;
+  return (
+    <>
+      <button className="text-button" type="button" onClick={resend} disabled={state === 'sending'}>
+        {state === 'sending' ? 'Sending…' : 'Resend confirmation email'}
+      </button>
+      {state === 'error' && <span className="verification-note">Could not send it — try again shortly.</span>}
+    </>
+  );
+}
+
+function AccountState({ account, email }) {
   if (!account) return <dd>checking…</dd>;
   if (!account.found) return <dd className="verification-warning">no account with this address yet</dd>;
   if (account.disabled) return <dd className="verification-warning">the account is disabled</dd>;
   if (!account.confirmed) {
-    return <dd className="verification-warning">email not confirmed — cannot be approved yet</dd>;
+    return (
+      <dd className="verification-warning">
+        email not confirmed — cannot be approved yet
+        <br />
+        <ResendConfirmation email={email} />
+      </dd>
+    );
   }
   return (
     <dd className="verification-ok">
@@ -95,7 +132,7 @@ function ApplicationCard({ application, account, onApprove, onReject, busy }) {
       {/* The details to check before letting someone list furniture publicly. */}
       <dl className="review-details">
         <div><dt>Contact email</dt><dd>{application.contact_email}</dd></div>
-        <div><dt>Their account</dt><AccountState account={account} /></div>
+        <div><dt>Their account</dt><AccountState account={account} email={application.contact_email} /></div>
         <div><dt>Contact number</dt><dd>{application.contact_phone || '—'}</dd></div>
         <div><dt>What they will list</dt><dd>{application.message || '—'}</dd></div>
       </dl>
