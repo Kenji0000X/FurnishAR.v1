@@ -56,7 +56,20 @@ const PAIRS = [
   ['--accent-ink', '--paper', 4.5, 'small accent text'],
   ['--accent', '--paper', 3, 'display accent (large only)'],
   ['--on-accent', '--accent', 4.5, 'text on the accent fill'],
-  ['--danger', '--paper-raised', 4.5, 'form errors']
+  ['--danger', '--paper-raised', 4.5, 'form errors'],
+
+  // The deep tone stopped being a one-off block the moment the home page got
+  // two full-bleed bands on it. Everything that sits on --deep is measured
+  // here, and adding these caught a real failure: the primary button on a band
+  // filled with --accent-lifted and wrote --ink on it, which is 6.5:1 in the
+  // light theme and 2.1:1 in the dark one — the same rule, passing in the
+  // theme it was designed in and failing in the other.
+  ['--on-deep', '--deep', 4.5, 'text on the deep panels'],
+  ['--on-deep', '--band', 4.5, 'text on the home-page bands'],
+  ['--on-deep-muted', '--band', 4.5, 'secondary text on the home-page bands'],
+  ['--accent-lifted', '--band', 4.5, 'eyebrows and step links on the bands'],
+  ['--paper', '--ink', 4.5, 'footer text'],
+  ['--on-ink-accent', '--ink', 4.5, 'footer wordmark, mark and column headings']
 ];
 
 let failures = 0;

@@ -275,6 +275,18 @@ export default function Portal({ initialProducts }) {
   // this; it decides what to render and grants nothing on its own.
   const [isAdmin, setIsAdmin] = useState(false);
 
+  // Applying had no address of its own: it was a button on the login panel and
+  // nothing else, so the footer, a poster or a message to a shop owner could
+  // only ever point at "the portal, then find the link". /portal#apply opens
+  // it directly.
+  //
+  // Read after mount rather than during render, because the hash is not part
+  // of what the server sees — deciding the first render from it is the classic
+  // hydration mismatch.
+  useEffect(() => {
+    if (window.location.hash === '#apply') setMode('signup');
+  }, []);
+
   // Counts the rate-limit wait down so the button can say how long is left
   // rather than just refusing.
   useEffect(() => {
