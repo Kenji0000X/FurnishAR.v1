@@ -133,6 +133,41 @@ function LoginPanel({ onSubmit, error, busy, cooldown, onShowSignup }) {
   );
 }
 
+/**
+ * Shown after a successful sign-up that still needs email confirmation.
+ *
+ * This is the other half of fixing "approve does nothing": most stuck
+ * applications are stuck here, at the very first step, because the one
+ * confirmation email Supabase sends landed in spam or was never seen. Giving
+ * the applicant a way to ask for it again, right where they are told they
+ * need it, is cheaper than an admin ever finding out later that this is why
+ * an approval keeps failing.
+ */
+function ResendSignupConfirmation({ email }) {
+  const [state, setState] = useState('idle'); // idle | sending | sent | error
+
+  async function resend() {
+    setState('sending');
+    try {
+      await supabase().resendConfirmation(email);
+      setState('sent');
+    } catch {
+      setState('error');
+    }
+  }
+
+  if (state === 'sent') return <p className="form-note" role="status">Sent to {email} — check spam too.</p>;
+  return (
+    <p className="form-note">
+      Didn&apos;t get it?{' '}
+      <button className="text-button" type="button" onClick={resend} disabled={state === 'sending'}>
+        {state === 'sending' ? 'Sending…' : 'Resend the confirmation email'}
+      </button>
+      {state === 'error' && ' — could not send it, try again shortly.'}
+    </p>
+  );
+}
+
 function SignupPanel({ onSubmit, message, busy, cooldown, onShowLogin }) {
   return (
     <div className="login-panel">
@@ -158,6 +193,9 @@ function SignupPanel({ onSubmit, message, busy, cooldown, onShowLogin }) {
         <p className={`form-error${message?.ok ? ' is-ok' : ''}`} role="status" aria-live="polite">
           {message?.text}
         </p>
+        {message?.ok && message.needsEmailConfirmation && message.email && (
+          <ResendSignupConfirmation email={message.email} />
+        )}
         <button className="text-button" type="button" onClick={onShowLogin}>Back to login</button>
       </form>
     </div>
@@ -378,6 +416,10 @@ export default function Portal({ initialProducts }) {
       });
       form.reset();
 
+      // Carried on the message so the panel can offer a resend for exactly
+      // the account that might need it, not a generic "resend something".
+      const email = fields.email;
+
       const confirm = result.needsEmailConfirmation
         ? 'Account created. Confirm your email address, then sign in'
         : 'Account created. You can sign in now';
@@ -385,7 +427,9 @@ export default function Portal({ initialProducts }) {
         ok: true,
         text: result.applicationFiled
           ? `${confirm} — your store is queued for review.`
-          : `${confirm}. We could not file your store application automatically, so email hello@furnishar.ph with your store name and we will add it by hand. Do not sign up again; the account already exists.`
+          : `${confirm}. We could not file your store application automatically, so email hello@furnishar.ph with your store name and we will add it by hand. Do not sign up again; the account already exists.`,
+        email,
+        needsEmailConfirmation: result.needsEmailConfirmation
       });
       toast('Application received.');
     } catch (error) {

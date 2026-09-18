@@ -954,6 +954,8 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .verification-ok, .verification-warning { font-family: var(--mono); font-size: .72rem; }
 .verification-ok { color: var(--ok); }
 .verification-warning { color: var(--accent-ink); }
+.verification-warning .text-button { font-size: inherit; font-family: inherit; padding: .3rem 0; text-decoration: underline; }
+.verification-note { display: block; margin-top: .25rem; color: var(--ink-faint); font-size: .7rem; }
 
 .inventory-summary {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

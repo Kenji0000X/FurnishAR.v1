@@ -36,6 +36,15 @@ let applications = [
     id: 'app-1', store_name: 'Mindoro Rattan Works', contact_email: 'rattan@shop.ph',
     contact_phone: '+63431234567', message: '30 pieces, mostly chairs',
     status: 'pending', created_at: new Date(Date.now() - 3600e3).toISOString(), review_note: null
+  },
+  // The reported bug: an applicant whose account exists but whose
+  // confirmation email never arrived. approve_store_application correctly
+  // refuses this one — the check below is that the console offers a way
+  // forward instead of a dead "nothing happens".
+  {
+    id: 'app-stuck', store_name: 'Stuck Signup Co', contact_email: 'stuck@shop.ph',
+    contact_phone: '+63439998888', message: 'waiting on a confirmation email',
+    status: 'pending', created_at: new Date(Date.now() - 1800e3).toISOString(), review_note: null
   }
 ];
 let audit = [];
@@ -57,6 +66,7 @@ const supabase = createServer((req, res) => {
     if (req.url.startsWith('/auth/v1/health')) {
       return req.headers.apikey === KEY ? send(200, { name: 'GoTrue' }) : send(401, {});
     }
+    if (req.url.startsWith('/auth/v1/resend')) return send(200, {});
     // The server-side gate (lib/auth.js) confirms every token here before it
     // will pass an admin request through.
     if (req.url.startsWith('/auth/v1/user')) {
@@ -78,6 +88,11 @@ const supabase = createServer((req, res) => {
 
     if (req.url.startsWith('/rest/v1/rpc/applicant_account')) {
       if (!isAdmin(req)) return send(403, { message: 'Only a platform administrator may look up applicants' });
+      let application = null;
+      try { application = JSON.parse(raw || '{}').application; } catch { /* ignore */ }
+      if (application === 'app-stuck') {
+        return send(200, { found: true, confirmed: false, confirmed_at: null, last_sign_in_at: null, disabled: false });
+      }
       return send(200, {
         found: true, confirmed: true,
         confirmed_at: new Date(Date.now() - 7200e3).toISOString(),
@@ -370,6 +385,23 @@ console.log('--- the superadmin ---');
   check('sees whether the applicant proved they own that address',
     /email confirmed/i.test(body));
 
+  console.log('--- the reported bug: an applicant stuck on email confirmation ---');
+  {
+    const stuckCard = page.locator('.review-card', { hasText: 'Stuck Signup Co' });
+    await stuckCard.waitFor({ timeout: 10000 });
+    const cardText = await stuckCard.innerText();
+    check('says why it cannot be approved, not just that it cannot',
+      /email not confirmed/i.test(cardText));
+    check('the approve button is actually disabled here, not just unresponsive',
+      await stuckCard.locator('button:has-text("Approve")').isDisabled());
+
+    const resend = stuckCard.locator('button:has-text("Resend confirmation email")');
+    check('offers a way forward instead of a dead end', await resend.count() > 0);
+    await resend.click();
+    await stuckCard.locator('text=Sent —').waitFor({ timeout: 10000 });
+    check('confirms the email was actually sent', true);
+  }
+
   console.log('--- the 3D files across every store ---');
   check('lists an uploaded model with its store and product',
     /Cane Back Armchair/.test(body) && /S&C Variety Store/.test(body));
@@ -383,13 +415,17 @@ console.log('--- the superadmin ---');
     /S&C Variety Store/.test(body) && /Usage by store/i.test(body));
 
   console.log('--- approving ---');
-  await page.click('button:has-text("Approve")');
+  // Scoped to this one card: a second pending application (the stuck-signup
+  // case above) is on the same page now, with its own — disabled — Approve
+  // button, and an unscoped click here would be ambiguous between the two.
+  const rattanCard = page.locator('.review-card', { hasText: 'Mindoro Rattan Works' });
+  await rattanCard.locator('button:has-text("Approve")').click();
   await page.waitForTimeout(500);
-  const confirmText = await page.locator('.review-confirm').innerText().catch(() => '');
+  const confirmText = await rattanCard.locator('.review-confirm').innerText().catch(() => '');
   check('asks for confirmation before granting a public shop',
     /publish furniture/i.test(confirmText), confirmText.slice(0, 60).replace(/\n/g, ' '));
 
-  await page.click('button:has-text("Yes, approve")');
+  await rattanCard.locator('button:has-text("Yes, approve")').click();
   await page.waitForTimeout(2500);
   const after = await page.locator('body').innerText();
   check('reports the approval', /approved/i.test(after));
