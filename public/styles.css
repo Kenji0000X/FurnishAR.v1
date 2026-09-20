@@ -798,9 +798,15 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   overflow: hidden;
   transition: border-color var(--dur-fast) var(--ease-out);
 }
-.marquee-art .furniture-illustration {
-  position: absolute; left: 50%; top: 50%;
-  transform: translate(-50%, -50%) scale(.92);
+.marquee-art .product-thumb {
+  width: 100%; height: 100%;
+  object-fit: contain;
+  padding: 10%;
+  mix-blend-mode: multiply;
+}
+:root[data-theme="dark"] .marquee-art .product-thumb { mix-blend-mode: normal; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .marquee-art .product-thumb { mix-blend-mode: normal; }
 }
 .marquee-link:hover .marquee-art,
 .marquee-link:focus-visible .marquee-art { border-color: var(--rule-strong); }
@@ -1183,68 +1189,15 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 }
 .no-results small { color: var(--ink-faint); }
 
-/* ------------------------------------------- furniture illustration ------ */
-/* Flat silhouettes: no gloss, no drop shadow, one accent per piece. */
+/*
+   The CSS-drawn furniture illustration lived here: about fifty rules that
+   positioned a dozen <span>s into the silhouette of a sofa, a chair, a shelf.
 
-.furniture-illustration { position: relative; width: 190px; height: 135px; }
-.furniture-illustration .piece {
-  display: none;
-  position: absolute;
-  border: 1px solid var(--rule-strong);
-  background: var(--piece, #bd7656);
-}
-.furniture-illustration.sofa .back, .furniture-illustration.sofa .seat,
-.furniture-illustration.sofa .leg-a, .furniture-illustration.sofa .leg-b,
-.furniture-illustration.chair .back, .furniture-illustration.chair .seat,
-.furniture-illustration.chair .leg-a, .furniture-illustration.chair .leg-b,
-.furniture-illustration.table .top,
-.furniture-illustration.table .leg-a, .furniture-illustration.table .leg-b,
-.furniture-illustration.bed .back, .furniture-illustration.bed .seat,
-.furniture-illustration.bed .top,
-.furniture-illustration.bed .leg-a, .furniture-illustration.bed .leg-b,
-.furniture-illustration.shelf .side-a, .furniture-illustration.shelf .side-b,
-.furniture-illustration.shelf .shelf-one, .furniture-illustration.shelf .shelf-two,
-.furniture-illustration.shelf .shelf-three,
-.furniture-illustration.desk .top, .furniture-illustration.desk .back,
-.furniture-illustration.desk .seat,
-.furniture-illustration.desk .leg-a, .furniture-illustration.desk .leg-b,
-.furniture-illustration.desk .leg-c, .furniture-illustration.desk .leg-d { display: block; }
-.furniture-illustration.sofa .back { left: 15px; top: 35px; width: 160px; height: 55px; }
-.furniture-illustration.sofa .seat { left: 10px; top: 73px; width: 170px; height: 38px; }
-.furniture-illustration.sofa .leg { top: 110px; width: 4px; height: 20px; background: var(--ink); border: 0; }
-.furniture-illustration.sofa .leg-a { left: 23px; }
-.furniture-illustration.sofa .leg-b { right: 23px; }
-
-.furniture-illustration.table .top, .furniture-illustration.desk .top { left: 18px; top: 42px; width: 154px; height: 18px; }
-.furniture-illustration.table .leg, .furniture-illustration.desk .leg { top: 59px; width: 4px; height: 66px; background: var(--ink); border: 0; }
-.furniture-illustration.table .leg-a, .furniture-illustration.desk .leg-a { left: 31px; }
-.furniture-illustration.table .leg-b, .furniture-illustration.desk .leg-b { right: 31px; }
-
-.furniture-illustration.chair .back { left: 55px; top: 18px; width: 83px; height: 72px; }
-.furniture-illustration.chair .seat { left: 48px; top: 76px; width: 96px; height: 28px; }
-.furniture-illustration.chair .leg { top: 103px; width: 4px; height: 27px; background: var(--ink); border: 0; }
-.furniture-illustration.chair .leg-a { left: 60px; }
-.furniture-illustration.chair .leg-b { right: 60px; }
-
-.furniture-illustration.bed .back { left: 13px; top: 20px; width: 16px; height: 91px; }
-.furniture-illustration.bed .seat { left: 25px; top: 54px; width: 150px; height: 56px; }
-.furniture-illustration.bed .top { left: 32px; top: 48px; width: 135px; height: 36px; background: var(--paper-raised); }
-.furniture-illustration.bed .leg { top: 109px; width: 4px; height: 18px; background: var(--ink); border: 0; }
-.furniture-illustration.bed .leg-a { left: 31px; }
-.furniture-illustration.bed .leg-b { right: 20px; }
-
-.furniture-illustration.shelf .side { top: 19px; width: 6px; height: 108px; background: var(--ink); border: 0; }
-.furniture-illustration.shelf .side-a { left: 45px; }
-.furniture-illustration.shelf .side-b { right: 45px; }
-.furniture-illustration.shelf .shelf-line { left: 47px; width: 96px; height: 7px; }
-.furniture-illustration.shelf .shelf-one { top: 41px; }
-.furniture-illustration.shelf .shelf-two { top: 70px; }
-.furniture-illustration.shelf .shelf-three { top: 99px; }
-
-.furniture-illustration.desk .back { left: 26px; top: 57px; width: 18px; height: 48px; background: var(--paper-raised); }
-.furniture-illustration.desk .seat { left: 52px; top: 77px; width: 51px; height: 12px; background: var(--paper-raised); }
-.furniture-illustration.desk .leg-c { left: 56px; top: 88px; width: 4px; height: 38px; background: var(--ink); border: 0; }
-.furniture-illustration.desk .leg-d { left: 96px; top: 88px; width: 4px; height: 38px; background: var(--ink); border: 0; }
+   It is gone because products now show a render of their own uploaded model,
+   or honestly show nothing. A drawing that stands in for a model is a claim
+   that there is one, and this one was making that claim for two products that
+   had never had a file uploaded.
+*/
 
 /* ------------------------------------------------- planner and admin ---- */
 
@@ -1278,7 +1231,18 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 
 .planner-product { border: 1px solid var(--rule); margin-bottom: 1rem; }
 .planner-product-inner { display: flex; align-items: center; gap: 1rem; padding: 1rem; }
-.planner-product .furniture-illustration { flex: 0 0 110px; width: 110px; height: 88px; transform: scale(.58); transform-origin: left center; }
+.planner-product-thumb {
+  flex: 0 0 96px;
+  width: 96px; height: 96px;
+  object-fit: contain;
+  background: var(--paper-sunken);
+  border: 1px solid var(--rule);
+  mix-blend-mode: multiply;
+}
+:root[data-theme="dark"] .planner-product-thumb { mix-blend-mode: normal; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .planner-product-thumb { mix-blend-mode: normal; }
+}
 .planner-product h3 { font-size: .9375rem; }
 .planner-product p { font-family: var(--mono); font-size: var(--micro); color: var(--ink-faint); }
 .planner-card .button { width: 100%; }
@@ -1857,6 +1821,44 @@ footer {
 .form-section-optional { opacity: .82; }
 .form-section-optional > legend { color: var(--ink-faint); }
 .form-section-note { margin-top: -.4rem; }
+
+/* ------------------------------------------- the model preview ---------- */
+/*
+   Shown inside the product form so a shop can confirm their upload before
+   publishing it, in the same lighting the catalogue and the product page use.
+*/
+
+.model-preview { margin-top: 1rem; }
+
+.model-preview-stage {
+  position: relative;
+  display: grid; place-items: center;
+  aspect-ratio: 16 / 10;
+  border: 1px solid var(--rule);
+  background: var(--paper-sunken);
+  overflow: hidden;
+}
+.model-preview-stage canvas { width: 100%; height: 100%; display: block; }
+/* No model, no canvas to look at — the note takes the space instead. */
+.model-preview:not([data-state="ready"]) .model-preview-stage canvas { display: none; }
+
+.model-preview-note {
+  max-width: 28rem;
+  padding: 1.25rem;
+  text-align: center;
+  font-size: .8125rem; color: var(--ink-muted);
+}
+.model-preview-note.is-error { color: var(--danger); }
+.model-preview-note b { display: block; margin-bottom: .3rem; color: inherit; }
+.model-preview-note code { font-family: var(--mono); font-size: .9em; }
+
+.model-preview-caption {
+  display: flex; align-items: center; gap: .45rem;
+  margin-top: .5rem;
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint);
+}
+.model-preview-ok { width: 6px; height: 6px; background: var(--ok); }
 
 /* -------------------------------------------------------------- toast ---- */
 

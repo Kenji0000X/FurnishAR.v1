@@ -356,6 +356,66 @@ const browser = await chromium.launch({
   }
 }
 
+
+/* --------------------------------------- the catalogue tells the truth --- */
+{
+  /*
+    The rule this whole redesign rests on: a product's picture is a render of
+    ITS OWN uploaded model, or there is no picture. Never a stock photo, never
+    a generic silhouette, never another product's render.
+
+    This is worth a check rather than a code review because the failure is
+    invisible: the page looks BETTER when every card has a picture. The old
+    build drew a CSS silhouette for all three products and looked complete and
+    tidy while telling a shopper that two pieces with no model could be stood
+    in their living room.
+  */
+  console.log('--- the catalogue does not invent pictures ---');
+  const page = await browser.newPage();
+  await page.goto(`${BASE}/`);
+  await page.waitForTimeout(600);
+
+  const cards = await page.locator('.product-card').evaluateAll(nodes => nodes.map(card => ({
+    name: card.querySelector('.product-name')?.textContent?.trim(),
+    src: card.querySelector('img.product-thumb')?.getAttribute('src') || null,
+    empty: Boolean(card.querySelector('.product-thumb-empty')),
+    badge: Boolean(card.querySelector('.model-badge')),
+    action: card.querySelector('.product-action')?.textContent?.trim(),
+    unavailable: Boolean(card.querySelector('.product-action.is-unavailable'))
+  })));
+  check(cards.length > 0, 'the grid rendered', `${cards.length} cards`);
+
+  for (const card of cards) {
+    // Exactly one of the two: a real render, or an explicit empty state.
+    check(Boolean(card.src) !== card.empty,
+      `${card.name}: has either a render or an empty state, not both or neither`,
+      card.src || (card.empty ? 'empty state' : 'NEITHER'));
+
+    // The badge, the picture and the action must all agree. A card claiming
+    // 3D with no render, or offering AR while saying it has no model, is the
+    // exact inconsistency this is here to catch.
+    check(card.badge === Boolean(card.src),
+      `${card.name}: the 3D badge matches whether there is a model`,
+      `badge=${card.badge} render=${Boolean(card.src)}`);
+    check(card.unavailable === !card.src,
+      `${card.name}: the action matches whether it can be placed`,
+      card.action);
+
+    // The thumbnail must be this product's own file, not a shared asset.
+    if (card.src) {
+      check(/^\/thumbs\//.test(card.src),
+        `${card.name}: the render comes from the thumbnail store`, card.src);
+    }
+  }
+
+  // No two products may share a picture.
+  const used = cards.map(c => c.src).filter(Boolean);
+  check(new Set(used).size === used.length,
+    'no two products share a render', used.join(', ') || 'none');
+
+  await page.close();
+}
+
 /* ------------------------------------------------- the capsule rail ------ */
 {
   /*

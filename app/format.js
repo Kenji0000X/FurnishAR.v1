@@ -23,13 +23,6 @@ export const COLOR_STYLES = {
 
 export const colorFor = product => COLOR_STYLES[product.color] || '#8c9d88';
 
-export const PREVIEW_SHAPES = ['sofa', 'table', 'chair', 'bed', 'shelf', 'desk'];
-
-/** The CSS-drawn stand-in shown before a real model loads. */
-export function previewShape(product) {
-  return PREVIEW_SHAPES.includes(product.model) ? product.model : 'shelf';
-}
-
 /** `70 × 78 × 88 cm` — width × depth × height, the order shoppers read. */
 export const dimensionLabel = ({ width, depth, height }) =>
   `${width} × ${depth} × ${height} cm`;

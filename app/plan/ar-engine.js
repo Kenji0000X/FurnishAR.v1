@@ -140,7 +140,6 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
   const $$ = (selector, parent = document) => [...parent.querySelectorAll(selector)];
   const peso = value => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', maximumFractionDigits: 0 }).format(value);
   const cm = value => `${Math.round(value)} cm`;
-  const colorStyles = { Sand: '#d4b18b', Oak: '#aa7953', Terracotta: '#c46e50', Walnut: '#725343', Black: '#474b47', White: '#d9d4ca', Natural: '#b58d62' };
 
   const AR_EXPERIENCE_HTML = `<div id="ar-experience" class="ar-layer">
     <video id="camera-feed" autoplay playsinline muted></video>
@@ -418,15 +417,33 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
   }
 
 
-  /* ===== Furniture illustration ===== */
-  function colorFor(product) { return colorStyles[product.color] || '#8c9d88'; }
+  /* The AR fallback's colour.
+     When a product has no GLB the engine places a plain box at the product's
+     real dimensions — honest, because it is obviously a box rather than
+     furniture pretending to be the piece. It still needs the product's colour,
+     which is the one thing the deleted illustration code is still needed for.
+     Kept local rather than imported: this file is loaded as a standalone
+     module by the planner and has no imports at all. */
+  const COLOURS = {
+    Sand: '#d4b18b', Oak: '#aa7953', Terracotta: '#c46e50', Walnut: '#725343',
+    Black: '#474b47', White: '#d9d4ca', Natural: '#b58d62'
+  };
+  function colorFor(product) { return COLOURS[product.color] || '#8c9d88'; }
+
+  /* ===== The piece being placed =====
+     The picture is a render of this product's own model, the same one the
+     catalogue card shows. It used to be a CSS silhouette assembled from a
+     dozen spans and a shape keyword — which in the planner was a particularly
+     odd thing to show, because the planner is the one screen where the real
+     model is definitely present and about to be loaded a few pixels away.
+
+     A product with no thumbnail gets no picture rather than a stand-in. In
+     practice the planner only ever holds products with a model, so this is
+     the belt to the braces. */
   function furniture(product, extra = '') {
-    const model = ['sofa', 'table', 'chair', 'bed', 'shelf', 'desk'].includes(product.model) ? product.model : 'shelf';
-    return `<div class="furniture-illustration ${model} ${extra}" style="--piece:${colorFor(product)}" aria-hidden="true">
-      <span class="piece back"></span><span class="piece seat"></span><span class="piece top"></span>
-      <span class="piece leg leg-a"></span><span class="piece leg leg-b"></span><span class="piece leg leg-c"></span><span class="piece leg leg-d"></span>
-      <span class="piece side side-a"></span><span class="piece side side-b"></span><span class="piece shelf-line shelf-one"></span><span class="piece shelf-line shelf-two"></span><span class="piece shelf-line shelf-three"></span>
-    </div>`;
+    if (!product.thumbnail) return '';
+    return `<img class="planner-product-thumb ${extra}" src="${escapeHtml(product.thumbnail)}"
+      alt="${escapeHtml(product.name)}, rendered from its 3D model" width="220" height="220">`;
   }
 
 
