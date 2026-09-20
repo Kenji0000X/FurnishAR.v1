@@ -593,8 +593,28 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .capsule-rail {
   display: grid; gap: .75rem;
   justify-self: end;
-  width: min(100%, 22rem);
-  align-content: center;
+  /* 19rem, not 22: the rail and the room want the same pixels, and the room
+     is a sofa — the one object on a furniture site that has to be visible.
+     Every rem taken off here is a rem of sofa that stops being hidden behind
+     a category shortcut. */
+  width: min(100%, 19rem);
+
+  /*
+    High in the column, not centred in it.
+
+    The room is a wide, low object: the sofa, the table and the poufs all sit
+    in its bottom half, and the tall framed panel is the only thing up top.
+    A vertically centred rail lands exactly across that bottom half — it hid
+    the sofa, and it covered the coffee table's top while leaving its wire
+    legs poking out underneath, which reads as a loose piece of geometry
+    rather than a table.
+
+    Pushed up, the rail overlaps the panel instead, which is backdrop and
+    loses nothing. This is also what the reference does: pills high, object
+    low.
+  */
+  align-self: start;
+  margin-top: clamp(1rem, 9vh, 5rem);
 }
 
 .capsule-card {

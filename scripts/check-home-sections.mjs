@@ -267,18 +267,30 @@ const browser = await chromium.launch({
 /* ------------------------------------------- the room sits on the grid --- */
 {
   /*
-    The room must stay aligned with the layout, not with the viewport.
+    The room must hold the same place on the LAYOUT at every window shape.
 
-    This is the bug the first version shipped and nothing caught: the model
-    was placed at a fraction of the VIEWPORT while the capsule rail is pinned
-    to the max-width grid, so the two agreed at 1440x900 and drifted 80px
-    apart at 1344x682 — dead space on the right, the room crowding the
-    headline. No error, no overflow, no failing assertion. Just wrong.
+    This is the bug that shipped once and nothing caught: the model was
+    placed at a fraction of the VIEWPORT while the page's columns are pinned
+    to a max-width grid, so the two agreed at 1440x900 and drifted apart
+    everywhere else — dead space on one side, the room crowding the headline
+    on the other. No error, no overflow, no failing assertion. Just wrong.
 
-    So the assertion is the relationship: wherever the rail's right edge is,
-    the room's right edge is near it, at every window shape.
+    The assertion is therefore about CONSISTENCY, not about any one
+    composition. Where the room's right edge falls, as a fraction of the
+    content column, must be near enough the same at 1344x682 as at 1920x1000.
+    An earlier version of this check asserted the room lined up with the
+    capsule rail, which was true of the composition at the time and stopped
+    being true the moment the rail moved — a check that has to be rewritten
+    whenever the design changes is testing the design, not the mechanism.
+
+    Measured from painted pixels, via a small offscreen render target, rather
+    than by projecting the bounding box: an axis-aligned box around a rotated
+    room reported the furniture ending 200-280px further right than it
+    visibly does.
   */
   console.log('--- the room stays on the grid ---');
+  const seen = [];
+
   for (const [width, height] of [[1344, 682], [1440, 900], [1680, 1050], [1920, 1000]]) {
     const context = await browser.newContext({ viewport: { width, height } });
     const page = await context.newPage();
@@ -295,30 +307,52 @@ const browser = await chromium.launch({
 
     const m = await page.evaluate(() => {
       const bounds = window.__furnisharStageBounds();
-      const rail = document.querySelector('.capsule-rail').getBoundingClientRect();
       const hero = document.querySelector('.hero');
       const style = getComputedStyle(hero);
       const rect = hero.getBoundingClientRect();
-      const columnRight = rect.right - parseFloat(style.paddingRight);
-      return { bounds, railRight: rail.right, columnRight, vh: window.innerHeight };
+      const left = rect.left + parseFloat(style.paddingLeft);
+      const right = rect.right - parseFloat(style.paddingRight);
+      // The rightmost pixel of any text in the left-hand column.
+      const copy = document.querySelector('.hero-copy').getBoundingClientRect();
+      const lead = document.querySelector('.hero-text').getBoundingClientRect();
+      return {
+        bounds,
+        columnLeft: left,
+        columnRight: right,
+        columnWidth: right - left,
+        copyRight: Math.max(lead.right, copy.left),
+        vh: window.innerHeight
+      };
     });
 
-    // Within a capsule's own height of the rail: close enough to read as one
-    // composition, loose enough not to fail on a rotation of the model.
-    const drift = Math.abs(m.bounds.right - m.railRight);
-    check(drift < 70, `${width}x${height}: the room's right edge tracks the rail`,
-      `${Math.round(drift)}px apart`);
-
-    // And it must not spill past the grid into the gutter.
+    // Never into the gutter.
     check(m.bounds.right <= m.columnRight + 24,
-      `${width}x${height}: it stays inside the column`,
+      `${width}x${height}: stays inside the column`,
       `room ${Math.round(m.bounds.right)} vs column ${Math.round(m.columnRight)}`);
 
-    // Nor lose its legs below the fold.
-    check(m.bounds.bottom <= m.vh + 8, `${width}x${height}: the room fits above the fold`,
+    // Never below the fold — the room has legs and they should be on it.
+    check(m.bounds.bottom <= m.vh - 8, `${width}x${height}: fits above the fold`,
       `bottom ${Math.round(m.bounds.bottom)} of ${m.vh}`);
 
+    // Never over the lead paragraph.
+    check(m.bounds.left >= m.copyRight - 8, `${width}x${height}: clears the copy`,
+      `room starts ${Math.round(m.bounds.left)}, copy ends ${Math.round(m.copyRight)}`);
+
+    seen.push({
+      label: `${width}x${height}`,
+      atColumn: (m.bounds.right - m.columnLeft) / m.columnWidth
+    });
     await context.close();
+  }
+
+  if (seen.length > 1) {
+    const values = seen.map(s => s.atColumn);
+    const spread = Math.max(...values) - Math.min(...values);
+    // 8% of the column. The measured spread is about 2.5%; with the room
+    // anchored to the viewport instead it was far wider, which is the whole
+    // point of the check.
+    check(spread < 0.08, 'the room holds the same place on the column at every size',
+      seen.map(s => `${s.label} ${(s.atColumn * 100).toFixed(1)}%`).join(', '));
   }
 }
 
