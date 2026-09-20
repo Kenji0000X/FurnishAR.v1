@@ -48,25 +48,42 @@ import { useEffect, useRef, useState } from 'react';
  * keyframes is interpolated, so adding a section means adding a keyframe, not
  * writing another animation.
  *
- * Positions are in viewport-relative units: x is a fraction of the visible
- * width from centre, so the composition holds from 360px to 2560px instead of
- * drifting off the side of a wide monitor.
+ * Positions are measured against the PAGE'S CONTENT COLUMN, not the viewport:
+ * `x` is a fraction of the hero's content box from its centre, and `width` is
+ * the fraction of that box the room should span.
+ *
+ * That distinction is the whole reason this reads as composed rather than
+ * floated. The layout is a max-width grid with gutters — the capsule rail is
+ * pinned to the right of it, the headline to the left — so anything measured
+ * against the raw viewport instead drifts away from both as the window
+ * changes shape. It did: at 1440x900 the room's right edge lined up with the
+ * rail, and at 1344x682 it sat 80px short of it with dead space beyond,
+ * because a fixed fraction of a wider, shorter viewport is a different place
+ * on the grid. Measuring the grid itself makes the two move together.
+ *
+ * `y` stays viewport-relative, because vertical placement is about the fold,
+ * which is a property of the window rather than of the column.
  */
 const KEYFRAMES = [
   // Hero: right of the headline, tucked under the capsule rail.
-  { at: 0.00, x: 0.17, y: -0.01, scale: 0.94, rotY: -0.55, rotX: 0.07 },
+  // y is +0.05 rather than centred because the room's BOUNDING BOX centre is
+  // not its visual centre: the picture frame at the back is tall and empty,
+  // so a box-centred room reads as sitting low and loses its legs to the fold
+  // on a short window.
+  { at: 0.00, x: 0.25, y: 0.05, width: 0.42, rotY: -0.55, rotX: 0.07 },
   // Handing over to the story: swings left and turns to face the text.
   //
-  // The scale stays near 1 through all three. The first pass grew it to 1.16
-  // here on the theory that closer is more dramatic, and what it actually did
-  // was push the coffee table on top of the second paragraph and run the
-  // shelving off the left edge. The room is the page's companion through this
-  // stretch, not its subject — it moves and turns, it does not loom.
-  { at: 0.38, x: -0.27, y: -0.02, scale: 0.96, rotY: 0.30, rotX: 0.10 },
+  // The width stays near constant through all three. The first pass grew it
+  // to 1.16 here on the theory that closer is more dramatic, and what it
+  // actually did was push the coffee table on top of the second paragraph and
+  // run the shelving off the left edge. The room is the page's companion
+  // through this stretch, not its subject — it moves and turns, it does not
+  // loom.
+  { at: 0.38, x: -0.27, y: -0.02, width: 0.44, rotY: 0.30, rotX: 0.10 },
   // The three promises: settles, turning slowly.
-  { at: 0.72, x: -0.26, y: 0.00, scale: 1.02, rotY: 0.95, rotX: 0.06 },
+  { at: 0.72, x: -0.26, y: 0.00, width: 0.47, rotY: 0.95, rotX: 0.06 },
   // Leaves toward the catalogue.
-  { at: 1.00, x: -0.21, y: 0.08, scale: 0.96, rotY: 1.45, rotX: 0.03 }
+  { at: 1.00, x: -0.21, y: 0.08, width: 0.44, rotY: 1.45, rotX: 0.03 }
 ];
 
 /** Cubic ease-out — the curve the rest of the stylesheet already uses. */
@@ -90,7 +107,7 @@ function sample(progress) {
   return {
     x: mix(a.x, b.x),
     y: mix(a.y, b.y),
-    scale: mix(a.scale, b.scale),
+    width: mix(a.width, b.width),
     rotY: mix(a.rotY, b.rotY),
     rotX: mix(a.rotX, b.rotX)
   };
@@ -234,25 +251,117 @@ export default function HeroStage({ children }) {
         return null;
       }
 
-      // Normalise: whatever the author exported, it ends up 3 units across and
-      // centred on its own bounding box, so the keyframes above are about
-      // composition rather than about this particular file's origin.
+      // Normalise: whatever the author exported, it ends up exactly one unit
+      // on its longest axis and centred on its own bounding box. One unit,
+      // not some chosen size, because the keyframes now say how wide the room
+      // should be as a fraction of the page's column — so the scale is
+      // computed per frame from the layout rather than baked in here.
       const box = new THREE.Box3().setFromObject(model);
       const size = box.getSize(new THREE.Vector3());
       const centre = box.getCenter(new THREE.Vector3());
-      // 2.3 units across. The camera sees 3.3 units of height at this depth,
-      // so the room occupies a bit over half the frame and still has air
-      // around it — at 3 it ran off the bottom of a 900px window and fought
-      // the capsule rail for the same pixels.
-      const unit = 2.3 / Math.max(size.x, size.y, size.z);
+      const longest = Math.max(size.x, size.y, size.z);
+      const unit = 1 / longest;
       model.scale.setScalar(unit);
       model.position.copy(centre).multiplyScalar(-unit);
       pivot.add(model);
+
+      // How tall the room is once it is one unit wide. Used to stop a short
+      // window from cropping its legs off.
+      const aspectOfModel = size.y / longest;
+
+      /*
+        Where the room actually lands on screen, in CSS pixels.
+
+        Called on demand by scripts/check-home-sections.mjs, never per frame.
+        It exists because the bug it guards is invisible to every other kind
+        of test: the room drifting out of alignment with the capsule rail as
+        the window changes shape produced no error, no overflow and no failing
+        assertion — it just looked wrong, on one window size, to a person.
+
+        Projects the eight corners of the model's box through the camera and
+        takes their screen-space extent.
+      */
+      window.__furnisharStageBounds = () => {
+        /*
+          Renders one frame into a small offscreen target and reports the
+          extent of the pixels that actually came out opaque.
+
+          The obvious implementation — project the model's bounding box and
+          take its screen extent — was tried and is wrong for this question.
+          An axis-aligned box around a rotated room is much larger than the
+          room: it reported the furniture ending 200-280px further right than
+          it visibly does, consistently, at every window size. Consistently
+          wrong is the worst kind for a threshold, because it looks like a
+          real offset you could tune away.
+
+          128px wide is plenty to find an edge to within a few CSS pixels, and
+          keeps the readback small enough to be instant.
+        */
+        const probeW = 128;
+        const probeH = Math.max(1, Math.round((probeW * height) / Math.max(width, 1)));
+        const target = new THREE.WebGLRenderTarget(probeW, probeH);
+        const previous = renderer.getRenderTarget();
+        renderer.setRenderTarget(target);
+        renderer.render(scene, camera);
+        const pixels = new Uint8Array(probeW * probeH * 4);
+        renderer.readRenderTargetPixels(target, 0, 0, probeW, probeH, pixels);
+        renderer.setRenderTarget(previous);
+        target.dispose();
+
+        let minX = Infinity;
+        let maxX = -Infinity;
+        let minY = Infinity;
+        let maxY = -Infinity;
+        for (let y = 0; y < probeH; y += 1) {
+          for (let x = 0; x < probeW; x += 1) {
+            // Alpha above a threshold, so antialiased fringe pixels do not
+            // stretch the measurement by a column either side.
+            if (pixels[(y * probeW + x) * 4 + 3] <= 40) continue;
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+        if (minX === Infinity) return null;
+
+        const sx = width / probeW;
+        const sy = height / probeH;
+        // readRenderTargetPixels starts at the BOTTOM-left, so y flips.
+        return {
+          left: minX * sx,
+          right: (maxX + 1) * sx,
+          top: (probeH - 1 - maxY) * sy,
+          bottom: (probeH - minY) * sy
+        };
+      };
 
       setMode('live');
 
       let width = 0;
       let height = 0;
+      // The hero's content box, in canvas pixels: where the grid actually
+      // puts its columns, gutters and max-width included. Measured on resize
+      // rather than per frame — it only changes when the layout does.
+      let column = { centre: 0, width: 0 };
+
+      const measureColumn = () => {
+        const hero = wrap.querySelector('.hero');
+        const canvasRect = canvas.getBoundingClientRect();
+        if (!hero) {
+          column = { centre: width / 2, width };
+          return;
+        }
+        const rect = hero.getBoundingClientRect();
+        const style = getComputedStyle(hero);
+        const left = rect.left + parseFloat(style.paddingLeft || '0');
+        const right = rect.right - parseFloat(style.paddingRight || '0');
+        column = {
+          centre: (left + right) / 2 - canvasRect.left,
+          width: Math.max(right - left, 1)
+        };
+      };
+
       const resize = () => {
         const rect = canvas.getBoundingClientRect();
         width = rect.width;
@@ -261,6 +370,7 @@ export default function HeroStage({ children }) {
         renderer.setSize(width, height, false);
         camera.aspect = width / Math.max(height, 1);
         camera.updateProjectionMatrix();
+        measureColumn();
       };
       resize();
 
@@ -307,10 +417,37 @@ export default function HeroStage({ children }) {
           // added instead of subtracted and lifted the room straight into
           // the middle of the headline.
           y: k.y - 0.10,
-          // A portrait frame is short, and the room is a wide object.
-          scale: k.scale * 0.80,
+          // The column IS the screen on a phone, so a width that reads as
+          // generous beside a headline reads as enormous under one.
+          width: k.width * 1.85,
           rotY: k.rotY,
           rotX: k.rotX
+        };
+      };
+
+      /**
+       * Turns a keyframe into a position and a scale, against the layout.
+       *
+       * The scale is clamped by the window's height as well as the column's
+       * width: on a short, wide window (a laptop with browser chrome, which
+       * is most of them) a room sized purely by the column runs its legs off
+       * the bottom of the fold.
+       */
+      const place = k => {
+        const world = worldPerViewport();
+        const pxToWorld = world.x / Math.max(width, 1);
+
+        // Wide enough to fill its share of the column...
+        let scale = k.width * column.width * pxToWorld;
+        // ...but never so tall that the room cannot stand in the window.
+        const tallest = 0.82 * world.y;
+        if (scale * aspectOfModel > tallest) scale = tallest / aspectOfModel;
+
+        const centrePx = column.centre + k.x * column.width;
+        return {
+          x: (centrePx - width / 2) * pxToWorld,
+          y: k.y * world.y,
+          scale
         };
       };
 
@@ -332,9 +469,9 @@ export default function HeroStage({ children }) {
         spin += 0.0012;
 
         const k = forPhone(sample(current));
-        const world = worldPerViewport();
-        pivot.position.set(k.x * world.x, k.y * world.y, 0);
-        pivot.scale.setScalar(k.scale);
+        const at = place(k);
+        pivot.position.set(at.x, at.y, 0);
+        pivot.scale.setScalar(at.scale);
         pivot.rotation.y = k.rotY + spin;
         pivot.rotation.x = k.rotX;
 
@@ -354,7 +491,7 @@ export default function HeroStage({ children }) {
           Both are plain numbers, written once a frame, read by nothing in the
           app itself.
         */
-        window.__furnisharStagePose = { x: k.x, y: k.y, scale: k.scale, rotY: k.rotY };
+        window.__furnisharStagePose = { x: k.x, y: k.y, scale: at.scale, rotY: k.rotY };
         window.__furnisharStageInfo = {
           triangles: renderer.info.render.triangles,
           calls: renderer.info.render.calls
@@ -432,6 +569,10 @@ export default function HeroStage({ children }) {
           }
         });
         renderer.dispose();
+        // The probe closes over the scene it just disposed, so leaving it on
+        // window would hand the next route a function that reads freed GPU
+        // objects.
+        delete window.__furnisharStageBounds;
       };
     }
 
