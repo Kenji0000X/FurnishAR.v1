@@ -617,13 +617,27 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   margin-top: clamp(1rem, 9vh, 5rem);
 }
 
+/*
+   Category shortcuts, not calls to action.
+
+   These were three solid accent fills, which made the loudest colour on the
+   page belong to navigation rather than to the one thing a visitor should do.
+   The accent now appears once in the hero — on "Measure my space" — and these
+   sit on paper with a hairline, the way the rest of the page's surfaces do.
+*/
 .capsule-card {
   gap: .9rem;
   padding: .5rem 1.4rem .5rem .5rem;
-  background: var(--accent);
-  color: var(--on-accent);
+  border-color: var(--rule);
+  background: var(--paper-raised);
+  color: var(--ink);
 }
-.capsule-card:hover { background: var(--accent-ink); transform: translateX(-4px); }
+.capsule-card:hover {
+  border-color: var(--rule-strong);
+  background: var(--paper-raised);
+  transform: translateX(-4px);
+}
+.capsule-card .capsule-thumb { background: var(--paper-sunken); }
 
 /* The circular well the piece sits in — the reference's signature detail. */
 .capsule-thumb {
@@ -646,10 +660,20 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   its own circle, clipped to nothing — three white discs where three pieces
   of furniture should be. Anchoring the centre explicitly is the fix.
 */
-.capsule-thumb .furniture-illustration {
-  position: absolute; left: 50%; top: 50%;
-  transform: translate(-50%, -50%) scale(.26);
+.capsule-thumb .product-thumb {
+  width: 100%; height: 100%;
+  object-fit: contain;
+  padding: 6%;
+  mix-blend-mode: multiply;
 }
+/*
+   At 56px across there is no room for the words. The empty state keeps its
+   glyph and drops its label, and the accessible name on the wrapper still
+   says which product has no model — so the information survives even though
+   the sentence does not fit.
+*/
+.capsule-thumb .product-thumb-empty small { display: none; }
+.capsule-thumb .product-thumb-empty > span { font-size: 1.1rem; }
 
 .capsule-label { display: grid; gap: .1rem; line-height: 1.2; }
 .capsule-label b { font-size: 1rem; font-weight: 700; letter-spacing: -.02em; }
@@ -659,60 +683,20 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   opacity: .82;
 }
 
-/* --------------------------------------------------------- hero decor ---- */
 /*
-   The motes drifting around the room.
+   The hero decor is gone: eight elements that drifted with the scroll — two
+   centimetre tags, two corner brackets, three dots and a ring.
 
-   The reference orbits its hero with extra 3D props. These are DOM instead,
-   and drawn from the product's own measurement vocabulary rather than from
-   decoration: centimetre tags, framing brackets, a reticle. Each one is a
-   single transform written by one rAF pass, so eight of them cost about as
-   much as one.
+   They were built to echo the reference's orbiting props, and re-reading them
+   against the question "does this improve comprehension, navigation,
+   discovery, visualisation, trust, conversion or accessibility" the answer
+   was no for all eight. The tags came closest, because measurement is what
+   this product does — but they floated in empty space labelling nothing, which
+   is a functional costume on a decorative element rather than a function.
+
+   The room behind the headline already says the thing they were there to
+   say, and it says it by being the actual product.
 */
-
-.hero-decor {
-  position: absolute; inset: 0; z-index: -1;
-  pointer-events: none;
-  overflow: hidden;
-}
-.mote {
-  position: absolute;
-  will-change: transform;
-}
-
-.mote-tag {
-  padding: .3rem .55rem;
-  border: 1px solid var(--rule);
-  border-radius: 999px;
-  background: var(--glass);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  color: var(--ink-faint);
-  font-family: var(--mono); font-size: var(--micro);
-  letter-spacing: .12em; text-transform: uppercase;
-}
-
-.mote-bracket {
-  width: 26px; height: 26px;
-  border-left: 1.5px solid var(--accent);
-  border-top: 1.5px solid var(--accent);
-  opacity: .55;
-}
-.mote-bracket-flip { transform: rotate(180deg); }
-
-.mote-dot {
-  width: 5px; height: 5px;
-  border-radius: 50%;
-  background: var(--accent);
-  opacity: .4;
-}
-
-.mote-ring {
-  width: 34px; height: 34px;
-  border: 1.5px solid var(--ink-faint);
-  border-radius: 50%;
-  opacity: .3;
-}
 
 /* -------------------------------------------------------------- story ---- */
 /*
@@ -2269,7 +2253,7 @@ footer {
     display: block !important; min-height: 0 !important;
     padding: 1rem 0 !important;
   }
-  .hero-decor, .marquee-section { display: none !important; }
+  .marquee-section { display: none !important; }
   .promise h3, .promise p { opacity: 1 !important; }
   .capsule { display: none !important; }
 
@@ -2439,11 +2423,6 @@ footer {
   /* A phone is portrait, so the room reads better lower and larger than the
      desktop composition puts it — behind the copy rather than beside it. */
   .hero-stage-still { background-size: 92vw auto; background-position: center 72%; }
-  /* Two of the eight motes on a phone. They are atmosphere, and at 390px the
-     rest are clutter — the centimetre tags in particular landed on top of the
-     headline, because a percentage that clears the copy on a 1440px canvas
-     clears nothing on a 390px one. */
-  .mote-dot, .mote-ring, .mote-tag { display: none; }
   .marquee-card { width: clamp(168px, 58vw, 220px); }
   .section-heading { flex-direction: column; align-items: start; gap: .5rem; }
   /* minmax(0, …) for the same reason as the layout tracks above: a bare 1fr
