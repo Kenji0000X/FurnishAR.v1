@@ -552,6 +552,17 @@ export default function Portal({ initialProducts }) {
   const isFree = plan === 'freemium';
   const units = ownProducts.reduce((sum, product) => sum + product.stock, 0);
   const value = ownProducts.reduce((sum, product) => sum + product.price * product.stock, 0);
+  /*
+    How many listings a shopper can actually stand in their room.
+
+    This is the shop's most actionable number and it was nowhere on the
+    dashboard: a store could list ten pieces, have models for two, and see a
+    confident "10 listed products" with no hint that eight of them cannot do
+    the one thing this platform is for. The per-row note said so, but only if
+    you read every row.
+  */
+  const placeable = ownProducts.filter(product => product.modelGlb).length;
+  const missingModels = ownProducts.length - placeable;
 
   return (
     <section className="dashboard">
@@ -577,9 +588,24 @@ export default function Portal({ initialProducts }) {
           <span>Listed products</span>
           <strong>{ownProducts.length}{isFree ? `/${FREEMIUM_LIMIT}` : ''}</strong>
         </div>
+        <div className="inventory-stat">
+          <span>Can be placed in AR</span>
+          <strong>{placeable}<small>/{ownProducts.length}</small></strong>
+        </div>
         <div className="inventory-stat"><span>Units available</span><strong>{units}</strong></div>
         <div className="inventory-stat"><span>Catalog value</span><strong>{peso(value)}</strong></div>
       </div>
+
+      {/* Said once, plainly, with the number — rather than leaving it to be
+          inferred from reading every row of the table. */}
+      {missingModels > 0 && (
+        <p className="dashboard-nudge">
+          <b>{missingModels} {missingModels === 1 ? 'listing has' : 'listings have'} no 3D model.</b>
+          {' '}Shoppers can see {missingModels === 1 ? 'it' : 'them'} and read the
+          measurements, but cannot place {missingModels === 1 ? 'it' : 'them'} in
+          their room. Add a <code>.glb</code> from Edit to change that.
+        </p>
+      )}
 
       <section className="plan-section" aria-labelledby="plan-title">
         <div className="section-heading">
@@ -600,13 +626,31 @@ export default function Portal({ initialProducts }) {
             {ownProducts.length ? ownProducts.map(product => (
               <tr key={product.id}>
                 <td>
-                  {product.name}
-                  <small>
-                    {product.category} · {product.color}
-                    {product.modelGlb
-                      ? ' · 3D model'
-                      : <span className="missing-model"> · no 3D model — will not show in AR</span>}
-                  </small>
+                  <div className="inventory-product">
+                    {/* Their own render, so a shop can tell their listings
+                        apart at a glance rather than by reading names. */}
+                    {product.thumbnail ? (
+                      <img
+                        className="inventory-thumb"
+                        src={product.thumbnail}
+                        alt=""
+                        width="48"
+                        height="48"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <span className="inventory-thumb inventory-thumb-empty" aria-hidden="true">⬚</span>
+                    )}
+                    <span>
+                      {product.name}
+                      <small>
+                        {product.category} · {product.color}
+                        {product.modelGlb
+                          ? ' · 3D model'
+                          : <span className="missing-model"> · no 3D model — will not show in AR</span>}
+                      </small>
+                    </span>
+                  </div>
                 </td>
                 <td>
                   {product.dimensions.width} × {product.dimensions.depth} × {product.dimensions.height} cm
