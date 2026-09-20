@@ -1229,11 +1229,61 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .card-heading p { margin-bottom: .3rem; }
 .card-heading h2 { font-size: 1.05rem; letter-spacing: -.02em; }
 
-.planner-product { border: 1px solid var(--rule); margin-bottom: 1rem; }
-.planner-product-inner { display: flex; align-items: center; gap: 1rem; padding: 1rem; }
+.planner-product { margin-bottom: 1rem; }
+
+/* The list of pieces that can actually be placed. One selection out of
+   several, so it is a radiogroup and each row is a radio. */
+.planner-choices { display: grid; gap: .5rem; }
+
+.planner-choice {
+  display: flex; align-items: center; gap: .9rem;
+  width: 100%;
+  padding: .7rem;
+  border: 1px solid var(--rule);
+  background: var(--paper-raised);
+  text-align: left;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              background var(--dur-fast) var(--ease-out);
+}
+.planner-choice:hover { border-color: var(--rule-strong); }
+/* The selected piece is marked by a filled edge AND by the accent rule, so it
+   does not depend on colour alone — aria-checked carries it for a screen
+   reader, and the bar carries it for someone who cannot distinguish the
+   border tint. */
+.planner-choice.is-current {
+  border-color: var(--rule-strong);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.planner-choice-text { display: grid; gap: .1rem; min-width: 0; }
+.planner-choice-text b { font-size: .875rem; letter-spacing: -.01em; }
+.planner-choice-text small {
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .1em; color: var(--ink-faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Shown when a shopper followed a link for a piece that has no model. It says
+   what happened and what they can do, which is why it is a note and not an
+   error state — nothing went wrong, the shop simply has not uploaded one. */
+.planner-unplaceable {
+  margin-bottom: .6rem;
+  padding: .7rem .8rem;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  background: var(--paper-raised);
+  font-size: .8125rem; line-height: 1.5; color: var(--ink-muted);
+}
+.planner-unplaceable b { color: var(--ink); }
+
+.planner-empty {
+  padding: 1rem;
+  border: 1px solid var(--rule);
+  background: var(--paper-raised);
+  font-size: .8125rem; color: var(--ink-muted);
+}
 .planner-product-thumb {
-  flex: 0 0 96px;
-  width: 96px; height: 96px;
+  flex: 0 0 64px;
+  width: 64px; height: 64px;
   object-fit: contain;
   background: var(--paper-sunken);
   border: 1px solid var(--rule);
@@ -1243,8 +1293,7 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .planner-product-thumb { mix-blend-mode: normal; }
 }
-.planner-product h3 { font-size: .9375rem; }
-.planner-product p { font-family: var(--mono); font-size: var(--micro); color: var(--ink-faint); }
+
 .planner-card .button { width: 100%; }
 
 .card-copy { margin-bottom: 1.2rem; color: var(--ink-muted); font-size: .8125rem; }
@@ -1389,8 +1438,40 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .inventory-stat { padding: 1rem 1.1rem; border: 1px solid var(--rule); background: var(--paper-raised); }
 .inventory-stat span { display: block; margin-bottom: .4rem; }
 .inventory-stat strong { font-family: var(--mono); font-size: 1.5rem; letter-spacing: -.04em; }
+/* "7/12" — the denominator is the quieter half of one number, not a caption,
+   so it sits on the same baseline rather than dropping to its own line the
+   way every other `small` in this table does. */
+.inventory-stat strong small {
+  font-family: inherit; font-size: .7em; color: var(--ink-faint);
+  display: inline; margin: 0; letter-spacing: -.02em;
+}
 
-.inventory-table-wrap { border: 1px solid var(--rule); background: var(--paper-raised); overflow-x: auto; }
+/*
+   The count above says how many listings cannot be placed in a room; this
+   says what that costs the shopper and what to do about it. It is deliberately
+   not styled as an error — nothing is broken, and a shop that sells lamps it
+   has no model for is not doing anything wrong.
+*/
+.dashboard-nudge {
+  margin: .75rem 0 0;
+  padding: .85rem 1.1rem;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  background: var(--paper-raised);
+  font-size: .8125rem; line-height: 1.55; color: var(--ink-muted);
+}
+.dashboard-nudge b { color: var(--ink); }
+.dashboard-nudge code { font-family: var(--mono); font-size: .9em; }
+
+/*
+   `position: relative` is load-bearing, not tidiness. The "Actions" column
+   header is a .sr-only span — absolutely positioned, one pixel wide, sitting
+   at x≈571 in a table 683px wide. A scroll container only clips descendants it
+   is the containing block for, so while this was static that one span escaped
+   the scroll box and dragged the whole page's scrollWidth to 572 on a 390px
+   phone: the dashboard scrolled sideways, and the table scrolled too.
+*/
+.inventory-table-wrap { position: relative; border: 1px solid var(--rule); background: var(--paper-raised); overflow-x: auto; }
 .inventory-table-wrap table { width: 100%; border-collapse: collapse; font-size: .8125rem; }
 .inventory-table-wrap thead tr { border-bottom: 1px solid var(--rule-strong); }
 .inventory-table-wrap th {
@@ -1404,6 +1485,26 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .inventory-table-wrap td:first-child { font-weight: 500; }
 .inventory-table-wrap td small { display: block; margin-top: .2rem; font-family: var(--mono); font-size: var(--micro); color: var(--ink-faint); }
 .table-actions { display: flex; gap: .4rem; justify-content: end; }
+
+/*
+   A shop's own listings, told apart by sight rather than by reading names.
+   The picture is the render of that product's own model and nothing else —
+   there is no stock image and no placeholder photograph here, so a row with
+   no model gets an empty frame that says so instead of borrowing one.
+*/
+.inventory-product { display: flex; align-items: flex-start; gap: .7rem; }
+.inventory-thumb {
+  flex: 0 0 auto; width: 48px; height: 48px;
+  border: 1px solid var(--rule); background: var(--paper-sunken);
+  object-fit: contain;
+}
+.inventory-thumb-empty {
+  display: grid; place-items: center;
+  font-size: 1.1rem; line-height: 1;
+  color: var(--ink-faint);
+  border-style: dashed;
+}
+.inventory-product > span { min-width: 0; }
 
 /* -------------------------------------------------------------- bands ---- */
 /*

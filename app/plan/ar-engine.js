@@ -503,11 +503,79 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     renderPlanner();
   }
 
+  /* Only pieces that can actually be placed.
+     A planner listing a product with no model would offer a choice that
+     cannot be taken — you arrive at the scan step with nothing to put in the
+     room. */
+  function placeable() {
+    return state.products.filter(item => item.modelGlb);
+  }
+
   function renderPlanner() {
-    if (!state.selected) state.selected = state.products[0] || null;
+    const options = placeable();
+    /*
+       The piece somebody explicitly asked for is never swapped out.
+
+       An earlier version of this reassigned the selection to the first
+       placeable product whenever the current one had no model — which meant
+       opening /plan?product=<a-piece-with-no-model> quietly put a DIFFERENT
+       chair in the planner, sized the fit verdict to it, and never said a
+       word. The honest answer ("this piece has no 3D model uploaded") is the
+       one thing that must not be replaced by a picture of something else.
+
+       So the list offers only what can be placed, and a request for something
+       that cannot is kept and explained.
+    */
+    if (!state.selected) state.selected = options[0] || null;
     const product = state.selected;
+    const unplaceable = Boolean(product) && !product.modelGlb;
+
+    /*
+       The card is titled "Pick a product" and, until now, presented no way to
+       pick one: it rendered the single product you arrived with as static
+       markup. selectProduct() existed and worked; nothing ever called it from
+       the UI. So somebody who opened the planner from the nav rather than from
+       a product page got whichever piece happened to be first, with no
+       indication that it was a choice at all.
+
+       It is a real list now — a radiogroup, because this is one selection out
+       of several and that is what a screen reader should be told.
+    */
+    const picker = $('#planner-product');
+    if (!picker) return;
+
+    if (!options.length) {
+      picker.innerHTML = `<p class="planner-empty">No piece in the catalogue has a 3D model yet,
+        so there is nothing to place. You can still measure your room below.</p>`;
+    } else {
+      // Named, not hidden. The shopper followed a link for this piece; they
+      // are owed the reason it is not in the list below.
+      const notice = unplaceable
+        ? `<p class="planner-unplaceable"><b>${escapeHtml(product.name)} has no 3D model yet,</b>
+             so it cannot be placed in your room. Its measurements are still checked
+             below. Pick one of these to place instead:</p>`
+        : '';
+      picker.innerHTML = `${notice}<div class="planner-choices" role="radiogroup" aria-label="Choose a piece to place">
+        ${options.map(item => {
+          const current = product && item.id === product.id;
+          return `<button type="button" class="planner-choice${current ? ' is-current' : ''}"
+            role="radio" aria-checked="${current ? 'true' : 'false'}" data-product-id="${escapeHtml(item.id)}">
+            ${furniture(item)}
+            <span class="planner-choice-text">
+              <b>${escapeHtml(item.name)}</b>
+              <small>${escapeHtml(item.store)}</small>
+              <small>${item.dimensions.width} W × ${item.dimensions.depth} D × ${item.dimensions.height} H</small>
+            </span>
+          </button>`;
+        }).join('')}
+      </div>`;
+
+      for (const button of picker.querySelectorAll('[data-product-id]')) {
+        button.addEventListener('click', () => selectProduct(button.dataset.productId));
+      }
+    }
+
     if (!product) return;
-    $('#planner-product').innerHTML = `<div class="planner-product-inner">${furniture(product)}<div><h3>${escapeHtml(product.name)}</h3><p>${escapeHtml(product.store)}</p><p>${product.dimensions.width} W × ${product.dimensions.depth} D × ${product.dimensions.height} H</p></div></div>`;
     $('#check-width').textContent = cm(product.dimensions.width);
     $('#check-depth').textContent = cm(product.dimensions.depth);
     const arProductName = $('#ar-product-name');
@@ -1661,8 +1729,15 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
      wiring that now lives in React. */
 
   state.products = products;
+  /* An explicit ?product= wins outright, model or no model — see renderPlanner.
+     With no request to honour, the default is the first piece that can actually
+     be placed, so arriving at /plan from the nav does not open on a product the
+     planner cannot do anything with. */
   state.selected =
-    products.find(item => item.id === selectedId || item.slug === selectedId) || products[0] || null;
+    products.find(item => item.id === selectedId || item.slug === selectedId)
+    || products.find(item => item.modelGlb)
+    || products[0]
+    || null;
 
   await initGeometry();
 
