@@ -19,6 +19,9 @@
  */
 'use client';
 
+import { resolveScale } from '../../lib/spatial/model-scale.mjs';
+import { OneEuroFilter, Steadiness, displayPrecision } from '../../lib/spatial/smoothing.mjs';
+
 /**
  * Wires the planner up to the DOM the page has already rendered.
  *
@@ -100,6 +103,12 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
   }
 
 
+  /* The live reading's stabiliser and its steadiness window. One per planner
+     instance, reset between measurements rather than shared globally. */
+  const liveFilter = new OneEuroFilter();
+  const liveSteadiness = new Steadiness(30);
+  let liveSeries = null;   // which quantity the filter is currently tracking
+
   /* ===== Planner state and DOM helpers ===== */
   const state = {
     products: [],
@@ -128,7 +137,6 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     arMode: null,
     placementConfirmed: false,
     viewerYaw: 0,
-    pixelsPerCm: null,
     ownProducts: [],
     measureMode: 'clearance',
     areaPoints: [],
@@ -147,7 +155,6 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     <div id="fallback-product" class="ar-stage"></div>
     <div id="ar-reticle" class="ar-reticle" aria-hidden="true"><span></span></div>
     <div id="ar-anchor-chip" class="ar-anchor-chip glass" hidden><b id="anchor-primary"></b><i id="anchor-secondary"></i></div>
-    <svg id="ar-measure-line" class="ar-measure-line" aria-hidden="true" hidden><line x1="0" y1="0" x2="0" y2="0" /><circle id="measure-dot-a" r="7" /><circle id="measure-dot-b" r="7" /></svg>
     <header class="ar-bar">
       <div class="ar-title glass">
         <strong id="ar-product-name"></strong>
@@ -293,19 +300,71 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     if (hint && hint.textContent !== text) hint.textContent = text;
   }
 
-  function updateLiveMeasurementDisplay(distanceInMeters, caption = '') {
+  /**
+   * The live reading, smoothed, and never quoted more precisely than it is.
+   *
+   * This used to print the raw per-frame hit-test distance to one decimal of a
+   * centimetre and to the millimetre. A hit-test pose moves every frame even
+   * on a motionless phone, so at 60 Hz those fields flickered through a couple
+   * of centimetres of noise — the exact 2.91 / 2.96 / 2.88 problem — and the
+   * millimetre field claimed three digits of precision the tracker was not
+   * delivering.
+   *
+   * Now: the value passes through a One Euro filter (steady when still, and
+   * still responsive when the phone moves), and how many digits are shown
+   * follows the tracker's observed steadiness rather than being fixed.
+   */
+  function updateLiveMeasurementDisplay(distanceInMeters, caption = '', series = caption) {
     const panel = $('#live-measurement');
-    if (!panel) return;
-    $('#live-cm').textContent = `${(distanceInMeters * 100).toFixed(1)} cm`;
-    $('#live-mm').textContent = `${(distanceInMeters * 1000).toFixed(0)} mm`;
-    $('#live-m').textContent = `${distanceInMeters.toFixed(3)} m`;
-    $('#live-caption').textContent = caption;
+    if (!panel) return null;
+
+    // "Phone to surface" and "point A to target" are different quantities. A
+    // filter carried across the switch would spend a second easing from one
+    // to the other and show a distance that is neither, so each series
+    // acquires from scratch.
+    if (series !== liveSeries) {
+      liveSeries = series;
+      resetLiveMeasurement();
+    }
+
+    const smoothed = liveFilter.filter(distanceInMeters, performance.now());
+    liveSteadiness.push(smoothed);
+    const spread = liveSteadiness.spread();
+    const { decimals, trustworthy } = displayPrecision(spread);
+
+    $('#live-cm').textContent = `${(smoothed * 100).toFixed(decimals)} cm`;
+    // The millimetre field only exists while a millimetre is meaningful. An
+    // empty dash is honest; a number that is three-quarters noise is not.
+    $('#live-mm').textContent = decimals >= 1 ? `${(smoothed * 1000).toFixed(0)} mm` : '—';
+    $('#live-m').textContent = `${smoothed.toFixed(decimals >= 1 ? 3 : 2)} m`;
+
+    // §11/§32: say when the reading is not yet worth trusting, rather than
+    // presenting an unsettled number as a fact.
+    const steadyNote = liveSteadiness.ready && !trustworthy
+      ? 'holding steady…'
+      : '';
+    $('#live-caption').textContent = [caption, steadyNote].filter(Boolean).join(' · ');
+    panel.dataset.steady = trustworthy ? 'yes' : 'no';
     panel.hidden = false;
+
+    // Handed back so the fit verdict uses the number on screen, not a
+    // different one computed from the same frame.
+    return { metres: smoothed, trustworthy, spread };
+  }
+
+  /** Dropped whenever a measurement ends, so the next one acquires cleanly
+      instead of easing out of the previous span's value. */
+  function resetLiveMeasurement() {
+    liveFilter.reset();
+    liveSteadiness.reset();
   }
 
   function hideLiveMeasurement() {
     const panel = $('#live-measurement');
     if (panel) panel.hidden = true;
+    // Whatever comes back next is a new span, not a continuation of this one.
+    liveSeries = null;
+    resetLiveMeasurement();
   }
 
   /* Spatial UI: a small chip pinned to the model's own screen position, so the
@@ -778,6 +837,12 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     if (issue.kind === 'network') {
       return `The model could not be reached. Check your connection and try again.${measure}`;
     }
+    // The file is fine; its scale is not. Placing it would mean guessing how
+    // big it is, and a guessed size in somebody's room is worse than no
+    // preview at all — the measurements below are still true.
+    if (issue.kind === 'unknown-scale') {
+      return `${issue.detail}${measure}`;
+    }
     return `3D preview unavailable on this device.${measure}`;
   }
 
@@ -860,14 +925,41 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
         });
       });
 
+      /*
+         How big is this, really? One question, answered in one place
+         (lib/spatial/model-scale.mjs), and the answer is always ONE factor.
+
+         This used to compute three independent factors and apply them, which
+         forced the mesh into whatever box the shop had typed — squeezing the
+         cane-back armchair, whose geometry measures 79.3 × 88.5 × 100.0 cm,
+         into a listed 70 × 78 × 88. The shopper then judged a piece of
+         furniture that does not exist, and the fit verdict answered for it.
+
+         glTF's unit is the metre, so a correct export already carries true
+         scale and is the only measured quantity here; the typed dimensions
+         are a human's claim about the same object. The claim is now a
+         cross-check that surfaces disagreement, not an instruction that
+         silently overrules the geometry.
+      */
       const bbox = new THREE.Box3().setFromObject(model);
       const size = bbox.getSize(new THREE.Vector3());
-      const targetBounds = product.modelBounds || product.dimensions;
-      const scaleX = (targetBounds.width / 100) / Math.max(size.x, 0.0001);
-      const scaleY = (targetBounds.height / 100) / Math.max(size.y, 0.0001);
-      const scaleZ = (targetBounds.depth / 100) / Math.max(size.z, 0.0001);
+      const decision = resolveScale({
+        meshExtent: { width: size.x, depth: size.z, height: size.y },
+        declaredCm: product.dimensions,
+        overrideCm: product.modelBounds || null
+      });
+      state.scaleDecision = decision;
 
-      model.scale.set(scaleX, scaleY, scaleZ);
+      if (!decision.usable) {
+        // No honest size exists for this file, so it is not placed in anyone's
+        // room at a guessed one. §24: never silently return false data.
+        state.modelIssue = { kind: 'unknown-scale', detail: decision.message };
+        console.error(`[AR] ${product.name}: ${decision.message}`);
+        return null;
+      }
+
+      model.scale.setScalar(decision.scale);
+      if (decision.verdict !== 'agrees') console.warn(`[AR] ${product.name}: ${decision.message}`);
 
       const scaledBbox = new THREE.Box3().setFromObject(model);
       const center = scaledBbox.getCenter(new THREE.Vector3());
@@ -884,7 +976,11 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
         }
       });
 
-      console.log(`[AR] ${product.name} scaled to ${targetBounds.width}×${targetBounds.height}×${targetBounds.depth} cm`);
+      const shown = decision.actualCm;
+      console.log(
+        `[AR] ${product.name} at ${shown.width}×${shown.depth}×${shown.height} cm ` +
+        `(×${decision.scale.toFixed(4)} from ${decision.units.unit}, source: ${decision.source})`
+      );
       return model;
     } catch (error) {
       state.modelIssue = await diagnoseModelFailure(modelPath, error);
@@ -1105,9 +1201,22 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
           updateLiveAreaDisplay(hitPos, pose);
         } else if (hitPos && state.arPoints.length === 1) {
           const liveDistanceM = distanceBetween(state.arPoints[0], hitPos);
-          updateLiveMeasurementDisplay(liveDistanceM, state.arNeedsConfirmation ? 'confirming span' : 'point A → target');
-          // Feed the planner live so the fit verdict tracks the phone in real time.
-          applyLiveClearance(liveDistanceM * 100);
+          const shown = updateLiveMeasurementDisplay(
+            liveDistanceM,
+            state.arNeedsConfirmation ? 'confirming span' : 'point A → target'
+          );
+          /*
+             Feed the planner the SAME number the readout is showing.
+
+             This used to pass the raw per-frame distance while the panel
+             above showed something else, so the fit verdict flickered between
+             "fits" and "needs more clearance" on tracker noise alone, and
+             disagreed with the figure the user was reading at the time.
+
+             And only once the reading has settled: a verdict computed from a
+             value still visibly moving is a guess wearing a tick or a cross.
+          */
+          if (shown?.trustworthy) applyLiveClearance(shown.metres * 100);
         } else if (hitPos) {
           const viewerPos = pose.transform.position;
           updateLiveMeasurementDisplay(distanceBetween(viewerPos, hitPos), 'phone → surface');
@@ -1440,7 +1549,29 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     });
 
     bindPreviewGestures(stage, () => placementConfirmed || !isPlacement);
-    if (!isPlacement) bindPreviewRuler(stage, product);
+
+    /*
+       There is deliberately no ruler here any more.
+
+       This view used to let you drag a finger across the picture and read off
+       a distance in centimetres. The number came from
+       `pixels / state.pixelsPerCm`, where the scale factor was obtained by
+       projecting the VIRTUAL model's bounding box to screen space — so it was
+       only ever valid at the exact depth the virtual chair happened to be
+       floating at. Drag across a doorway three metres further back and the
+       reading was badly wrong, with nothing to say so. It was labelled an
+       "estimate", but it wrote into the same field as a tracked WebXR reading
+       and drove the same fit verdict.
+
+       A single camera with no tracking and no depth cannot measure a room.
+       Pretending otherwise is the failure mode this whole feature exists to
+       avoid, so the honest fallback is the measurement fields: a number the
+       person got from a tape measure, which they know the provenance of.
+    */
+    if (!isPlacement) {
+      setHint('This preview shows the piece at its real size, but cannot measure your room — '
+        + 'this device has no AR tracking. Enter a tape-measure reading in the fields below.');
+    }
 
     const tick = () => {
       if (!state.fallbackRender) return;
@@ -1458,7 +1589,6 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       }
 
       renderer.render(scene, camera);
-      state.pixelsPerCm = measurePixelsPerCm(modelRoot, camera);
       if (isPlacement) updatePlacementChip(modelRoot, camera, product);
       requestAnimationFrame(tick);
     };
@@ -1473,16 +1603,6 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
 
   /* Screen scale derived from the model's known true width at its current depth.
      It is what makes the preview ruler read in centimetres. */
-  function measurePixelsPerCm(modelRoot, camera) {
-    if (!THREE) return null;
-    const box = new THREE.Box3().setFromObject(modelRoot);
-    const size = box.getSize(new THREE.Vector3());
-    const centre = box.getCenter(new THREE.Vector3());
-    const left = projectToScreen(new THREE.Vector3(centre.x - size.x / 2, centre.y, centre.z), camera);
-    const right = projectToScreen(new THREE.Vector3(centre.x + size.x / 2, centre.y, centre.z), camera);
-    if (!left || !right || size.x <= 0) return null;
-    return Math.hypot(right.x - left.x, right.y - left.y) / (size.x * 100);
-  }
 
   /* Touch gestures stay available and write into the same transform the tray
      uses, so the two never disagree. */
@@ -1529,49 +1649,6 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     ['touchend', 'touchcancel'].forEach(type => stage.addEventListener(type, () => { pinchDistance = null; lastAngle = null; }, { passive: true }));
   }
 
-  /* Real-time ruler for devices without WebXR: drag across the opening and the
-     span is read off the on-screen scale of the product itself. */
-  function bindPreviewRuler(stage, product) {
-    const svg = $('#ar-measure-line');
-    const line = svg.querySelector('line');
-    const dotA = $('#measure-dot-a');
-    const dotB = $('#measure-dot-b');
-    let origin = null;
-
-    const draw = (from, to) => {
-      // SVGElement has no `hidden` IDL property — the attribute has to go directly.
-      svg.removeAttribute('hidden');
-      line.setAttribute('x1', from.x); line.setAttribute('y1', from.y);
-      line.setAttribute('x2', to.x); line.setAttribute('y2', to.y);
-      dotA.setAttribute('cx', from.x); dotA.setAttribute('cy', from.y);
-      dotB.setAttribute('cx', to.x); dotB.setAttribute('cy', to.y);
-    };
-
-    const readout = (from, to) => {
-      if (!state.pixelsPerCm) return;
-      const centimetres = Math.hypot(to.x - from.x, to.y - from.y) / state.pixelsPerCm;
-      updateLiveMeasurementDisplay(centimetres / 100, `estimate · scaled to ${product.dimensions.width} cm reference`);
-      applyLiveClearance(centimetres);
-    };
-
-    stage.addEventListener('pointerdown', event => {
-      origin = { x: event.clientX, y: event.clientY };
-      draw(origin, origin);
-      readout(origin, origin);
-    });
-
-    stage.addEventListener('pointermove', event => {
-      if (!origin) return;
-      const point = { x: event.clientX, y: event.clientY };
-      draw(origin, point);
-      readout(origin, point);
-    });
-
-    ['pointerup', 'pointercancel'].forEach(type => stage.addEventListener(type, () => {
-      if (origin) setHint('Reading saved to the planner. Drag again to re-measure.');
-      origin = null;
-    }));
-  }
 
   /* Opens the rear camera for the preview layer. */
   async function startCameraStream() {
@@ -1707,7 +1784,6 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     // Stops the preview render loop, which bails out as soon as this is cleared.
     state.fallbackRender?.renderer?.dispose();
     state.fallbackRender = null;
-    state.pixelsPerCm = null;
     state.viewerYaw = 0;
 
     state.cameraStream?.getTracks().forEach(track => track.stop());
