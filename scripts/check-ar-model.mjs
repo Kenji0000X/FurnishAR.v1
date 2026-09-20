@@ -137,15 +137,31 @@ const browser = await chromium.launch({
   args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream']
 });
 const problems = [];
+/* Whatever the page said during the case being run. Replaced per case so a
+   failure is reported with its own console output and nobody else's. */
+let pageLog = [];
 const check = (label, ok, detail = '') => {
   console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${label}${detail ? ` — ${detail}` : ''}`);
-  if (!ok) problems.push(label);
+  if (ok) return;
+  problems.push(label);
+  for (const line of pageLog) console.log(`       page: ${line}`);
 };
 
 /** Opens one product straight into AR and returns what the stage says. */
 async function launchAR(productId) {
+  pageLog = [];
   const context = await browser.newContext({ permissions: ['camera'] });
   const page = await context.newPage();
+  // Kept, not printed. When a case fails, the reason is almost always in the
+  // page's own console — an exception inside the load path gets caught,
+  // diagnosed as "corrupt file", and the real cause ("targetBounds is not
+  // defined") never reaches the person reading the check. These are held and
+  // printed only alongside a failure, so a green run stays quiet.
+  page.on('console', m => {
+    const text = m.text();
+    if (/\[AR\]|Error|is not a function|is not defined/i.test(text)) pageLog.push(text.slice(0, 300));
+  });
+  page.on('pageerror', error => pageLog.push(`PAGEERROR ${error.message}`));
   await page.goto(`http://127.0.0.1:${APP_PORT}/plan?product=${productId}`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(2500);
   await page.click('#ar-button').catch(() => {});
