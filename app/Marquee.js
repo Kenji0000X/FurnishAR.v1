@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useRef } from 'react';
-import FurnitureIllustration from './FurnitureIllustration.js';
+import ProductThumb from './ProductThumb.js';
 import { peso } from './format.js';
 
 /**
@@ -131,7 +131,7 @@ export default function Marquee({ products }) {
               const card = (
                 <figure className="marquee-card" key={`${copy.key}-${product.id}`}>
                   <div className="marquee-art">
-                    <FurnitureIllustration product={product} />
+                    <ProductThumb product={product} sizes="260px" />
                   </div>
                   <figcaption>
                     <b>{product.name}</b>
