@@ -64,26 +64,47 @@ import { useEffect, useRef, useState } from 'react';
  * `y` stays viewport-relative, because vertical placement is about the fold,
  * which is a property of the window rather than of the column.
  */
+/*
+ * A NOTE ON THE ANGLES, BECAUSE THEY ARE NOT ARBITRARY
+ *
+ * This room is a wide object: a sectional sofa with a chaise, a shelving
+ * unit and a tall framed panel behind it. Turned end-on it collapses — the
+ * sofa foreshortens into a stub, the panel becomes the biggest thing on
+ * screen, and the whole scene reads as a pile of objects rather than a room.
+ * Turned open, the sofa spreads, the chaise reads, the panel falls back into
+ * being a backdrop and the poufs and table stage themselves in front of it.
+ *
+ * Rendered every 0.25rad from -1.10 to +0.75 and then finer around the
+ * promising ones. The useful window is roughly -0.3 to +0.8, and it is best
+ * around +0.35. Outside that, both ends look the same kind of wrong.
+ *
+ * The first version ran -0.55 -> 1.45, which started just outside the good
+ * window and ended well past it: the hero was foreshortened, and by the last
+ * section the room had turned end-on again. The whole track now lives inside
+ * the window, so every frame of the scroll is an angle the room actually
+ * looks good at, and the travel is a turn rather than a full revolution.
+ */
 const KEYFRAMES = [
   // Hero: right of the headline, tucked under the capsule rail.
-  // y is +0.05 rather than centred because the room's BOUNDING BOX centre is
-  // not its visual centre: the picture frame at the back is tall and empty,
-  // so a box-centred room reads as sitting low and loses its legs to the fold
-  // on a short window.
-  { at: 0.00, x: 0.25, y: 0.05, width: 0.42, rotY: -0.55, rotX: 0.07 },
-  // Handing over to the story: swings left and turns to face the text.
   //
-  // The width stays near constant through all three. The first pass grew it
-  // to 1.16 here on the theory that closer is more dramatic, and what it
+  // y is +0.05 rather than centred because the room's BOUNDING BOX centre is
+  // not its visual centre: the framed panel at the back is tall and empty, so
+  // a box-centred room reads as sitting low and loses its legs to the fold on
+  // a short window.
+  { at: 0.00, x: 0.14, y: 0.11, width: 0.48, rotY: 0.35, rotX: 0.16 },
+  // Handing over to the story: crosses to the left and keeps turning.
+  //
+  // The width stays near constant through all four. An early version grew it
+  // to 1.16x here on the theory that closer is more dramatic, and what it
   // actually did was push the coffee table on top of the second paragraph and
   // run the shelving off the left edge. The room is the page's companion
   // through this stretch, not its subject — it moves and turns, it does not
   // loom.
-  { at: 0.38, x: -0.27, y: -0.02, width: 0.44, rotY: 0.30, rotX: 0.10 },
+  { at: 0.38, x: -0.31, y: -0.02, width: 0.50, rotY: 0.52, rotX: 0.15 },
   // The three promises: settles, turning slowly.
-  { at: 0.72, x: -0.26, y: 0.00, width: 0.47, rotY: 0.95, rotX: 0.06 },
+  { at: 0.72, x: -0.30, y: 0.00, width: 0.52, rotY: 0.68, rotX: 0.12 },
   // Leaves toward the catalogue.
-  { at: 1.00, x: -0.21, y: 0.08, width: 0.44, rotY: 1.45, rotX: 0.03 }
+  { at: 1.00, x: -0.25, y: 0.08, width: 0.50, rotY: 0.82, rotX: 0.09 }
 ];
 
 /** Cubic ease-out — the curve the rest of the stylesheet already uses. */
@@ -440,7 +461,13 @@ export default function HeroStage({ children }) {
         // Wide enough to fill its share of the column...
         let scale = k.width * column.width * pxToWorld;
         // ...but never so tall that the room cannot stand in the window.
-        const tallest = 0.82 * world.y;
+        //
+        // 0.90, not 0.82: the clamp and the width fight each other, and at
+        // 0.82 a deliberately larger room was being silently shrunk back to
+        // the old size on any short window — the enlargement would have
+        // shipped as a no-op for exactly the people who reported it. This is
+        // still short of the full height, so the legs stay on.
+        const tallest = 0.90 * world.y;
         if (scale * aspectOfModel > tallest) scale = tallest / aspectOfModel;
 
         const centrePx = column.centre + k.x * column.width;
