@@ -263,6 +263,65 @@ const browser = await chromium.launch({
   await page.close();
 }
 
+
+/* ------------------------------------------- the room sits on the grid --- */
+{
+  /*
+    The room must stay aligned with the layout, not with the viewport.
+
+    This is the bug the first version shipped and nothing caught: the model
+    was placed at a fraction of the VIEWPORT while the capsule rail is pinned
+    to the max-width grid, so the two agreed at 1440x900 and drifted 80px
+    apart at 1344x682 — dead space on the right, the room crowding the
+    headline. No error, no overflow, no failing assertion. Just wrong.
+
+    So the assertion is the relationship: wherever the rail's right edge is,
+    the room's right edge is near it, at every window shape.
+  */
+  console.log('--- the room stays on the grid ---');
+  for (const [width, height] of [[1344, 682], [1440, 900], [1680, 1050], [1920, 1000]]) {
+    const context = await browser.newContext({ viewport: { width, height } });
+    const page = await context.newPage();
+    await page.goto(`${BASE}/`);
+    const live = await page
+      .waitForFunction(() => typeof window.__furnisharStageBounds === 'function', { timeout: 60000 })
+      .then(() => true).catch(() => false);
+    if (!live) {
+      check(false, `${width}x${height}: the stage came up`);
+      await context.close();
+      continue;
+    }
+    await page.waitForTimeout(900);
+
+    const m = await page.evaluate(() => {
+      const bounds = window.__furnisharStageBounds();
+      const rail = document.querySelector('.capsule-rail').getBoundingClientRect();
+      const hero = document.querySelector('.hero');
+      const style = getComputedStyle(hero);
+      const rect = hero.getBoundingClientRect();
+      const columnRight = rect.right - parseFloat(style.paddingRight);
+      return { bounds, railRight: rail.right, columnRight, vh: window.innerHeight };
+    });
+
+    // Within a capsule's own height of the rail: close enough to read as one
+    // composition, loose enough not to fail on a rotation of the model.
+    const drift = Math.abs(m.bounds.right - m.railRight);
+    check(drift < 70, `${width}x${height}: the room's right edge tracks the rail`,
+      `${Math.round(drift)}px apart`);
+
+    // And it must not spill past the grid into the gutter.
+    check(m.bounds.right <= m.columnRight + 24,
+      `${width}x${height}: it stays inside the column`,
+      `room ${Math.round(m.bounds.right)} vs column ${Math.round(m.columnRight)}`);
+
+    // Nor lose its legs below the fold.
+    check(m.bounds.bottom <= m.vh + 8, `${width}x${height}: the room fits above the fold`,
+      `bottom ${Math.round(m.bounds.bottom)} of ${m.vh}`);
+
+    await context.close();
+  }
+}
+
 /* ------------------------------------------------- the capsule rail ------ */
 {
   /*
@@ -399,11 +458,30 @@ const browser = await chromium.launch({
   // failure that only exists inside the test.
   const item = page.locator('.faq-item').first();
   await item.locator('summary').click();
-  await page.waitForTimeout(60);
+
+  /*
+    Poll for the end state instead of sleeping towards it.
+
+    Reduced motion flattens the transition to 1ms rather than to zero, so
+    there IS a moment where the icon is mid-rotation, and a fixed wait races
+    it — this check passed on a quiet machine and failed on a busy one, which
+    is the worst way for a test to be wrong. Waiting for the condition makes
+    the outcome depend on the page rather than on the runner's load.
+  */
+  const settled = await page
+    .waitForFunction(() => {
+      const icon = document.querySelector('.faq-item[open] summary i');
+      if (!icon) return false;
+      const t = getComputedStyle(icon, '::after').transform;
+      return t === 'none' || t === 'matrix(1, 0, 0, 1, 0, 0)';
+    }, { timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+
   const after = await item.locator('summary i').evaluate(el =>
     getComputedStyle(el, '::after').transform);
-  check(after === 'none' || after === 'matrix(1, 0, 0, 1, 0, 0)',
-    'the plus still becomes a minus', after);
+  check(settled, 'the plus still becomes a minus', after);
+
   await context.close();
 }
 
