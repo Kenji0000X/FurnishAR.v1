@@ -124,6 +124,11 @@
      no band at all. The dark value below lifts rather than sinks, at 1.23:1,
      so the alternation survives the theme it was not designed in. */
   --band: #12332c;
+
+  /* One tile of paper grain, as a data URI so it costs no request. The dark
+     theme overrides it: the same speckle drawn in black vanishes on a dark
+     ground, so at night it is drawn in light. */
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.038'/%3E%3C/svg%3E");
 }
 
 /* ---------------------------------------------------------------------------
@@ -180,6 +185,7 @@
   --on-deep: #eef2ef;
   --on-ink-accent: #b44a26;   /* 4.71:1 on the dark theme's --ink */
   --band: #1b2b26;            /* lifts off the page instead of sinking into it */
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.055' style='mix-blend-mode:screen'/%3E%3C/svg%3E");
 }
 
 @media (prefers-color-scheme: dark) {
@@ -212,6 +218,7 @@
     --on-deep: #eef2ef;
     --on-ink-accent: #b44a26;   /* 4.71:1 on the dark theme's --ink */
     --band: #1b2b26;            /* lifts off the page instead of sinking into it */
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.055' style='mix-blend-mode:screen'/%3E%3C/svg%3E");
   }
 }
 
@@ -236,7 +243,23 @@ html {
 
 body {
   min-height: 100%;
-  background: var(--paper);
+  /*
+    Paper grain.
+
+    The reference's ground is not a flat fill — it is stock, very lightly
+    speckled, and that is most of why the page reads as printed rather than
+    as a screenshot of a design tool. This is one 120px tile of SVG
+    turbulence, so it is a single small decode that the browser then repeats;
+    there is no runtime filter and nothing to recompute on scroll or resize.
+
+    Kept under 4% opacity on purpose: at the point you can SEE the texture it
+    has started competing with 10px mono labels, and --ink-faint is already
+    the tightest contrast in the system.
+  */
+  background-color: var(--paper);
+  background-image: var(--grain);
+  background-repeat: repeat;
+  background-size: 120px 120px;
   color: var(--ink);
   font-family: var(--sans);
   font-size: .9375rem;
@@ -347,7 +370,12 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   color: inherit;
   font-size: .75rem;
 }
-.header-action { transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.header-action {
+  /* The one thing in the header that takes you somewhere, so it wears the
+     travel shape like the hero's buttons rather than the tool shape. */
+  border-radius: 999px;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
 .header-action:hover { background: var(--ink); color: var(--paper); }
 .header-action:active { transform: scale(.98); transition-duration: var(--dur-press); }
 /* The glyph these spans carry is missing from the UI font, so it is replaced
@@ -369,35 +397,118 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   to   { opacity: 1; transform: none; }
 }
 
+/* --------------------------------------------------- the pinned stage ---- */
+/*
+   The room that travels. A tall wrapper, a sticky viewport-sized layer
+   holding the canvas, and the real sections flowing over the top of it.
+
+   isolation: isolate, because the canvas is painted underneath content that
+   has no background of its own; without a stacking context of its own here,
+   a z-index anywhere further down the page can punch through it.
+
+   The height is what sets how long the room takes to cross the page. Three
+   sections, each roughly a screen, so the travel reads as deliberate rather
+   than frantic.
+*/
+
+.hero-stage {
+  position: relative;
+  isolation: isolate;
+}
+
+.hero-stage-pin {
+  position: sticky; top: 0; z-index: 0;
+  height: 100svh;
+  /* Never eats a click or a swipe: everything here is scenery, and the links
+     it sits behind must stay reachable. */
+  pointer-events: none;
+}
+
+.hero-stage-canvas {
+  width: 100%; height: 100%;
+  opacity: 0;
+  transition: opacity 700ms var(--ease-out);
+}
+/* Faded in only once the model is actually on screen — a canvas that appears
+   empty and then pops is worse than one that arrives whole. */
+.hero-stage[data-mode="live"] .hero-stage-canvas { opacity: 1; }
+
+/* The still. Shown for no WebGL, reduced motion, or Save-Data, and while the
+   renderer is still on its way. A real render of the same room at the same
+   angle, so the fallback is the picture rather than an apology for it. */
+.hero-stage-still {
+  position: absolute; inset: 0;
+  background: url("/models/living-room-poster.webp") no-repeat center 58% / min(62vw, 46rem) auto;
+  opacity: 0;
+  transition: opacity 500ms var(--ease-out);
+}
+.hero-stage[data-mode="still"] .hero-stage-still,
+.hero-stage[data-mode="idle"] .hero-stage-still,
+.hero-stage[data-mode="loading"] .hero-stage-still { opacity: 1; }
+
+/* The sections ride on top of the pinned layer. Pulled back up by exactly the
+   height of the pin, because the sticky element still occupies a screen of
+   flow and without this every visitor would open the page on a blank one. */
+.hero-stage-flow {
+  position: relative; z-index: 1;
+  margin-top: -100svh;
+}
+
 /* --------------------------------------------------------------- hero ---- */
 
 .hero {
-  display: grid; grid-template-columns: 1.05fr .95fr; align-items: center;
-  gap: clamp(2rem, 5vw, 5rem);
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
+  align-items: center;
+  gap: clamp(2rem, 5vw, 4rem);
+  min-height: 100svh;
   max-width: var(--maxw); margin: 0 auto;
-  padding: clamp(3rem, 8vw, 7rem) var(--gutter) clamp(2.5rem, 6vw, 5rem);
+  padding: clamp(5rem, 11vh, 8rem) var(--gutter) clamp(3rem, 8vh, 6rem);
 }
 
-.hero-copy { max-width: 34rem; }
+.hero-copy { max-width: 36rem; }
 
-.hero h1, .planner-intro h1, .admin-intro h1 {
+/*
+   One word to a line, as large as the viewport allows.
+
+   The reference's headline is not a label on the page, it IS the page — the
+   structure everything else hangs off. This is the same move in DM Sans:
+   display block, tracking pulled in hard, leading under 1 so the lines stack
+   into a solid mass instead of a list.
+*/
+.hero h1 {
+  display: grid;
+  margin: 1.1rem 0 1.5rem;
+  /* Capped so the longest line ("Live with it.") stays ON one line at every
+     width. A stacked headline that wraps is not a stacked headline — it is a
+     paragraph in a big font, and the whole composition reads as an accident.
+     Checked against the real words, which is the only way to size this. */
+  font-size: clamp(2.5rem, 6.4vw, 5.1rem);
+  line-height: .95;
+  letter-spacing: -.05em;
+  text-wrap: nowrap;
+}
+.hero h1 span { display: block; }
+.hero-title-accent { color: var(--accent); }
+
+.planner-intro h1, .admin-intro h1 {
   margin: 1.1rem 0 1.4rem;
   font-size: clamp(2.6rem, 8.5vw, 5.25rem);
   letter-spacing: -.05em;
 }
-.hero h1 em { font-style: normal; color: var(--accent); }
 
 .hero-text {
   max-width: 30rem;
   color: var(--ink-muted);
-  font-size: 1.0625rem; line-height: 1.5;
+  font-size: 1.0625rem; line-height: 1.55;
 }
 
-.hero-actions { display: flex; flex-wrap: wrap; gap: .8rem; margin: 2rem 0 0; }
+.hero-actions { display: flex; flex-wrap: wrap; gap: .7rem; margin: 2rem 0 0; }
 
 .hero-facts {
   display: flex; flex-wrap: wrap; gap: 0;
-  margin: 3rem 0 0;
+  margin: 2.75rem 0 0;
   border-top: 1px solid var(--rule-strong);
 }
 .hero-facts div {
@@ -410,130 +521,269 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .hero-facts dt { font-family: var(--mono); font-size: 1.5rem; letter-spacing: -.04em; }
 .hero-facts dd { margin-top: .25rem; }
 
-/* ---------------------------------------------------- hero room scene ---- */
-/* Flattened: hard edges, page palette, no glows. Geometry unchanged. */
+/* ------------------------------------------------------------ capsules ---- */
+/*
+   The one rounded shape in the system.
 
-.hero-room {
+   BRAND.md's rule is that anything sitting ON the page is square and drawn
+   with a hairline. The capsule is the deliberate exception and it is scoped
+   to exactly one job: the things you press to go somewhere. Buttons inside
+   tools — the portal, the admin console, dialogs — stay square, because they
+   act on the thing beside them and belong to it. A capsule leaves.
+
+   Stated as a rule so the two shapes read as a distinction rather than as
+   drift: SQUARE ACTS, ROUNDED TRAVELS.
+*/
+
+.capsule {
+  display: inline-flex; align-items: center; gap: .55rem;
+  min-height: var(--tap);
+  padding: .85rem 1.5rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: .875rem; font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+/* No hard offset here: the block shadow is the square world's depth cue and
+   on a pill it reads as a mistake. These lift instead. */
+.capsule:hover { transform: translateY(-2px); }
+.capsule:active { transform: translateY(0) scale(.98); transition-duration: var(--dur-press); }
+.capsule > span[aria-hidden] { transition: transform var(--dur-fast) var(--ease-out); }
+.capsule:hover > span[aria-hidden] { transform: translateX(3px); }
+
+.capsule-solid { background: var(--accent); color: var(--on-accent); }
+.capsule-solid:hover { background: var(--accent-ink); }
+
+.capsule-quiet { background: transparent; border-color: var(--rule-strong); color: var(--ink); }
+.capsule-quiet:hover { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+
+.capsule-outline { background: transparent; border-color: currentColor; }
+
+/* ---- the category rail ---- */
+
+.capsule-rail {
+  display: grid; gap: .75rem;
+  justify-self: end;
+  width: min(100%, 22rem);
+  align-content: center;
+}
+
+.capsule-card {
+  gap: .9rem;
+  padding: .5rem 1.4rem .5rem .5rem;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.capsule-card:hover { background: var(--accent-ink); transform: translateX(-4px); }
+
+/* The circular well the piece sits in — the reference's signature detail. */
+.capsule-thumb {
   position: relative;
-  min-height: 420px;
-  border: 1px solid var(--rule-strong);
-  background: var(--paper-sunken);
+  flex: 0 0 auto;
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  background: var(--paper-raised);
   overflow: hidden;
 }
-.hero-room:after {
-  content: ""; position: absolute; left: 0; right: 0; bottom: 0;
-  height: 96px;
-  border-top: 1px solid var(--rule-strong);
-  background: var(--paper);
-}
-.sun-glow {
-  position: absolute; right: 35px; top: 5px;
-  width: 240px; height: 240px;
-  background: radial-gradient(circle, rgba(192, 80, 42, .10), rgba(192, 80, 42, 0) 68%);
-}
-.window {
-  position: absolute; top: 52px;
-  width: 100px; height: 160px;
-  border: 1px solid var(--rule-strong);
-  background: var(--paper-raised);
-}
-.window:after {
-  content: ""; position: absolute; left: 50%; top: 0; bottom: 0;
-  width: 1px; background: var(--rule);
-}
-.window-one { right: 185px; }
-.window-two { right: 73px; }
+/*
+  The illustration is a fixed 190x135 block of absolutely-positioned spans,
+  so it has to be scaled rather than sized — and it has to be positioned
+  rather than centred by the box.
 
-.wall-art { position: absolute; border: 1px solid var(--rule-strong); background: var(--paper-raised); }
-.art-one { left: 72px; top: 108px; width: 65px; height: 85px; }
-.art-one:after {
-  content: ""; position: absolute; left: 12px; bottom: 12px;
-  border-left: 15px solid transparent; border-right: 15px solid transparent;
-  border-bottom: 30px solid var(--deep);
+  `place-items: center` looks like it should do this and does not: an item
+  wider than its grid area overflows toward the end edge instead of
+  straddling the middle, and `scale()` then works from the element's own
+  centre, 95px away. The result was a thumbnail rendering entirely outside
+  its own circle, clipped to nothing — three white discs where three pieces
+  of furniture should be. Anchoring the centre explicitly is the fix.
+*/
+.capsule-thumb .furniture-illustration {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%) scale(.26);
 }
-.art-two { left: 153px; top: 75px; width: 77px; height: 58px; background: var(--accent); }
 
-.room-rug {
-  position: absolute; z-index: 1; left: 75px; bottom: 24px;
-  width: 360px; height: 84px;
-  background: rgba(20, 20, 19, .06);
+.capsule-label { display: grid; gap: .1rem; line-height: 1.2; }
+.capsule-label b { font-size: 1rem; font-weight: 700; letter-spacing: -.02em; }
+.capsule-label small {
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .12em; text-transform: uppercase;
+  opacity: .82;
 }
-.room-sofa {
-  position: absolute; z-index: 4; left: 92px; bottom: 67px;
-  width: 277px; height: 120px;
-  border: 1px solid var(--rule-strong);
-  background: var(--accent);
-}
-.room-sofa:after {
-  content: ""; position: absolute; left: 14px; right: 14px; top: 29px;
-  height: 47px; border: 1px solid rgba(20, 20, 19, .35);
-}
-.room-sofa i {
-  position: absolute; left: 18px; bottom: -20px;
-  width: 4px; height: 20px; background: var(--ink);
-  box-shadow: 235px 0 var(--ink);
-}
-.room-sofa b {
-  position: absolute; z-index: 1; top: 36px;
-  width: 50px; height: 34px;
-  border: 1px solid rgba(20, 20, 19, .35);
-  background: var(--paper);
-}
-.room-sofa b:nth-child(2) { left: 35px; }
-.room-sofa b:nth-child(3) { right: 35px; background: var(--deep); }
 
-.room-chair {
-  position: absolute; z-index: 4; right: 62px; bottom: 78px;
-  width: 106px; height: 115px;
-  border: 1px solid var(--rule-strong);
-  background: var(--deep);
-}
-.room-chair i {
-  position: absolute; left: 13px; bottom: -21px;
-  width: 4px; height: 22px; background: var(--ink);
-  box-shadow: 75px 0 var(--ink);
-}
-.room-table {
-  position: absolute; z-index: 5; left: 300px; bottom: 36px;
-  width: 110px; height: 28px;
-  border: 1px solid var(--rule-strong);
-  background: var(--paper-sunken);
-}
-.room-table:after {
-  content: ""; position: absolute; left: 52px; top: 27px;
-  width: 4px; height: 28px; background: var(--ink);
-}
-.room-plant { position: absolute; z-index: 3; right: 32px; bottom: 132px; }
-.room-plant b {
-  position: absolute; left: 8px; bottom: -23px;
-  width: 28px; height: 27px;
-  background: var(--ink);
-  clip-path: polygon(0 0, 100% 0, 80% 100%, 20% 100%);
-}
-.room-plant i {
-  position: absolute; display: block;
-  width: 18px; height: 42px;
-  border: 1px solid var(--rule-strong);
-  background: var(--paper-raised);
-  transform-origin: bottom;
-}
-.room-plant i:nth-child(1) { transform: rotate(-38deg); left: -2px; bottom: 0; }
-.room-plant i:nth-child(2) { transform: rotate(15deg); left: 13px; bottom: 2px; }
-.room-plant i:nth-child(3) { transform: rotate(62deg); left: 25px; bottom: 0; }
+/* --------------------------------------------------------- hero decor ---- */
+/*
+   The motes drifting around the room.
 
-/* Floating over the scene, so: glass. */
-.measure-tag {
-  position: absolute; z-index: 8;
-  padding: .3rem .5rem;
-  border: 1px solid rgba(255, 255, 255, .85);
-  background: rgba(251, 250, 247, .82);
+   The reference orbits its hero with extra 3D props. These are DOM instead,
+   and drawn from the product's own measurement vocabulary rather than from
+   decoration: centimetre tags, framing brackets, a reticle. Each one is a
+   single transform written by one rAF pass, so eight of them cost about as
+   much as one.
+*/
+
+.hero-decor {
+  position: absolute; inset: 0; z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+}
+.mote {
+  position: absolute;
+  will-change: transform;
+}
+
+.mote-tag {
+  padding: .3rem .55rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--glass);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
-  color: var(--ink);
-  letter-spacing: .08em;
+  color: var(--ink-faint);
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .12em; text-transform: uppercase;
 }
-.tag-sofa { left: 196px; bottom: 180px; }
-.tag-chair { right: 57px; bottom: 197px; }
+
+.mote-bracket {
+  width: 26px; height: 26px;
+  border-left: 1.5px solid var(--accent);
+  border-top: 1.5px solid var(--accent);
+  opacity: .55;
+}
+.mote-bracket-flip { transform: rotate(180deg); }
+
+.mote-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: .4;
+}
+
+.mote-ring {
+  width: 34px; height: 34px;
+  border: 1.5px solid var(--ink-faint);
+  border-radius: 50%;
+  opacity: .3;
+}
+
+/* -------------------------------------------------------------- story ---- */
+/*
+   The room is on the left through this section, so the text takes the right
+   half and the left stays empty on purpose. That emptiness is the layout.
+*/
+
+.story, .promise-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  min-height: 100svh;
+  max-width: var(--maxw); margin: 0 auto;
+  padding: clamp(3rem, 8vh, 6rem) var(--gutter);
+}
+.story-copy, .promise-copy {
+  grid-column: 2;
+  max-width: 34rem;
+  /* A gutter the room can never cross. The keyframes keep it in the left
+     half, but "the left half" and "clear of the text" are not the same
+     thing once perspective is involved. */
+  padding-left: clamp(0rem, 2vw, 2rem);
+}
+
+.story h2, .promise-section h2 {
+  margin: .9rem 0 1.2rem;
+  font-size: clamp(2.1rem, 5vw, 3.4rem);
+  letter-spacing: -.045em;
+}
+.story p { margin-bottom: 1rem; color: var(--ink-muted); font-size: 1.0625rem; }
+.story .capsule { margin-top: 1rem; }
+
+/* ----------------------------------------------------------- promises ---- */
+/*
+   Each claim resolves from a wash to full ink as it arrives. Only colour and
+   opacity move, so the whole effect is free on the compositor and cannot
+   cause a reflow mid-scroll.
+*/
+
+.promise-list { display: grid; gap: 2rem; margin-top: 2rem; }
+
+.promise h3 {
+  margin-bottom: .4rem;
+  font-size: 1.25rem; letter-spacing: -.03em;
+  color: var(--accent);
+  opacity: .34;
+  transition: opacity 600ms var(--ease-out);
+}
+.promise p {
+  color: var(--ink-muted);
+  opacity: .34;
+  transition: opacity 600ms var(--ease-out) 90ms;
+}
+.promise.is-lit h3, .promise.is-lit p { opacity: 1; }
+
+/* ------------------------------------------------------------ marquee ---- */
+
+.marquee-section {
+  padding: clamp(3rem, 8vw, 5.5rem) 0;
+  border-top: 1px solid var(--rule-strong);
+  overflow: hidden;
+}
+.marquee-head {
+  max-width: var(--maxw); margin: 0 auto;
+  padding: 0 var(--gutter) clamp(2rem, 5vw, 3rem);
+  text-align: center;
+}
+.marquee-head h2 {
+  margin-top: .6rem;
+  font-size: clamp(1.9rem, 4.6vw, 3.1rem);
+  letter-spacing: -.045em;
+  color: var(--accent);
+}
+
+.marquee {
+  /* Fades the strip into the page at both ends, so pieces arrive and leave
+     rather than being clipped by an edge. */
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
+}
+.marquee-track {
+  display: flex; align-items: stretch; gap: 1rem;
+  width: max-content;
+  will-change: transform;
+}
+
+.marquee-link { text-decoration: none; color: inherit; }
+.marquee-card {
+  display: grid; gap: .7rem;
+  width: clamp(200px, 22vw, 280px);
+  margin: 0;
+}
+.marquee-art {
+  position: relative;
+  display: grid; place-items: center;
+  aspect-ratio: 4 / 3;
+  border: 1px solid var(--rule);
+  background: var(--paper-sunken);
+  overflow: hidden;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.marquee-art .furniture-illustration {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%) scale(.92);
+}
+.marquee-link:hover .marquee-art,
+.marquee-link:focus-visible .marquee-art { border-color: var(--rule-strong); }
+
+.marquee-card figcaption { display: grid; gap: .15rem; }
+.marquee-card figcaption b { font-size: .9375rem; letter-spacing: -.02em; }
+.marquee-card figcaption span {
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .12em; color: var(--ink-faint);
+}
 
 /* ------------------------------------------------------------ buttons ---- */
 
@@ -1090,6 +1340,12 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .band-deep .button-primary:hover {
   background: var(--accent); border-color: var(--accent); color: var(--on-accent);
 }
+
+/* Capsules on the deep band. The solid one keeps the accent — it reads at
+   4.85:1 there and it is the same shape and colour the hero used, which is
+   the point of having one travel shape. */
+.band-deep .capsule-outline { border-color: var(--on-deep); color: var(--on-deep); }
+.band-deep .capsule-outline:hover { background: var(--on-deep); color: var(--deep); }
 
 /* ----------------------------------------------------------------- faq ---- */
 /*
@@ -1681,6 +1937,18 @@ footer {
 
   /* A closed <details> prints as a heading with the answer missing. On paper
      there is nothing to expand, so every answer is open. */
+  /* The pinned stage is three screens of sticky nothing on paper. Its
+     sections print as ordinary stacked blocks and the room is dropped. */
+  .hero-stage-pin { display: none !important; }
+  .hero-stage-flow { margin-top: 0 !important; }
+  .hero, .story, .promise-section {
+    display: block !important; min-height: 0 !important;
+    padding: 1rem 0 !important;
+  }
+  .hero-decor, .marquee-section { display: none !important; }
+  .promise h3, .promise p { opacity: 1 !important; }
+  .capsule { display: none !important; }
+
   .faq-item { break-inside: avoid; }
   .faq-item > p { display: block !important; }
   .faq-item summary i { display: none; }
@@ -1710,14 +1978,45 @@ footer {
 @media (max-width: 1020px) {
   /* minmax(0, 1fr), not 1fr.
      A grid track defaults to a minimum of min-content, so `1fr` is really
-     `minmax(auto, 1fr)` and any child that refuses to shrink — the fixed-width
-     room illustration here, a <select> as wide as its longest option in the
-     catalogue below — pushes the track past the viewport and takes the whole
-     page with it. That is where the home page's 62px of horizontal scroll at
-     360px came from: one column, two tracks that were never allowed to be
-     narrower than their contents. */
-  .hero { grid-template-columns: minmax(0, 1fr); }
-  .hero-room { width: 560px; height: 420px; min-height: 0; zoom: .86; }
+     `minmax(auto, 1fr)` and any child that refuses to shrink — a <select> as
+     wide as its longest option in the catalogue below, a card with a long
+     word in it — pushes the track past the viewport and takes the whole page
+     with it. That is where the home page's 62px of horizontal scroll at 360px
+     came from: one column, two tracks that were never allowed to be narrower
+     than their contents. */
+
+  /*
+     Below this width the hero, the story and the promises all become one
+     column, and the room stops being a neighbour to the text and becomes the
+     ground behind it. The rail moves under the headline, where it reads as
+     three shortcuts rather than a sidebar.
+  */
+  .hero, .story, .promise-section { grid-template-columns: minmax(0, 1fr); }
+  .story-copy, .promise-copy { grid-column: 1; max-width: none; }
+  .capsule-rail { grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); }
+  .capsule-card { padding-right: 1rem; }
+
+  /*
+     One column means the text sits ON the room instead of beside it, and the
+     two sections where that happens need a real ground to stay readable.
+
+     A radial wash of the page colour was the first attempt and it looked like
+     fog — a grey haze with a soft edge sitting over the sofa, which reads as a
+     rendering bug rather than as a decision. A flat panel of the page's own
+     paper is honest about what it is: the page, in front of the scene.
+     BRAND.md's rule holds — it is flat, so it is part of the page.
+
+     The hero needs none of this. Its copy is in the top half and the room is
+     moved to the bottom half below it (see HeroStage's narrow-viewport
+     offset), so nothing overlaps in the first place.
+  */
+  .story-copy, .promise-copy {
+    padding: 1.5rem;
+    margin: 0 -.5rem;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+  }
+
   .planner-layout, .conditions { grid-template-columns: 1fr 1fr; }
   .verdict-card { grid-column: 1 / -1; }
 }
@@ -1789,23 +2088,37 @@ footer {
   .brand { font-size: .9375rem; }
   .nav-link { white-space: nowrap; }
   .cookie-notice { left: var(--gutter); right: var(--gutter); max-width: none; }
-  .hero { padding-top: 2.5rem; }
-  /* .62 leaves the scene 347px wide, which is wider than the content box of
-     a 360px phone and was one of the two things scrolling the home page
-     sideways. .5 fits it inside a 320px viewport, the narrowest this has to
-     survive. The children below are already positioned for the small scene;
-     only its scale changes. */
-  .hero-room { zoom: .5; }
-  .hero-room .room-sofa { left: 40px; }
-  .hero-room .room-table { left: 250px; }
-  .hero-room .room-chair { right: 20px; }
-  .hero-room .window-one { right: 130px; }
-  .hero-room .window-two { right: 20px; }
-  .hero-room .art-one { left: 30px; }
-  .hero-room .art-two { left: 110px; }
-  .room-rug { left: 30px; }
-  .tag-sofa { left: 140px; }
-  .tag-chair { right: 20px; }
+  /*
+     The phone hero is a different shape: copy in the top half, room in the
+     bottom half, and the facts and the category rail below the fold where
+     they belong. That only works if the copy actually FITS in the top half,
+     so the headline, the lead and the gaps are all tightened here rather
+     than left to the desktop clamps.
+  */
+  .hero { padding: 2.5rem var(--gutter) 2rem; gap: 1.25rem; }
+  .hero h1 { font-size: clamp(2.3rem, 12.5vw, 3.4rem); margin: .7rem 0 1rem; }
+  .hero-text { font-size: .9375rem; }
+  .hero-actions { margin-top: 1.25rem; gap: .6rem; }
+  .hero-actions .capsule { width: 100%; justify-content: center; }
+  /* On a short phone the room reaches up behind the second button, and an
+     outline capsule is transparent — the label ends up set over a picture
+     frame. It gets the page's own ground here so it stays a button. */
+  .hero-actions .capsule-quiet { background: var(--paper); }
+  /* The band of empty page the room shows through. Without it the facts sit
+     straight under the buttons and there is nowhere for the room to be. */
+  /* Far enough that the facts row clears the first screen entirely. It shared
+     the fold with the room at 31vh and the sofa sat across "LOCAL STORES". */
+  .hero-facts { margin-top: min(48vh, 24rem); }
+  .capsule-rail { width: 100%; }
+  /* A phone is portrait, so the room reads better lower and larger than the
+     desktop composition puts it — behind the copy rather than beside it. */
+  .hero-stage-still { background-size: 92vw auto; background-position: center 72%; }
+  /* Two of the eight motes on a phone. They are atmosphere, and at 390px the
+     rest are clutter — the centimetre tags in particular landed on top of the
+     headline, because a percentage that clears the copy on a 1440px canvas
+     clears nothing on a 390px one. */
+  .mote-dot, .mote-ring, .mote-tag { display: none; }
+  .marquee-card { width: clamp(168px, 58vw, 220px); }
   .section-heading { flex-direction: column; align-items: start; gap: .5rem; }
   /* minmax(0, …) for the same reason as the layout tracks above: a bare 1fr
      will not go below the card's min-content width, so two cards plus the gap
@@ -1869,7 +2182,21 @@ footer {
   .color-option:hover, .header-action:active, .button:active,
   .page-tool:hover, .page-tool:active,
   .theme-toggle:active, .nav-toggle:active,
-  .step-link:hover span { transform: none; }
+  .step-link:hover span,
+  .capsule:hover, .capsule:active, .capsule:hover > span[aria-hidden],
+  .capsule-card:hover { transform: none; }
+
+  /* The three components that animate on scroll each resolve to their END
+     state rather than stopping where they were. A promise frozen at 34%
+     opacity is unreadable, and a room frozen mid-travel is a bug wearing an
+     accessibility setting as an excuse.
+
+     HeroStage and Marquee also check this in JS and never start their loops;
+     these rules are what the page looks like when they don't. */
+  .promise h3, .promise p { opacity: 1 !important; }
+  .marquee-track { transform: none !important; }
+  .hero-stage-canvas { display: none; }
+  .hero-stage-still { opacity: 1 !important; }
   /* The plus/minus still ends up as a minus, it just does not swing there.
      The rotation is the icon's state, not an animation, so it is kept and
      only its duration is flattened by the rule above. */
