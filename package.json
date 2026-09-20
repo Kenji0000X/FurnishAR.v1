@@ -22,7 +22,8 @@
     "check:shrink": "node scripts/check-model-shrink.mjs",
     "check:chrome": "node scripts/check-chrome.mjs",
     "check:contrast": "node scripts/check-contrast.mjs",
-    "check:home": "node scripts/check-home-sections.mjs"
+    "check:home": "node scripts/check-home-sections.mjs",
+    "check:hero": "node scripts/check-hero-perf.mjs"
   },
   "engines": {
     "node": ">=20"

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import ProductCard from './ProductCard.js';
 import { colorFor } from './format.js';
 import { matches, NO_LIMIT, EMPTY_FILTERS as EMPTY } from './catalog-filter.js';
@@ -15,6 +15,25 @@ import { matches, NO_LIMIT, EMPTY_FILTERS as EMPTY } from './catalog-filter.js';
 export default function CatalogSection({ products }) {
   const [filters, setFilters] = useState(EMPTY);
   const set = patch => setFilters(current => ({ ...current, ...patch }));
+
+  // A category can arrive in the URL: /?category=Chair#catalog.
+  //
+  // This is what makes the capsule rail in the hero honest. Without it those
+  // are three beautiful buttons that scroll you to an unfiltered grid and let
+  // you work out for yourself which of the pieces were the chairs — which is
+  // worse than not offering the shortcut at all.
+  //
+  // Read after mount rather than during render: the server has no idea what
+  // the query string is when this page is prerendered, so seeding the first
+  // render from it is the classic hydration mismatch. Only a category the
+  // catalogue actually has is honoured, so a stale or hand-edited link shows
+  // everything instead of an empty grid.
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get('category');
+    if (!wanted) return;
+    const known = products.some(product => product.category === wanted);
+    if (known) setFilters(current => ({ ...current, category: wanted }));
+  }, [products]);
 
   const colors = useMemo(
     () => [...new Set(products.map(product => product.color))],
