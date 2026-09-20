@@ -101,6 +101,27 @@ for (const device of DEVICES) {
   await page.waitForTimeout(300);
   await audit(page, '/portal (sign-up form showing a long error)');
 
+  // The signed-in dashboard, which is the /portal a shop owner actually
+  // spends time in — and which this check had never seen. Every /portal audit
+  // above is of the login screen, so the inventory table's 182px of sideways
+  // scroll on a 390px phone survived every green run of this file. Signing in
+  // costs one form fill; not signing in costs the only page the audience of
+  // this check uses daily.
+  await page.goto(`${BASE}/portal`, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('form.login-form', { timeout: 20000 });
+  await page.fill('input[name="email"]', 'owner@furnishar.ph');
+  await page.fill('input[name="password"]', 'furnishar');
+  await page.click('form.login-form button[type="submit"]');
+  const signedIn = await page.waitForSelector('.dashboard', { timeout: 20000 }).then(() => true, () => false);
+  if (signedIn) {
+    await page.waitForTimeout(1200);
+    await audit(page, '/portal (signed in, inventory table)');
+  } else {
+    // Said out loud rather than skipped silently: a check that quietly stops
+    // checking is worse than one that fails.
+    console.log('  --   could not sign in, so the dashboard was NOT audited');
+  }
+
   await context.close();
 }
 
