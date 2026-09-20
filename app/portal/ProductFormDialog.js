@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { usingSupabase, supabase, api } from './backend.js';
+import ModelPreview from './ModelPreview.js';
 
 const CATEGORIES = ['Sofa', 'Table', 'Chair', 'Bed', 'Storage'];
-const SHAPES = ['sofa', 'table', 'chair', 'bed', 'shelf', 'desk'];
 
 /**
  * What an upload has to fit inside.
@@ -35,6 +35,15 @@ export default function ProductFormDialog({ product, session, onClose, onSaved }
   // Set when an oversized model was resized on the way through, so the owner
   // is told their file was changed rather than discovering it later.
   const [shrunkNote, setShrunkNote] = useState('');
+  /*
+    The model path the preview is currently showing.
+    A shop owner typing or uploading a .glb needs to SEE it before they
+    publish — that it is the right file, the right way up, and the right
+    piece. A path in a text box tells them none of that, and the first time
+    anyone noticed a wrong upload used to be when a shopper opened the
+    listing.
+  */
+  const [modelPath, setModelPath] = useState(product?.modelGlb || '');
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -246,21 +255,21 @@ export default function ProductFormDialog({ product, session, onClose, onSaved }
                 Uploaded to your store&apos;s folder. Up to 50 MB. Leave empty to keep the current model.
               </small>
             </label>
-            <label>
-              Preview shape
-              <select name="model" defaultValue={value('model') || 'shelf'}>
-                {SHAPES.map(shape => (
-                  <option key={shape} value={shape}>
-                    {shape[0].toUpperCase() + shape.slice(1)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>Android GLB path<input name="modelGlb" type="text" placeholder="models/example.glb" defaultValue={value('modelGlb')} /></label>
+            {/* "Preview shape" used to sit here: a picker that chose which
+                CSS silhouette — sofa, chair, shelf — would stand in for the
+                product in the catalogue. Nothing renders a silhouette any
+                more, so the control was asking a shop owner to choose the
+                shape of a drawing nobody would ever see. */}
+            <label>Android GLB path<input name="modelGlb" type="text" placeholder="models/example.glb" defaultValue={value('modelGlb')} onChange={event => setModelPath(event.target.value.trim())} /></label>
             <label className="form-wide">
               iPhone USDZ path<input name="modelUsdz" type="text" placeholder="models/example.usdz" defaultValue={value('modelUsdz')} />
             </label>
           </div>
+
+          {/* What the shopper will see, shown to the shop before they publish
+              it. This is the same viewer the product page uses, so what
+              appears here is exactly what appears there. */}
+          <ModelPreview path={modelPath} name={value('name') || 'This product'} />
         </fieldset>
 
         <fieldset className="form-section form-section-optional">

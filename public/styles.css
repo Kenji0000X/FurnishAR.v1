@@ -279,7 +279,7 @@ img, svg, video, canvas { display: block; max-width: 100%; }
 
 /* Mono micro-label — the recurring brutalist voice of the interface. */
 .eyebrow, .tray-label, .product-store, .result-count, .measure-tag,
-.dialog-dimensions span, .inventory-stat span, .store-card dt,
+.inventory-stat span, .store-card dt,
 .hero-facts dd, .card-heading p, .ar-chip, .step-number {
   font-family: var(--mono);
   font-size: var(--micro);
@@ -617,13 +617,27 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   margin-top: clamp(1rem, 9vh, 5rem);
 }
 
+/*
+   Category shortcuts, not calls to action.
+
+   These were three solid accent fills, which made the loudest colour on the
+   page belong to navigation rather than to the one thing a visitor should do.
+   The accent now appears once in the hero — on "Measure my space" — and these
+   sit on paper with a hairline, the way the rest of the page's surfaces do.
+*/
 .capsule-card {
   gap: .9rem;
   padding: .5rem 1.4rem .5rem .5rem;
-  background: var(--accent);
-  color: var(--on-accent);
+  border-color: var(--rule);
+  background: var(--paper-raised);
+  color: var(--ink);
 }
-.capsule-card:hover { background: var(--accent-ink); transform: translateX(-4px); }
+.capsule-card:hover {
+  border-color: var(--rule-strong);
+  background: var(--paper-raised);
+  transform: translateX(-4px);
+}
+.capsule-card .capsule-thumb { background: var(--paper-sunken); }
 
 /* The circular well the piece sits in — the reference's signature detail. */
 .capsule-thumb {
@@ -646,10 +660,20 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   its own circle, clipped to nothing — three white discs where three pieces
   of furniture should be. Anchoring the centre explicitly is the fix.
 */
-.capsule-thumb .furniture-illustration {
-  position: absolute; left: 50%; top: 50%;
-  transform: translate(-50%, -50%) scale(.26);
+.capsule-thumb .product-thumb {
+  width: 100%; height: 100%;
+  object-fit: contain;
+  padding: 6%;
+  mix-blend-mode: multiply;
 }
+/*
+   At 56px across there is no room for the words. The empty state keeps its
+   glyph and drops its label, and the accessible name on the wrapper still
+   says which product has no model — so the information survives even though
+   the sentence does not fit.
+*/
+.capsule-thumb .product-thumb-empty small { display: none; }
+.capsule-thumb .product-thumb-empty > span { font-size: 1.1rem; }
 
 .capsule-label { display: grid; gap: .1rem; line-height: 1.2; }
 .capsule-label b { font-size: 1rem; font-weight: 700; letter-spacing: -.02em; }
@@ -659,60 +683,20 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   opacity: .82;
 }
 
-/* --------------------------------------------------------- hero decor ---- */
 /*
-   The motes drifting around the room.
+   The hero decor is gone: eight elements that drifted with the scroll — two
+   centimetre tags, two corner brackets, three dots and a ring.
 
-   The reference orbits its hero with extra 3D props. These are DOM instead,
-   and drawn from the product's own measurement vocabulary rather than from
-   decoration: centimetre tags, framing brackets, a reticle. Each one is a
-   single transform written by one rAF pass, so eight of them cost about as
-   much as one.
+   They were built to echo the reference's orbiting props, and re-reading them
+   against the question "does this improve comprehension, navigation,
+   discovery, visualisation, trust, conversion or accessibility" the answer
+   was no for all eight. The tags came closest, because measurement is what
+   this product does — but they floated in empty space labelling nothing, which
+   is a functional costume on a decorative element rather than a function.
+
+   The room behind the headline already says the thing they were there to
+   say, and it says it by being the actual product.
 */
-
-.hero-decor {
-  position: absolute; inset: 0; z-index: -1;
-  pointer-events: none;
-  overflow: hidden;
-}
-.mote {
-  position: absolute;
-  will-change: transform;
-}
-
-.mote-tag {
-  padding: .3rem .55rem;
-  border: 1px solid var(--rule);
-  border-radius: 999px;
-  background: var(--glass);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  color: var(--ink-faint);
-  font-family: var(--mono); font-size: var(--micro);
-  letter-spacing: .12em; text-transform: uppercase;
-}
-
-.mote-bracket {
-  width: 26px; height: 26px;
-  border-left: 1.5px solid var(--accent);
-  border-top: 1.5px solid var(--accent);
-  opacity: .55;
-}
-.mote-bracket-flip { transform: rotate(180deg); }
-
-.mote-dot {
-  width: 5px; height: 5px;
-  border-radius: 50%;
-  background: var(--accent);
-  opacity: .4;
-}
-
-.mote-ring {
-  width: 34px; height: 34px;
-  border: 1.5px solid var(--ink-faint);
-  border-radius: 50%;
-  opacity: .3;
-}
 
 /* -------------------------------------------------------------- story ---- */
 /*
@@ -814,9 +798,15 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   overflow: hidden;
   transition: border-color var(--dur-fast) var(--ease-out);
 }
-.marquee-art .furniture-illustration {
-  position: absolute; left: 50%; top: 50%;
-  transform: translate(-50%, -50%) scale(.92);
+.marquee-art .product-thumb {
+  width: 100%; height: 100%;
+  object-fit: contain;
+  padding: 10%;
+  mix-blend-mode: multiply;
+}
+:root[data-theme="dark"] .marquee-art .product-thumb { mix-blend-mode: normal; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .marquee-art .product-thumb { mix-blend-mode: normal; }
 }
 .marquee-link:hover .marquee-art,
 .marquee-link:focus-visible .marquee-art { border-color: var(--rule-strong); }
@@ -976,71 +966,222 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .color-option:hover { transform: scale(1.08); }
 .color-option.active { box-shadow: 0 0 0 1px var(--paper), 0 0 0 2px var(--ink); }
 
+/* ------------------------------------------- catalogue controls ------- */
+
+.catalog-tools { display: flex; align-items: center; gap: 1.25rem; }
+
+.sort-control { display: flex; align-items: center; gap: .5rem; }
+.sort-control > span {
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint);
+}
+.sort-control select {
+  min-height: var(--tap);
+  padding: .4rem 1.8rem .4rem .6rem;
+  border: 1px solid var(--rule);
+  background: transparent;
+  font-size: .8125rem;
+}
+.sort-control select:focus-visible { border-color: var(--rule-strong); }
+
+/*
+   The filters that are currently on, as things you can take off.
+
+   A filter you cannot see is a filter you cannot undo, and "no results" with
+   a forgotten colour still selected is the most common dead end in any
+   catalogue — the shopper concludes the shop is empty rather than that they
+   have a control set.
+*/
+.active-filters {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .6rem;
+  margin: -1.25rem 0 2rem;
+}
+.active-filters-label {
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint);
+}
+.active-filters ul { display: flex; flex-wrap: wrap; gap: .5rem; list-style: none; }
+.active-filters button {
+  display: inline-flex; align-items: center; gap: .45rem;
+  min-height: 32px;
+  padding: .25rem .6rem;
+  border: 1px solid var(--rule-strong);
+  background: var(--paper-raised);
+  font-size: .8125rem;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.active-filters button:hover { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.active-filters button > span[aria-hidden] { font-size: 1rem; line-height: 1; opacity: .7; }
+
+/* ---- the two toggles ---- */
+
+.toggle-group { display: grid; gap: .6rem; }
+/*
+  Overrides `.filter-group label`, which sets every label in the sidebar to
+  a block-level mono uppercase micro-label. That is right for "CATEGORY"
+  above a <select> and wrong for a checkbox's own text, which is a sentence
+  beside a box — under that rule these rendered as stacked shouting caps with
+  the checkbox orphaned on the line above.
+*/
+.filter-group .filter-toggle {
+  display: flex; align-items: flex-start; gap: .6rem;
+  min-height: var(--tap);
+  margin-bottom: 0;
+  padding: .35rem 0;
+  cursor: pointer;
+  font-family: var(--sans); font-size: .8125rem;
+  letter-spacing: normal; text-transform: none; color: var(--ink);
+}
+.filter-group .filter-toggle input {
+  flex: 0 0 auto;
+  width: 16px; height: 16px;
+  margin-top: .15rem;
+  accent-color: var(--accent);
+}
+.filter-group .filter-toggle > span { display: grid; gap: .1rem; }
+.filter-group .filter-toggle small {
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .1em; color: var(--ink-faint);
+}
+
+/*
+   A catalogue grid, not a card grid.
+
+   The reference this is measured against is a furniture catalogue: the
+   product is large, consistently framed, and surrounded by quiet. Everything
+   else on the card — name, shop, price, size — is set small and close
+   underneath it, the way a printed catalogue sets a caption. The card is not
+   a box with a picture in it; the picture IS the card and the text is its
+   caption.
+
+   So: no card border, no card background, no hover shadow on the container.
+   The well behind the product is the only surface, and the type sits on the
+   page. That is what stops twelve products reading as twelve identical boxes.
+*/
 .product-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: 1.25rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(clamp(210px, 22vw, 260px), 1fr));
+  gap: clamp(1.5rem, 3vw, 2.75rem) clamp(1rem, 2vw, 1.75rem);
   align-items: start;
 }
 
-/* Cards sit ON the page: square, hairline, hard hover shadow. */
 .product-card {
   position: relative;
-  border: 1px solid var(--rule);
-  background: var(--paper-raised);
-  transition: transform var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out);
+  display: grid;
+  gap: .85rem;
 }
-.product-card:hover, .product-card:focus-within { transform: translate(-3px, -3px); box-shadow: var(--hard); }
 
-.product-image {
+/* The well. Square, hairline, sunken — the product's own ground. */
+.product-media {
   position: relative;
-  display: grid; place-items: center;
-  height: 210px;
+  display: block;
+  /* It is a link, but it must not LOOK like text: everything inside is a
+     picture or a statement about a missing picture. Without this the empty
+     state renders underlined and link-coloured, which reads as "click here"
+     when the whole point is that there is nothing to see. */
+  color: inherit;
+  text-decoration: none;
+  aspect-ratio: 1 / 1;
+  border: 1px solid var(--rule);
   background: var(--paper-sunken);
-  border-bottom: 1px solid var(--rule);
   overflow: hidden;
+  /* Only the well responds to hover, and only by lifting its rule. The
+     product must not move: a catalogue where the furniture jumps when the
+     pointer passes is a catalogue you cannot compare across. */
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.product-card:hover .product-media,
+.product-media:focus-visible { border-color: var(--rule-strong); }
+
+.product-thumb {
+  width: 100%; height: 100%;
+  object-fit: contain;
+  /* A little air so the piece is not flush to the hairline. */
+  padding: 8%;
+  mix-blend-mode: multiply;
+}
+/* multiply sits the render on the well without a hard cut-out edge, but it
+   turns the model muddy on a dark ground — so at night it is plain. */
+:root[data-theme="dark"] .product-thumb { mix-blend-mode: normal; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .product-thumb { mix-blend-mode: normal; }
 }
 
-/* Floats over the artwork: glass. */
-.ar-badge {
-  position: absolute; z-index: 5; top: .65rem; left: .65rem;
-  padding: .25rem .45rem;
-  border: 1px solid var(--glass-line);
-  background: var(--glass);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
+/* No model uploaded. Says so, in words, in the space the product would be. */
+.product-thumb-empty {
+  display: grid; place-content: center; gap: .5rem;
+  width: 100%; height: 100%;
+  color: var(--ink-faint);
+  text-align: center;
+}
+.product-thumb-empty > span {
+  font-size: 1.6rem; line-height: 1; opacity: .5;
+}
+.product-thumb-empty small {
   font-family: var(--mono); font-size: var(--micro);
-  letter-spacing: .16em; color: var(--ink);
+  letter-spacing: .12em; text-transform: uppercase;
 }
 
-.view-button {
-  position: absolute; z-index: 5; right: 0; bottom: 0;
-  width: 40px; height: 40px;
-  border-left: 1px solid var(--rule); border-top: 1px solid var(--rule);
-  background: var(--glass);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  font-size: .9rem;
+/*
+   The one badge on a card, and only on products that really have a model.
+   Not glass: it is printed on the well, not floating over it, and the flat
+   treatment is what BRAND.md's depth rule asks for.
+*/
+.model-badge {
+  position: absolute; z-index: 2; top: .6rem; left: .6rem;
+  display: inline-flex; align-items: center; gap: .3rem;
+  padding: .2rem .45rem;
+  border: 1px solid var(--rule-strong);
+  background: var(--paper);
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .14em; color: var(--ink);
 }
-/* An <a> since products got real URLs, so it has to centre its own glyph and
-   drop link styling — a <button> did both for free. */
-.view-button {
-  display: flex; align-items: center; justify-content: center;
-  color: inherit; text-decoration: none;
+/* A filled square, so the badge does not depend on colour alone to read as
+   "this one is different". */
+.model-badge i {
+  width: 5px; height: 5px;
+  background: var(--accent);
 }
-.view-button { transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
-.product-card:hover .view-button, .view-button:focus-visible { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 
-.product-info { padding: 1rem 1.1rem 1.2rem; }
-.product-store { color: var(--ink-faint); }
-.product-name { margin: .5rem 0 .9rem; font-size: 1rem; letter-spacing: -.02em; }
-/* The whole name is the tap target, without looking like a link. */
+.product-info { display: grid; gap: .2rem; }
+
+.product-name { margin: 0; font-size: .9375rem; letter-spacing: -.015em; }
 .product-name a { color: inherit; text-decoration: none; }
 .product-name a:hover { text-decoration: underline; text-underline-offset: 3px; }
-.product-meta { display: flex; align-items: baseline; justify-content: space-between; gap: .75rem; }
-.product-price { font-family: var(--mono); font-size: .875rem; }
+
+.product-store { color: var(--ink-faint); }
+
+/* Price is the second thing read, so it gets weight and its own line. */
+.product-price {
+  margin-top: .35rem;
+  font-family: var(--mono); font-size: .9375rem; color: var(--ink);
+}
 .product-dimension { font-family: var(--mono); font-size: var(--micro); color: var(--ink-faint); }
 
+/* The action is a quiet text link until hovered — twelve orange buttons in a
+   grid is the thing §4 of the brief calls excessive accent use. */
+.product-action {
+  justify-self: start;
+  margin-top: .55rem;
+  display: inline-flex; align-items: center; gap: .35rem; min-height: var(--tap);
+  color: var(--accent-ink);
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .12em; text-transform: uppercase;
+  text-decoration: none;
+}
+.product-action span { transition: transform var(--dur-fast) var(--ease-out); }
+.product-action:hover { text-decoration: underline; text-underline-offset: 3px; }
+.product-action:hover span { transform: translateX(3px); }
+
+/* Not a link, and not styled as one: there is nowhere to go. */
+.product-action.is-unavailable {
+  color: var(--ink-faint);
+  text-decoration: none;
+  cursor: default;
+}
+
 .no-results {
+  display: grid; justify-items: center; gap: .6rem;
   grid-column: 1 / -1;
   padding: 4rem 1.5rem;
   border: 1px solid var(--rule); background: var(--paper-raised);
@@ -1048,68 +1189,15 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 }
 .no-results small { color: var(--ink-faint); }
 
-/* ------------------------------------------- furniture illustration ------ */
-/* Flat silhouettes: no gloss, no drop shadow, one accent per piece. */
+/*
+   The CSS-drawn furniture illustration lived here: about fifty rules that
+   positioned a dozen <span>s into the silhouette of a sofa, a chair, a shelf.
 
-.furniture-illustration { position: relative; width: 190px; height: 135px; }
-.furniture-illustration .piece {
-  display: none;
-  position: absolute;
-  border: 1px solid var(--rule-strong);
-  background: var(--piece, #bd7656);
-}
-.furniture-illustration.sofa .back, .furniture-illustration.sofa .seat,
-.furniture-illustration.sofa .leg-a, .furniture-illustration.sofa .leg-b,
-.furniture-illustration.chair .back, .furniture-illustration.chair .seat,
-.furniture-illustration.chair .leg-a, .furniture-illustration.chair .leg-b,
-.furniture-illustration.table .top,
-.furniture-illustration.table .leg-a, .furniture-illustration.table .leg-b,
-.furniture-illustration.bed .back, .furniture-illustration.bed .seat,
-.furniture-illustration.bed .top,
-.furniture-illustration.bed .leg-a, .furniture-illustration.bed .leg-b,
-.furniture-illustration.shelf .side-a, .furniture-illustration.shelf .side-b,
-.furniture-illustration.shelf .shelf-one, .furniture-illustration.shelf .shelf-two,
-.furniture-illustration.shelf .shelf-three,
-.furniture-illustration.desk .top, .furniture-illustration.desk .back,
-.furniture-illustration.desk .seat,
-.furniture-illustration.desk .leg-a, .furniture-illustration.desk .leg-b,
-.furniture-illustration.desk .leg-c, .furniture-illustration.desk .leg-d { display: block; }
-.furniture-illustration.sofa .back { left: 15px; top: 35px; width: 160px; height: 55px; }
-.furniture-illustration.sofa .seat { left: 10px; top: 73px; width: 170px; height: 38px; }
-.furniture-illustration.sofa .leg { top: 110px; width: 4px; height: 20px; background: var(--ink); border: 0; }
-.furniture-illustration.sofa .leg-a { left: 23px; }
-.furniture-illustration.sofa .leg-b { right: 23px; }
-
-.furniture-illustration.table .top, .furniture-illustration.desk .top { left: 18px; top: 42px; width: 154px; height: 18px; }
-.furniture-illustration.table .leg, .furniture-illustration.desk .leg { top: 59px; width: 4px; height: 66px; background: var(--ink); border: 0; }
-.furniture-illustration.table .leg-a, .furniture-illustration.desk .leg-a { left: 31px; }
-.furniture-illustration.table .leg-b, .furniture-illustration.desk .leg-b { right: 31px; }
-
-.furniture-illustration.chair .back { left: 55px; top: 18px; width: 83px; height: 72px; }
-.furniture-illustration.chair .seat { left: 48px; top: 76px; width: 96px; height: 28px; }
-.furniture-illustration.chair .leg { top: 103px; width: 4px; height: 27px; background: var(--ink); border: 0; }
-.furniture-illustration.chair .leg-a { left: 60px; }
-.furniture-illustration.chair .leg-b { right: 60px; }
-
-.furniture-illustration.bed .back { left: 13px; top: 20px; width: 16px; height: 91px; }
-.furniture-illustration.bed .seat { left: 25px; top: 54px; width: 150px; height: 56px; }
-.furniture-illustration.bed .top { left: 32px; top: 48px; width: 135px; height: 36px; background: var(--paper-raised); }
-.furniture-illustration.bed .leg { top: 109px; width: 4px; height: 18px; background: var(--ink); border: 0; }
-.furniture-illustration.bed .leg-a { left: 31px; }
-.furniture-illustration.bed .leg-b { right: 20px; }
-
-.furniture-illustration.shelf .side { top: 19px; width: 6px; height: 108px; background: var(--ink); border: 0; }
-.furniture-illustration.shelf .side-a { left: 45px; }
-.furniture-illustration.shelf .side-b { right: 45px; }
-.furniture-illustration.shelf .shelf-line { left: 47px; width: 96px; height: 7px; }
-.furniture-illustration.shelf .shelf-one { top: 41px; }
-.furniture-illustration.shelf .shelf-two { top: 70px; }
-.furniture-illustration.shelf .shelf-three { top: 99px; }
-
-.furniture-illustration.desk .back { left: 26px; top: 57px; width: 18px; height: 48px; background: var(--paper-raised); }
-.furniture-illustration.desk .seat { left: 52px; top: 77px; width: 51px; height: 12px; background: var(--paper-raised); }
-.furniture-illustration.desk .leg-c { left: 56px; top: 88px; width: 4px; height: 38px; background: var(--ink); border: 0; }
-.furniture-illustration.desk .leg-d { left: 96px; top: 88px; width: 4px; height: 38px; background: var(--ink); border: 0; }
+   It is gone because products now show a render of their own uploaded model,
+   or honestly show nothing. A drawing that stands in for a model is a claim
+   that there is one, and this one was making that claim for two products that
+   had never had a file uploaded.
+*/
 
 /* ------------------------------------------------- planner and admin ---- */
 
@@ -1143,7 +1231,18 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 
 .planner-product { border: 1px solid var(--rule); margin-bottom: 1rem; }
 .planner-product-inner { display: flex; align-items: center; gap: 1rem; padding: 1rem; }
-.planner-product .furniture-illustration { flex: 0 0 110px; width: 110px; height: 88px; transform: scale(.58); transform-origin: left center; }
+.planner-product-thumb {
+  flex: 0 0 96px;
+  width: 96px; height: 96px;
+  object-fit: contain;
+  background: var(--paper-sunken);
+  border: 1px solid var(--rule);
+  mix-blend-mode: multiply;
+}
+:root[data-theme="dark"] .planner-product-thumb { mix-blend-mode: normal; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .planner-product-thumb { mix-blend-mode: normal; }
+}
 .planner-product h3 { font-size: .9375rem; }
 .planner-product p { font-family: var(--mono); font-size: var(--micro); color: var(--ink-faint); }
 .planner-card .button { width: 100%; }
@@ -1531,23 +1630,153 @@ footer {
 }
 .dialog-close:hover { background: var(--ink); color: var(--paper); }
 
-.dialog-layout { display: grid; grid-template-columns: .85fr 1.15fr; }
-.dialog-image {
-  display: grid; place-items: center; min-height: 340px;
-  border-right: 1px solid var(--rule);
-  background: var(--paper-sunken);
-}
-.dialog-image .furniture-illustration { transform: scale(1.25); }
-.dialog-info { padding: 2.4rem 2rem; background: var(--paper-raised); }
-.dialog-info h2 { margin: .5rem 0 .9rem; font-size: clamp(1.6rem, 3.5vw, 2.2rem); letter-spacing: -.045em; }
-.dialog-price { font-family: var(--mono); font-size: 1.15rem; }
-.dialog-info > p:not(.product-store) { margin-top: .9rem; color: var(--ink-muted); font-size: .8125rem; }
+/* ------------------------------------------------- the product page ---- */
+/*
+   Viewer left, facts right, and the viewer gets the larger share.
 
-.dialog-dimensions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin: 1.5rem 0; background: var(--rule); border: 1px solid var(--rule); }
-.dialog-dimensions div { padding: .7rem; background: var(--paper-raised); }
-.dialog-dimensions span { display: block; margin-bottom: .3rem; }
-.dialog-dimensions b { font-family: var(--mono); font-size: .8125rem; }
-.dialog-info .button { width: 100%; margin-top: .6rem; }
+   This page exists so somebody can judge a physical object they cannot
+   touch. Everything on the right is in service of that judgement, which is
+   why the size sits directly under the price rather than at the bottom of a
+   specification list.
+*/
+
+.breadcrumb {
+  max-width: var(--maxw); margin: 0 auto;
+  padding: 1.2rem var(--gutter) 0;
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint);
+}
+.breadcrumb a { color: inherit; }
+.breadcrumb a:hover { color: var(--accent-ink); }
+
+.product-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
+  gap: clamp(2rem, 4vw, 4rem);
+  max-width: var(--maxw); margin: 0 auto;
+  padding: clamp(1.5rem, 3vw, 3rem) var(--gutter) clamp(3rem, 6vw, 5rem);
+}
+
+.product-detail-info { max-width: 34rem; }
+.product-detail-info h1 {
+  margin: .4rem 0 .7rem;
+  font-size: clamp(1.8rem, 3.6vw, 2.6rem);
+  letter-spacing: -.04em;
+}
+
+.detail-price { font-family: var(--mono); font-size: 1.35rem; }
+
+/* Whether it can be placed, said in words. The dot is a second channel so it
+   does not rest on colour alone. */
+.detail-availability {
+  display: flex; align-items: center; gap: .45rem;
+  margin-top: .7rem;
+  font-size: .8125rem; color: var(--ink-muted);
+}
+.detail-availability::before {
+  content: ""; flex: 0 0 auto;
+  width: 6px; height: 6px;
+  background: var(--ink-faint);
+}
+.detail-availability.is-ar { color: var(--ink); }
+.detail-availability.is-ar::before { background: var(--accent); }
+
+.detail-description {
+  margin-top: 1.1rem;
+  color: var(--ink-muted); font-size: .9375rem; line-height: 1.6;
+}
+
+.detail-specs {
+  display: grid; gap: 0;
+  margin: 1.6rem 0;
+  border-top: 1px solid var(--rule-strong);
+}
+.detail-specs > div {
+  display: grid; grid-template-columns: 8rem 1fr; gap: 1rem;
+  padding: .7rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+.detail-specs dt {
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint);
+}
+.detail-specs dd { font-size: .875rem; }
+
+/* The actions had no layout rule at all, so three buttons flowed inline with
+   no gap and their hard offset shadows overlapped each other on hover. */
+.product-actions {
+  display: flex; flex-wrap: wrap; gap: .7rem;
+  margin-top: 1.6rem;
+}
+.product-actions .button { flex: 0 1 auto; }
+
+.detail-store { margin-top: 2rem; padding-top: 1.4rem; border-top: 1px solid var(--rule-strong); }
+.detail-store h2 { font-size: 1rem; letter-spacing: -.02em; margin-bottom: .8rem; }
+
+/* ------------------------------------------------------- 3D viewer ---- */
+
+.viewer { display: grid; gap: .9rem; }
+
+.viewer-stage {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border: 1px solid var(--rule);
+  background: var(--paper-sunken);
+  overflow: hidden;
+}
+
+.viewer-canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+/* Only while it can actually be driven — a grab cursor over a failed viewer
+   promises an interaction that is not there. */
+.viewer[data-state="ready"] .viewer-canvas { cursor: grab; }
+.viewer[data-state="ready"] .viewer-canvas:active { cursor: grabbing; }
+
+.viewer-overlay {
+  position: absolute; inset: 0;
+  display: grid; place-content: center; gap: .6rem;
+  padding: 2rem;
+  text-align: center;
+  color: var(--ink-muted); font-size: .875rem;
+}
+.viewer-overlay-message { background: var(--paper-sunken); }
+.viewer-overlay b { color: var(--ink); }
+.viewer-note { max-width: 26rem; font-size: .8125rem; }
+.viewer-overlay .button { justify-self: center; margin-top: .4rem; }
+
+/* A skeleton in the shape of the thing that is coming, not a spinner: it
+   says "a picture is arriving here" rather than "something is happening". */
+.viewer-skeleton {
+  width: min(52%, 220px); aspect-ratio: 1 / 1;
+  justify-self: center;
+  background: linear-gradient(
+    100deg, var(--paper-sunken) 30%, var(--paper-raised) 50%, var(--paper-sunken) 70%);
+  background-size: 300% 100%;
+  animation: viewer-sheen 1.4s linear infinite;
+}
+@keyframes viewer-sheen { from { background-position: 150% 0; } to { background-position: -50% 0; } }
+
+.viewer-controls {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+}
+.viewer-hint {
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint);
+}
+.viewer-reset { padding: .5rem .9rem; font-size: .75rem; }
+
+/* The measurements, always present whatever the viewer is doing. */
+.viewer-dims {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+}
+.viewer-dims > div { padding: .7rem .8rem; background: var(--paper-raised); }
+.viewer-dims dt {
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint);
+}
+.viewer-dims dd { margin-top: .25rem; font-family: var(--mono); font-size: .9375rem; }
+
 
 .store-card { display: grid; gap: .5rem; margin: 1.4rem 0; padding: 1rem; border: 1px solid var(--rule); }
 .store-card div { display: grid; grid-template-columns: 4.6rem 1fr; gap: .7rem; align-items: baseline; }
@@ -1592,6 +1821,44 @@ footer {
 .form-section-optional { opacity: .82; }
 .form-section-optional > legend { color: var(--ink-faint); }
 .form-section-note { margin-top: -.4rem; }
+
+/* ------------------------------------------- the model preview ---------- */
+/*
+   Shown inside the product form so a shop can confirm their upload before
+   publishing it, in the same lighting the catalogue and the product page use.
+*/
+
+.model-preview { margin-top: 1rem; }
+
+.model-preview-stage {
+  position: relative;
+  display: grid; place-items: center;
+  aspect-ratio: 16 / 10;
+  border: 1px solid var(--rule);
+  background: var(--paper-sunken);
+  overflow: hidden;
+}
+.model-preview-stage canvas { width: 100%; height: 100%; display: block; }
+/* No model, no canvas to look at — the note takes the space instead. */
+.model-preview:not([data-state="ready"]) .model-preview-stage canvas { display: none; }
+
+.model-preview-note {
+  max-width: 28rem;
+  padding: 1.25rem;
+  text-align: center;
+  font-size: .8125rem; color: var(--ink-muted);
+}
+.model-preview-note.is-error { color: var(--danger); }
+.model-preview-note b { display: block; margin-bottom: .3rem; color: inherit; }
+.model-preview-note code { font-family: var(--mono); font-size: .9em; }
+
+.model-preview-caption {
+  display: flex; align-items: center; gap: .45rem;
+  margin-top: .5rem;
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint);
+}
+.model-preview-ok { width: 6px; height: 6px; background: var(--ok); }
 
 /* -------------------------------------------------------------- toast ---- */
 
@@ -1988,7 +2255,7 @@ footer {
     display: block !important; min-height: 0 !important;
     padding: 1rem 0 !important;
   }
-  .hero-decor, .marquee-section { display: none !important; }
+  .marquee-section { display: none !important; }
   .promise h3, .promise p { opacity: 1 !important; }
   .capsule { display: none !important; }
 
@@ -2086,8 +2353,10 @@ footer {
   /* A <select> is as wide as its longest option unless it is told otherwise,
      and "All local stores" plus a long shop name is wider than a phone. */
   .filters select, .filters input { max-width: 100%; }
-  .dialog-layout { grid-template-columns: 1fr; }
-  .dialog-image { min-height: 230px; border-right: 0; border-bottom: 1px solid var(--rule); }
+  /* The product page stacks: viewer first, then the facts. Judging the
+     object still comes before reading about it. */
+  .product-detail { grid-template-columns: minmax(0, 1fr); }
+  .product-detail-info { max-width: none; }
   .login-panel { grid-template-columns: 1fr; }
   .login-copy { border-right: 0; border-bottom: 1px solid var(--rule-strong); }
 }
@@ -2156,23 +2425,15 @@ footer {
   /* A phone is portrait, so the room reads better lower and larger than the
      desktop composition puts it — behind the copy rather than beside it. */
   .hero-stage-still { background-size: 92vw auto; background-position: center 72%; }
-  /* Two of the eight motes on a phone. They are atmosphere, and at 390px the
-     rest are clutter — the centimetre tags in particular landed on top of the
-     headline, because a percentage that clears the copy on a 1440px canvas
-     clears nothing on a 390px one. */
-  .mote-dot, .mote-ring, .mote-tag { display: none; }
   .marquee-card { width: clamp(168px, 58vw, 220px); }
   .section-heading { flex-direction: column; align-items: start; gap: .5rem; }
   /* minmax(0, …) for the same reason as the layout tracks above: a bare 1fr
      will not go below the card's min-content width, so two cards plus the gap
      came to 404px whatever the viewport was. */
   .product-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .product-image { height: 150px; }
   .product-name { font-size: .875rem; }
-  .product-meta { display: block; }
   .product-price { display: block; margin-bottom: .2rem; }
   .planner-layout, .conditions, .measurement-inputs, .form-grid { grid-template-columns: 1fr; }
-  .dialog-info { padding: 1.6rem 1.2rem; }
   .form-dialog { padding: 1.4rem 1.1rem; }
   .dashboard-top > div:last-child { width: 100%; }
   .inventory-summary { grid-template-columns: 1fr; }
@@ -2187,7 +2448,6 @@ footer {
   .color-option { width: var(--tap); height: var(--tap); }
   .range-group input { height: var(--tap); }
   .search-input input { min-height: var(--tap); }
-  .view-button { width: var(--tap); height: var(--tap); }
   .dialog-close { width: var(--tap); height: var(--tap); }
   .text-button { min-height: var(--tap); }
   .tray-btn { min-width: 38px; height: 38px; }

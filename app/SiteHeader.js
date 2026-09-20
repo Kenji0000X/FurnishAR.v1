@@ -5,13 +5,27 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import ThemeToggle from './ThemeToggle.js';
 
-// The three "views" used to be one page with a JS class toggle, which meant
-// none of them had a URL. They are real routes now, so a shopper can send
-// someone the planner or bookmark the portal.
+/*
+ * The four places this site actually has.
+ *
+ * The redesign brief also asked for Search, Saved and Account in the header.
+ * None of the three exists: there is no site-wide search (the catalogue has
+ * its own filter, which is a different thing), there is no favourites feature
+ * anywhere in the codebase, and shoppers have no accounts at all — only store
+ * owners do, through the portal. A magnifying glass, a heart and a person
+ * icon that lead nowhere are precisely the "buttons that do nothing" the same
+ * brief bans two sections earlier, so they are left out until the features
+ * behind them are real.
+ *
+ * "Collection" is an anchor rather than a route because the catalogue is a
+ * section of the home page. It is listed anyway: a shopper looking for the
+ * furniture should not have to know that.
+ */
 const NAV = [
   { href: '/', label: 'Discover' },
+  { href: '/#catalog', label: 'Collection' },
   { href: '/plan', label: 'Space planner' },
-  { href: '/portal', label: 'Store portal' }
+  { href: '/portal', label: 'For stores' }
 ];
 
 export function BrandMark() {
@@ -27,9 +41,19 @@ export default function SiteHeader() {
   const [menuOpen, setMenuOpen] = useState(false);
   const toggleRef = useRef(null);
 
-  // A product page is part of Discover, so the tab stays lit while browsing.
-  const isActive = href =>
-    href === '/' ? pathname === '/' || pathname.startsWith('/furniture') : pathname.startsWith(href);
+  /*
+   * A product page is part of Discover, so that tab stays lit while browsing.
+   *
+   * "Collection" is deliberately never marked current: it points at a section
+   * of the page you may already be on, and aria-current="page" on a link that
+   * scrolls you somewhere else on the same page tells a screen-reader user
+   * something untrue about where they are.
+   */
+  const isActive = href => {
+    if (href.includes('#')) return false;
+    if (href === '/') return pathname === '/' || pathname.startsWith('/furniture');
+    return pathname.startsWith(href);
+  };
 
   // Navigating is the most common way the menu should close, and it is easy to
   // miss: Next does a client-side transition, so the component never unmounts

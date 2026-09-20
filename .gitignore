@@ -17,3 +17,9 @@ dist/config.js
 next-env.d.ts
 .vercel
 .env*
+
+# Thumbnails are rendered from each product's own .glb by
+# scripts/render-thumbnails.mjs. They are committed, not ignored — the build
+# needs them and they are the product's real picture. This entry exists only
+# to keep the renderer's scratch PNGs out.
+public/thumbs/*.png

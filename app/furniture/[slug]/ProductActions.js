@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { canPlaceInSpace } from '../../model-state.js';
 
 /**
  * The buttons under a product.
@@ -26,6 +27,10 @@ export default function ProductActions({ product }) {
 
   const planHref = `/plan?product=${product.slug || product.id}`;
   const quickLook = isIOS && product.modelUsdz;
+  // Offered only when the planner has something to place. Before this, every
+  // product carried "Place in your room" whether or not a model existed, and
+  // the two that had none sent the shopper to an empty planner.
+  const placeable = canPlaceInSpace(product);
 
   async function copyLink() {
     const url = window.location.href;
@@ -46,18 +51,25 @@ export default function ProductActions({ product }) {
 
   return (
     <div className="product-actions">
-      {quickLook ? (
+      {placeable && (quickLook ? (
         <a className="button button-primary" rel="ar" href={product.modelUsdz}>
           Open in AR
         </a>
       ) : (
         <Link className="button button-primary" href={`${planHref}&ar=1`}>
-          Place in your room
+          View in my space
         </Link>
-      )}
+      ))}
 
-      <Link className="button button-outline" href={planHref}>
-        Measure the fit first
+      {/* Measuring a room works with or without a model — you are measuring
+          the room, and the dimensions above are real either way. So this stays
+          offered, and becomes the primary action when there is nothing to
+          place. */}
+      <Link
+        className={`button ${placeable ? 'button-outline' : 'button-primary'}`}
+        href={placeable ? planHref : '/plan'}
+      >
+        Measure my space
       </Link>
 
       <button className="button button-outline" type="button" onClick={copyLink}>

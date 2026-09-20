@@ -3,10 +3,9 @@ import { getCatalog, getStores } from '../lib/catalog.mjs';
 import CatalogSection from './CatalogSection.js';
 import Faq from './Faq.js';
 import HeroStage from './HeroStage.js';
-import HeroDecor from './HeroDecor.js';
 import Promises from './Promises.js';
 import Marquee from './Marquee.js';
-import FurnitureIllustration from './FurnitureIllustration.js';
+import ProductThumb from './ProductThumb.js';
 
 // The catalogue is a file the owner portal can write to, so pages are allowed
 // to render again rather than being frozen at build time.
@@ -55,8 +54,15 @@ function capsulesFrom(products) {
   for (const product of products) {
     if (!product.category) continue;
     const seen = byCategory.get(product.category);
-    if (seen) seen.count += 1;
-    else byCategory.set(product.category, { count: 1, sample: product });
+    if (!seen) {
+      byCategory.set(product.category, { count: 1, sample: product });
+      continue;
+    }
+    seen.count += 1;
+    // Prefer a sample that actually has a render, so the rail shows real
+    // furniture where the catalogue has any. A category whose pieces have no
+    // models shows no picture rather than a stand-in for one.
+    if (!seen.sample.thumbnail && product.thumbnail) seen.sample = product;
   }
   return [...byCategory]
     .sort((a, b) => b[1].count - a[1].count)
@@ -67,8 +73,6 @@ function capsulesFrom(products) {
 function Hero({ facts, capsules }) {
   return (
     <section className="hero" aria-labelledby="hero-title">
-      <HeroDecor />
-
       <div className="hero-copy">
         <p className="eyebrow">Furniture, made certain</p>
         {/* Stacked, one word to a line, set as large as the viewport allows.
@@ -109,7 +113,7 @@ function Hero({ facts, capsules }) {
               href={`/?category=${encodeURIComponent(category)}#catalog`}
             >
               <span className="capsule-thumb" aria-hidden="true">
-                <FurnitureIllustration product={sample} />
+                <ProductThumb product={sample} sizes="56px" />
               </span>
               <span className="capsule-label">
                 <b>{category}</b>

@@ -11,7 +11,43 @@
 /** The top of the width slider. At this value the filter means "no limit". */
 export const NO_LIMIT = 240;
 
-export const EMPTY_FILTERS = { search: '', category: '', store: '', width: NO_LIMIT, color: '' };
+export const EMPTY_FILTERS = {
+  search: '',
+  category: '',
+  store: '',
+  width: NO_LIMIT,
+  color: '',
+  /* Only pieces with a real uploaded model. The single most useful filter on
+     a site whose whole promise is "see it in your room" — and one a shopper
+     can only apply if the catalogue is honest about which pieces have one. */
+  modelOnly: false,
+  /* Hide what the shop has none of. */
+  inStockOnly: false
+};
+
+/** How the grid can be ordered. Sort is a filter's other half. */
+export const SORTS = {
+  relevance: { label: 'Featured first', compare: null },
+  'price-asc': { label: 'Price, low to high', compare: (a, b) => a.price - b.price },
+  'price-desc': { label: 'Price, high to low', compare: (a, b) => b.price - a.price },
+  'width-asc': {
+    label: 'Narrowest first',
+    compare: (a, b) => (a.dimensions?.width ?? 0) - (b.dimensions?.width ?? 0)
+  },
+  name: { label: 'Name, A to Z', compare: (a, b) => a.name.localeCompare(b.name) }
+};
+
+/**
+ * Applies a sort without mutating the caller's array.
+ *
+ * 'relevance' deliberately returns the catalogue's own order, which already
+ * puts featured pieces first — re-sorting it would throw away the ordering the
+ * shops and the query established.
+ */
+export function sortProducts(products, key) {
+  const compare = SORTS[key]?.compare;
+  return compare ? [...products].sort(compare) : products;
+}
 
 /**
  * Everything one product can be matched on.
@@ -47,6 +83,10 @@ export function matches(product, f) {
     // than 240 cm permanently — including from the default, unfiltered view.
     // A 260 cm sofa could not be found by any combination of controls.
     (f.width >= NO_LIMIT || (product.dimensions?.width ?? 0) <= f.width) &&
-    (!f.color || product.color === f.color)
+    (!f.color || product.color === f.color) &&
+    // Derived from the asset, like everywhere else — a product cannot satisfy
+    // this filter by setting a flag.
+    (!f.modelOnly || Boolean(product.modelGlb)) &&
+    (!f.inStockOnly || Number(product.stock) > 0)
   );
 }
