@@ -976,6 +976,84 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .color-option:hover { transform: scale(1.08); }
 .color-option.active { box-shadow: 0 0 0 1px var(--paper), 0 0 0 2px var(--ink); }
 
+/* ------------------------------------------- catalogue controls ------- */
+
+.catalog-tools { display: flex; align-items: center; gap: 1.25rem; }
+
+.sort-control { display: flex; align-items: center; gap: .5rem; }
+.sort-control > span {
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint);
+}
+.sort-control select {
+  min-height: var(--tap);
+  padding: .4rem 1.8rem .4rem .6rem;
+  border: 1px solid var(--rule);
+  background: transparent;
+  font-size: .8125rem;
+}
+.sort-control select:focus-visible { border-color: var(--rule-strong); }
+
+/*
+   The filters that are currently on, as things you can take off.
+
+   A filter you cannot see is a filter you cannot undo, and "no results" with
+   a forgotten colour still selected is the most common dead end in any
+   catalogue — the shopper concludes the shop is empty rather than that they
+   have a control set.
+*/
+.active-filters {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .6rem;
+  margin: -1.25rem 0 2rem;
+}
+.active-filters-label {
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint);
+}
+.active-filters ul { display: flex; flex-wrap: wrap; gap: .5rem; list-style: none; }
+.active-filters button {
+  display: inline-flex; align-items: center; gap: .45rem;
+  min-height: 32px;
+  padding: .25rem .6rem;
+  border: 1px solid var(--rule-strong);
+  background: var(--paper-raised);
+  font-size: .8125rem;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.active-filters button:hover { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.active-filters button > span[aria-hidden] { font-size: 1rem; line-height: 1; opacity: .7; }
+
+/* ---- the two toggles ---- */
+
+.toggle-group { display: grid; gap: .6rem; }
+/*
+  Overrides `.filter-group label`, which sets every label in the sidebar to
+  a block-level mono uppercase micro-label. That is right for "CATEGORY"
+  above a <select> and wrong for a checkbox's own text, which is a sentence
+  beside a box — under that rule these rendered as stacked shouting caps with
+  the checkbox orphaned on the line above.
+*/
+.filter-group .filter-toggle {
+  display: flex; align-items: flex-start; gap: .6rem;
+  min-height: var(--tap);
+  margin-bottom: 0;
+  padding: .35rem 0;
+  cursor: pointer;
+  font-family: var(--sans); font-size: .8125rem;
+  letter-spacing: normal; text-transform: none; color: var(--ink);
+}
+.filter-group .filter-toggle input {
+  flex: 0 0 auto;
+  width: 16px; height: 16px;
+  margin-top: .15rem;
+  accent-color: var(--accent);
+}
+.filter-group .filter-toggle > span { display: grid; gap: .1rem; }
+.filter-group .filter-toggle small {
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .1em; color: var(--ink-faint);
+}
+
 /*
    A catalogue grid, not a card grid.
 
@@ -1113,6 +1191,7 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 }
 
 .no-results {
+  display: grid; justify-items: center; gap: .6rem;
   grid-column: 1 / -1;
   padding: 4rem 1.5rem;
   border: 1px solid var(--rule); background: var(--paper-raised);
