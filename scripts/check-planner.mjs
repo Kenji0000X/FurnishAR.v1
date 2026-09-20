@@ -132,6 +132,121 @@ if (picker.empty) {
   }
 }
 
+
+/* ------------------------------------------------ the whole-room scan --- */
+/*
+   There is no XR device in CI, so this drives the scan through the seam the
+   engine exposes: synthetic surfaces of a KNOWN room go in at exactly the
+   point WebXR's detected planes would, and everything downstream — the
+   derivation, the panel, the readiness gate, the kept result and the verdict
+   — is the real code.
+
+   What this does NOT prove: plane detection, depth sensing, tracking quality
+   or real-world accuracy. Those need a physical Android device, and this
+   check says so rather than implying a green run covers them.
+*/
+await page.goto(`${BASE}/plan`, { waitUntil: 'domcontentloaded' });
+await page.waitForFunction(() => Boolean(window.__furnisharScan), null, { timeout: 15000 });
+
+console.log('--- the whole-room scan ---');
+
+// A room known in advance: 4.81 m x 3.42 m x 2.70 m, deliberately rotated 25
+// degrees off the tracking axes, which is how every real scan arrives.
+const ROOM = await page.evaluate(() => {
+  const rotate = (x, z, a) => ({ x: x * Math.cos(a) - z * Math.sin(a), z: x * Math.sin(a) + z * Math.cos(a) });
+  const angle = (25 * Math.PI) / 180;
+  const rect = (L, W, y) => [[-L / 2, -W / 2], [L / 2, -W / 2], [L / 2, W / 2], [-L / 2, W / 2]]
+    .map(([u, v]) => { const r = rotate(u, v, angle); return { x: r.x, y, z: r.z }; });
+
+  const surfaces = [
+    { orientation: 'horizontal', polygon: rect(4.81, 3.42, 0) },
+    { orientation: 'horizontal', polygon: rect(4.81, 3.42, 2.70) }
+  ];
+  // Two walls, so the readiness gate is satisfied honestly.
+  for (const z of [-1.71, 1.71]) {
+    surfaces.push({ orientation: 'vertical', polygon: [
+      { x: -2.4, y: 0, z }, { x: 2.4, y: 0, z },
+      { x: 2.4, y: 2.70, z }, { x: -2.4, y: 2.70, z }
+    ] });
+  }
+
+  window.__furnisharScan.openPanel();
+  const room = window.__furnisharScan.feed(surfaces);
+  return { length: room.length, width: room.width, height: room.height, area: room.floorArea, walls: room.walls };
+});
+
+const near = (value, target, tolerance) => Math.abs(value - target) <= tolerance;
+check('the floor measures its true length despite the 25deg rotation',
+  near(ROOM.length, 4.81, 0.01), `${ROOM.length?.toFixed(3)} m, expected 4.81`);
+check('and its true width', near(ROOM.width, 3.42, 0.01), `${ROOM.width?.toFixed(3)} m, expected 3.42`);
+check('the ceiling gives the height', near(ROOM.height, 2.70, 0.01), `${ROOM.height?.toFixed(3)} m`);
+check('the floor area follows', near(ROOM.area, 16.45, 0.05), `${ROOM.area?.toFixed(2)} m2`);
+
+// The gate: a measured room is not enough on its own, the sweep must be done.
+const beforeSweep = await page.evaluate(() => window.__furnisharScan.state.readiness);
+check('a found room with no sweep is not ready yet',
+  beforeSweep.ready === false && beforeSweep.blocking.includes('sweep'),
+  `blocking: ${beforeSweep.blocking.join(', ')}`);
+
+const afterSweep = await page.evaluate(() => {
+  window.__furnisharScan.sweepTo(180);
+  return window.__furnisharScan.state.readiness;
+});
+check('after a full sweep it is ready', afterSweep.ready === true, `blocking: ${afterSweep.blocking.join(', ')}`);
+
+// What a person actually sees on the panel.
+const panel = await page.evaluate(() => ({
+  length: document.getElementById('room-length')?.textContent,
+  width: document.getElementById('room-width')?.textContent,
+  height: document.getElementById('room-height')?.textContent,
+  area: document.getElementById('room-area')?.textContent,
+  walls: document.getElementById('found-walls')?.textContent,
+  sweep: document.getElementById('found-sweep')?.textContent,
+  ticks: document.querySelectorAll('#scan-arc i[data-swept="yes"]').length,
+  useRoomDisabled: document.getElementById('use-room')?.disabled
+}));
+check('the panel shows the measured length', panel.length === '4.81 m', panel.length);
+check('the panel shows the measured width', panel.width === '3.42 m', panel.width);
+check('the panel shows the measured height', panel.height === '2.70 m', panel.height);
+check('the sweep arc filled in', panel.ticks >= 30, `${panel.ticks} ticks lit`);
+check('"Use this room" is only offered once the scan is ready', panel.useRoomDisabled === false);
+
+// Accepting the room carries it to the planner card and the verdict.
+const accepted = await page.evaluate(() => {
+  document.querySelector('.mode-option[data-measure-mode="room"]')?.click();
+  window.__furnisharScan.accept();
+  return {
+    cardLength: document.getElementById('room-result-length')?.textContent,
+    cardHeight: document.getElementById('room-result-height')?.textContent,
+    verdictTitle: document.getElementById('verdict-title')?.textContent,
+    verdict: document.getElementById('fit-verdict')?.textContent?.replace(/\s+/g, ' ').trim(),
+    failed: document.getElementById('fit-verdict')?.className.includes('fail'),
+    planLabel: document.getElementById('fit-plan-space-label')?.textContent
+  };
+});
+check('the measurement survives the scan and lands on the card',
+  accepted.cardLength === '4.81 m' && accepted.cardHeight === '2.70 m',
+  `${accepted.cardLength} / ${accepted.cardHeight}`);
+check('the verdict is now about the room, not a span',
+  accepted.verdictTitle === 'Room verdict', accepted.verdictTitle);
+check('an armchair fits a 4.81 x 3.42 m room', accepted.failed === false,
+  accepted.verdict?.slice(0, 80));
+check('the plan view is drawn at the room’s real proportions',
+  /4\.81 m . 3\.42 m/.test(accepted.planLabel || ''), accepted.planLabel);
+
+
+/* The oversized case is covered exhaustively in tests/room.test.js against
+   fitInRoom() directly; repeating it here would need a fake product in the
+   catalogue, which is a worse test of the same arithmetic. */
+console.log('  --   an oversized piece is covered by tests/room.test.js, which');
+console.log('       exercises fitInRoom() directly rather than needing a fake');
+console.log('       product in the live catalogue.');
+
+console.log('  --   NOT covered here: plane detection, depth sensing, tracking');
+console.log('       quality and real-world accuracy. Those need a physical');
+console.log('       Android device and cannot be asserted from CI.');
+
+
 console.log(errors.length ? `\n*** PAGE ERRORS ***\n${errors.join('\n')}` : '\nno page errors');
 await browser.close();
 

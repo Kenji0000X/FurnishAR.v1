@@ -60,6 +60,18 @@
   --glass-dark-line: rgba(255, 255, 255, .16);
   --glass-dark-text: #f3f5f3;
 
+  /* AR status, and the x-ray net.
+     Deliberately NOT --ok/--danger: those flip with the theme, and the AR
+     layer is dark over a camera in both (BRAND.md §3). These are fixed for
+     the same reason --glass-dark-* above are, and they are tokens rather than
+     hexes buried in rules so the net shader and the CSS cannot drift apart —
+     the net reads them back out of this block at runtime. */
+  --ar-ok: #7fd4c1;
+  --ar-warn: #e8c37a;
+  --ar-alert: #f0907a;
+  --ar-net: #7fd4c1;         /* the grid over detected planes */
+  --ar-net-depth: #e0a184;   /* the finer depth lattice, where supported */
+
   /* Type */
   --sans: "DM Sans", system-ui, -apple-system, sans-serif;
   --mono: "DM Mono", ui-monospace, "SF Mono", monospace;
@@ -1269,7 +1281,6 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   margin-bottom: .6rem;
   padding: .7rem .8rem;
   border: 1px solid var(--rule);
-  border-left: 3px solid var(--accent);
   background: var(--paper-raised);
   font-size: .8125rem; line-height: 1.5; color: var(--ink-muted);
 }
@@ -1455,8 +1466,12 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .dashboard-nudge {
   margin: .75rem 0 0;
   padding: .85rem 1.1rem;
+  /* A 1px rule on all four sides, like every other panel in this system. An
+     earlier version had a 3px accent bar down the left edge — the stripe that
+     every generated interface reaches for to say "notice". Nothing else here
+     is drawn that way, the emphasis belongs to the sentence, and BRAND.md's
+     structure rule is a 1px ink rule, full stop. */
   border: 1px solid var(--rule);
-  border-left: 3px solid var(--accent);
   background: var(--paper-raised);
   font-size: .8125rem; line-height: 1.55; color: var(--ink-muted);
 }
@@ -2084,10 +2099,110 @@ footer {
   font-style: normal; font-family: var(--mono); font-size: .55rem;
   letter-spacing: .08em; text-transform: uppercase; opacity: .5;
 }
-.ar-measure-line { position: absolute; z-index: 2; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.ar-measure-line[hidden] { display: none; }
-.ar-measure-line line { stroke: rgba(255, 255, 255, .9); stroke-width: 1.5; stroke-dasharray: 5 5; }
-.ar-measure-line circle { fill: #fff; }
+/* ------------------------------------------------- the room scan -------- */
+/*
+   The scan panel sits over the camera during a whole-room scan. Everything in
+   it reports something the device has actually determined; a row it cannot
+   fill shows an em dash rather than a plausible number.
+*/
+
+.scan-panel {
+  position: absolute; z-index: 4;
+  left: .7rem; right: .7rem;
+  top: max(5.4rem, calc(env(safe-area-inset-top) + 4.5rem));
+  display: grid; gap: .7rem;
+  padding: .9rem 1rem;
+  max-width: 24rem; margin-inline: auto;
+}
+.scan-panel[hidden] { display: none; }
+.scan-panel header { display: flex; align-items: baseline; justify-content: space-between; gap: .6rem; }
+.scan-panel h2 {
+  font-family: var(--mono); font-size: .62rem; font-weight: 500;
+  letter-spacing: .16em; text-transform: uppercase; opacity: .75;
+}
+
+.scan-tracking {
+  display: inline-flex; align-items: center; gap: .4em;
+  font-family: var(--mono); font-size: .58rem; letter-spacing: .1em; text-transform: uppercase;
+}
+/* A 6px square, the same marker .model-preview-ok uses — square-cornered like
+   everything else drawn in this system, rather than a round glyph borrowed
+   from a font. The WORD carries the state; this only reinforces it, so
+   nothing here depends on telling three tints apart. */
+.scan-tracking::before {
+  content: ''; flex: 0 0 auto; width: 6px; height: 6px;
+  background: currentColor;
+}
+.scan-tracking[data-state="stable"] { color: var(--ar-ok); }
+.scan-tracking[data-state="acquiring"] { color: var(--ar-warn); }
+.scan-tracking[data-state="lost"] { color: var(--ar-alert); }
+
+/* The 180-degree sweep, drawn as ticks. Present or absent is legible without
+   telling two colours apart. */
+.scan-arc { display: flex; gap: 1px; height: 14px; align-items: end; }
+.scan-arc i {
+  flex: 1 1 0; min-width: 0; display: block;
+  height: 14px; transform-origin: bottom;
+  background: currentColor;
+  transition: transform var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+}
+/* Scaled, not resized. Transitioning `height` on 72 elements is a layout pass
+   per frame; transform is composited. */
+.scan-arc i[data-swept="no"] { transform: scaleY(.28); opacity: .22; }
+.scan-arc i[data-swept="yes"] { transform: scaleY(1); opacity: .95; }
+.scan-guidance { font-size: .72rem; line-height: 1.4; opacity: .85; margin-top: .45rem; }
+
+.scan-found { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .4rem; }
+.scan-found div { display: grid; gap: .15rem; }
+.scan-found dt {
+  /* .55rem is the AR layer's established floor (see .ar-measure em and
+     .ar-anchor-chip i). Nothing in this product is set smaller, and this was
+     the only thing that had been. */
+  font-family: var(--mono); font-size: .55rem; letter-spacing: .1em;
+  text-transform: uppercase; opacity: .55;
+}
+.scan-found dd { font-family: var(--mono); font-size: .68rem; }
+
+.scan-dimensions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem .9rem; }
+.scan-dimensions p { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; }
+.scan-dimensions span { font-size: .68rem; opacity: .6; }
+.scan-dimensions b { font-family: var(--mono); font-size: .85rem; letter-spacing: -.02em; }
+
+.scan-note { font-size: .66rem; line-height: 1.45; opacity: .7; }
+.scan-note:empty { display: none; }
+/* The one control in the panel, held to the coarse-pointer minimum. */
+.scan-panel #use-room { min-height: var(--tap); width: 100%; }
+
+/* The scanned room, kept on the planner card after AR closes. */
+.room-readout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem .9rem; margin-bottom: .6rem; }
+.room-readout p { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; }
+.room-readout span { font-size: .75rem; color: var(--ink-muted); }
+.room-readout b { font-family: var(--mono); font-size: 1rem; letter-spacing: -.02em; }
+
+/* The plan drawing before anything has been measured. */
+.fit-plan-stage[data-state="empty"] .fit-plan-space { border-style: dashed; opacity: .55; }
+
+/* Dimension labels pinned to each detected surface. */
+.surface-labels { position: absolute; z-index: 3; inset: 0; pointer-events: none; }
+.surface-label {
+  position: absolute; top: 0; left: 0;
+  padding: .25rem .5rem;
+  font-family: var(--mono); font-size: .6rem; letter-spacing: .02em;
+  white-space: nowrap;
+}
+/* Which surface this is, said in a word. A glyph would need a legend that is
+   nowhere on screen, and the label has room for four more characters. */
+.surface-label b { font-weight: 500; opacity: .6; margin-right: .35em; }
+.surface-label i { font-style: normal; }
+
+@media (prefers-reduced-motion: reduce) {
+  .scan-arc i { transition: none; }
+}
+
+@media (max-width: 380px) {
+  /* Four columns of micro-labels stop being readable before the panel does. */
+  .scan-found { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 .ar-dock {
   position: absolute; z-index: 5;

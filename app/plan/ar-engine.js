@@ -21,6 +21,9 @@
 
 import { resolveScale } from '../../lib/spatial/model-scale.mjs';
 import { OneEuroFilter, Steadiness, displayPrecision } from '../../lib/spatial/smoothing.mjs';
+import { roomDimensions, fitInRoom, minimumAreaRectangle } from '../../lib/spatial/room.mjs';
+import { SweepCoverage, scanReadiness } from '../../lib/spatial/coverage.mjs';
+import { createXrayNet } from './xray-net.js';
 
 /**
  * Wires the planner up to the DOM the page has already rendered.
@@ -109,6 +112,11 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
   const liveSteadiness = new Steadiness(30);
   let liveSeries = null;   // which quantity the filter is currently tracking
 
+  /* The room scan. Coverage is the 180-degree sweep; `room` is the latest
+     derivation from whatever surfaces have been detected so far. */
+  const sweep = new SweepCoverage();
+  let xrayNet = null;
+
   /* ===== Planner state and DOM helpers ===== */
   const state = {
     products: [],
@@ -139,6 +147,16 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     viewerYaw: 0,
     ownProducts: [],
     measureMode: 'clearance',
+    // The room scan. `room` is null until a floor is found; `netSupport`
+    // records what this device actually granted, so the UI can say which
+    // layers are live instead of implying all of them.
+    room: null,
+    // The room the person accepted, which outlives the AR session that
+    // produced it. `room` is the live derivation; this is the kept one.
+    scannedRoom: null,
+    detectedSurfaces: [],
+    netSupport: { planes: false, depth: false },
+    scanReadiness: null,
     areaPoints: [],
     membership: null,
     unsubscribeCatalog: null
@@ -168,6 +186,44 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       <span><i id="live-cm">0 cm</i><i id="live-mm">0 mm</i></span>
       <em id="live-caption"></em>
     </div>
+
+    <!-- Dimension labels pinned to each detected surface. Built and positioned
+         by the scan loop; empty, and silent to a screen reader, until a
+         surface has actually been measured. -->
+    <div id="surface-labels" class="surface-labels" aria-hidden="true"></div>
+
+    <!-- The guided room scan. Everything in here reports something the device
+         has actually determined; rows the device cannot do say so. -->
+    <section id="scan-panel" class="scan-panel glass" hidden aria-labelledby="scan-panel-title">
+      <header>
+        <h2 id="scan-panel-title">Room scan</h2>
+        <span id="scan-tracking" class="scan-tracking" data-state="acquiring">Acquiring</span>
+      </header>
+
+      <!-- The 180-degree sweep. The arc is drawn as ticks so progress is
+           legible without relying on colour alone. -->
+      <div class="scan-sweep">
+        <div id="scan-arc" class="scan-arc" role="img" aria-label="Sweep coverage"></div>
+        <p id="scan-guidance" class="scan-guidance">Point the camera at the floor to begin.</p>
+      </div>
+
+      <dl class="scan-found">
+        <div><dt>Floor</dt><dd id="found-floor">—</dd></div>
+        <div><dt>Walls</dt><dd id="found-walls">—</dd></div>
+        <div><dt>Height</dt><dd id="found-height">—</dd></div>
+        <div><dt>Sweep</dt><dd id="found-sweep">0°</dd></div>
+      </dl>
+
+      <div class="scan-dimensions" aria-live="polite">
+        <p><span>Length</span><b id="room-length">—</b></p>
+        <p><span>Width</span><b id="room-width">—</b></p>
+        <p><span>Height</span><b id="room-height">—</b></p>
+        <p><span>Floor area</span><b id="room-area">—</b></p>
+      </div>
+
+      <p id="scan-note" class="scan-note"></p>
+      <button id="use-room" class="ar-outline-button glass" disabled>Use this room</button>
+    </section>
     <div class="ar-dock">
     <p id="ar-mode-label" class="ar-hint glass"></p>
     <button id="close-outline" class="ar-outline-button glass" hidden>Close outline</button>
@@ -298,6 +354,240 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
   function setHint(text) {
     const hint = $('#ar-mode-label');
     if (hint && hint.textContent !== text) hint.textContent = text;
+  }
+
+  /* =================== the guided room scan ===================
+     Everything below reports what the device has actually determined. A row
+     it cannot fill says so; none of them is ever filled with a plausible
+     number to keep the panel looking complete. */
+
+  /** Metres, shown the way a person would say them. */
+  const metres = value => (value >= 1 ? `${value.toFixed(2)} m` : `${Math.round(value * 100)} cm`);
+
+  /**
+   * Whether the tracker currently knows where it is.
+   *
+   * The word carries the meaning and the colour only reinforces it, so this
+   * is readable to somebody who cannot tell the three tints apart.
+   */
+  const TRACKING_WORDS = { stable: 'Stable', acquiring: 'Acquiring', lost: 'Tracking lost' };
+  function setTracking(nextState) {
+    const node = $('#scan-tracking');
+    if (!node || node.dataset.state === nextState) return;
+    node.dataset.state = nextState;
+    node.textContent = TRACKING_WORDS[nextState] || '';
+  }
+
+  /**
+   * Draw the sweep as a row of ticks.
+   *
+   * Ticks rather than a filled bar: a bar going from grey to green carries
+   * progress in colour alone, and a tick that is present or absent does not.
+   */
+  function renderSweepArc(coverage) {
+    const arc = $('#scan-arc');
+    if (!arc) return;
+    const bins = coverage.toArray();
+    // Rebuilt only when the count changes; the rest of the time the ticks are
+    // just re-flagged, so this is not 72 DOM nodes a frame.
+    if (arc.childElementCount !== bins.length) {
+      arc.innerHTML = bins.map(() => '<i></i>').join('');
+    }
+    const ticks = arc.children;
+    for (let i = 0; i < bins.length; i++) {
+      const swept = bins[i] ? 'yes' : 'no';
+      if (ticks[i].dataset.swept !== swept) ticks[i].dataset.swept = swept;
+    }
+    arc.setAttribute('aria-label', `Sweep coverage ${Math.round(coverage.degrees)} of 180 degrees`);
+  }
+
+  /**
+   * Pin a measurement to each detected surface.
+   *
+   * Only surfaces big enough to be worth labelling, and only while their
+   * centre is actually on screen — a label for something behind you, or for
+   * every scrap of plane the tracker found, is clutter rather than
+   * information.
+   */
+  function renderSurfaceLabels(surfaces, camera) {
+    const host = $('#surface-labels');
+    if (!host || !THREE || !camera) return;
+
+    const wanted = [];
+    for (const surface of surfaces) {
+      const rect = surfaceExtent(surface);
+      if (!rect || rect.long < 0.6) continue;          // a scrap, not a surface
+
+      let cx = 0, cy = 0, cz = 0;
+      for (const point of surface.polygon) { cx += point.x; cy += point.y; cz += point.z; }
+      const count = surface.polygon.length;
+      const screen = projectToScreen(new THREE.Vector3(cx / count, cy / count, cz / count), camera);
+      if (!screen) continue;
+      if (screen.x < 0 || screen.y < 0 || screen.x > window.innerWidth || screen.y > window.innerHeight) continue;
+
+      wanted.push({
+        key: surface.orientation + Math.round(cx) + Math.round(cz),
+        // Named, not coded. "Floor 4.81 m × 3.42 m" needs no legend; a glyph
+        // standing for "floor" needs one, and there is nowhere to put it.
+        kind: surface.orientation === 'vertical' ? 'Wall' : 'Floor',
+        text: `${metres(rect.long)} × ${metres(rect.short)}`,
+        orientation: surface.orientation,
+        screen
+      });
+    }
+
+    if (host.childElementCount !== wanted.length) {
+      host.innerHTML = wanted
+        .map(() => '<span class="surface-label glass"><b></b><i></i></span>')
+        .join('');
+    }
+    const nodes = host.children;
+    wanted.forEach((label, index) => {
+      const node = nodes[index];
+      if (!node) return;
+      const name = node.querySelector('b');
+      const size = node.querySelector('i');
+      if (name && name.textContent !== label.kind) name.textContent = label.kind;
+      if (size && size.textContent !== label.text) size.textContent = label.text;
+      node.dataset.kind = label.orientation;
+      node.style.transform = `translate(${Math.round(label.screen.x)}px, ${Math.round(label.screen.y)}px) translate(-50%, -50%)`;
+    });
+  }
+
+  /** The measured size of one surface, in metres, along its own axes. */
+  function surfaceExtent(surface) {
+    if (!surface?.polygon || surface.polygon.length < 3) return null;
+    if (surface.orientation === 'vertical') {
+      // A wall's two dimensions are its run along the floor and its height,
+      // which an X/Z rectangle cannot express.
+      const ys = surface.polygon.map(p => p.y);
+      const height = Math.max(...ys) - Math.min(...ys);
+      let run = 0;
+      for (let i = 0; i < surface.polygon.length; i++) {
+        for (let j = i + 1; j < surface.polygon.length; j++) {
+          const a = surface.polygon[i];
+          const b = surface.polygon[j];
+          run = Math.max(run, Math.hypot(a.x - b.x, a.z - b.z));
+        }
+      }
+      return { long: Math.max(run, height), short: Math.min(run, height) };
+    }
+    const rect = minimumAreaRectangle(surface.polygon);
+    return rect ? { long: rect.length, short: rect.width } : null;
+  }
+
+  /**
+   * Update every scan readout from the surfaces detected so far.
+   *
+   * Called from the frame loop, so it is written to touch the DOM only when
+   * something changed — the room's dimensions settle within a second or two
+   * and then stop moving, while the loop keeps running at 60 Hz.
+   */
+  function renderScanPanel() {
+    const panel = $('#scan-panel');
+    if (!panel || panel.hidden) return;
+
+    const room = state.room;
+    const readiness = state.scanReadiness;
+
+    const set = (id, text) => {
+      const node = $(id);
+      if (node && node.textContent !== text) node.textContent = text;
+    };
+
+    set('#found-floor', room?.rectangle ? 'Found' : 'Looking…');
+    set('#found-walls', room ? `${room.walls} found` : '—');
+    set('#found-height', room?.height ? 'Measured' : 'Not yet');
+    set('#found-sweep', `${Math.round(sweep.degrees)}°`);
+
+    // A dash is the honest reading for a dimension nothing has determined.
+    set('#room-length', room?.length ? metres(room.length) : '—');
+    set('#room-width', room?.width ? metres(room.width) : '—');
+    set('#room-height', room?.height ? metres(room.height) : '—');
+    set('#room-area', room?.floorArea ? `${room.floorArea.toFixed(1)} m²` : '—');
+
+    set('#scan-guidance', sweep.guidance());
+    renderSweepArc(sweep);
+
+    // What the device cannot do is said once, plainly, rather than left for
+    // somebody to infer from a panel that never fills in.
+    const notes = [];
+    if (!state.netSupport.planes) {
+      notes.push('This browser cannot detect surfaces, so the room cannot be measured automatically here. Tap two points to measure a span instead.');
+    } else if (!state.netSupport.depth) {
+      notes.push('No depth sensor on this device — the net follows detected walls and floor only, not furniture.');
+    }
+    if (room?.heightSource === 'wall-extent') {
+      notes.push('Height is measured to the top of the tallest wall scanned, which may be short of the ceiling.');
+    }
+    set('#scan-note', notes.join(' '));
+
+    const useRoom = $('#use-room');
+    if (useRoom) {
+      const ready = Boolean(readiness?.ready);
+      if (useRoom.disabled === ready) useRoom.disabled = !ready;
+      const label = ready
+        ? 'Use this room'
+        : `Keep scanning — ${(readiness?.blocking || []).join(', ') || 'looking'}`;
+      if (useRoom.textContent !== label) useRoom.textContent = label;
+    }
+  }
+
+  /** Writes the scanned room into the planner card. */
+  function renderRoomResult() {
+    const room = state.scannedRoom;
+    const set = (id, text) => {
+      const node = $(id);
+      if (node && node.textContent !== text) node.textContent = text;
+    };
+
+    if (!room?.rectangle) {
+      set('#room-result-length', '—');
+      set('#room-result-width', '—');
+      set('#room-result-height', '—');
+      set('#room-result-area', '—');
+      set('#room-result-note', 'Not scanned yet.');
+      return;
+    }
+
+    set('#room-result-length', metres(room.length));
+    set('#room-result-width', metres(room.width));
+    // A dimension the scan could not reach stays a dash and is named, rather
+    // than being filled with a typical ceiling height.
+    set('#room-result-height', room.height ? metres(room.height) : '—');
+    set('#room-result-area', `${room.floorArea.toFixed(1)} m²`);
+
+    const notes = [];
+    if (!room.height) notes.push('Wall height could not be determined — scan again including the walls to get it.');
+    else if (room.heightSource === 'wall-extent') notes.push('Height measured to the top of the tallest wall scanned, which may be short of the ceiling.');
+    if (room.walls < 4) notes.push(`${room.walls} of the room's walls were detected, so the floor may extend further than measured.`);
+    set('#room-result-note', notes.join(' ') || 'Measured from the detected floor, walls and ceiling.');
+  }
+
+  /** Hands the scanned room to the planner and closes AR. */
+  function useScannedRoom() {
+    const room = state.room;
+    if (!room?.rectangle) return;
+    state.scannedRoom = room;
+
+    /*
+       The floor's SHORTER side becomes the clearance figure.
+
+       A piece has to stand somewhere in the room, and the tightest direction
+       is what decides whether it can. Using the longer side would let a sofa
+       that only fits along the far wall read as fitting anywhere — which is
+       the kind of confident wrong answer this feature exists to replace.
+    */
+    applyLiveClearance(room.width * 100);
+    const areaField = $('#floor-area');
+    if (areaField) areaField.value = room.floorArea.toFixed(2);
+    const spanField = $('#floor-span');
+    if (spanField) spanField.value = Math.round(room.length * 100);
+
+    renderRoomResult();
+    updateFitVerdict();
+    toast(`Room measured: ${metres(room.length)} × ${metres(room.width)}${room.height ? ` × ${metres(room.height)}` : ''}.`);
+    state.session?.end();
   }
 
   /**
@@ -650,27 +940,93 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
   /* Clearance measures a span; floor area measures a polygon. The switch changes
      what the AR scan captures, what the fields ask for, and how the verdict is
      decided. */
+  const MEASURE_MODES = {
+    clearance: {
+      title: 'Two-point room scan',
+      copy: 'Aim at a textured, non-reflective floor in bright light. On Android Chrome, tap two points across the opening. Otherwise use the fields below.',
+      button: 'Scan with your camera'
+    },
+    area: {
+      title: 'Floor area scan',
+      copy: 'Tap around the free floor — three points or more, in order, then close the outline. Two scans are compared before a reading is accepted.',
+      button: 'Scan floor area'
+    },
+    room: {
+      title: 'Whole-room scan',
+      copy: 'Stand near the middle of the room and turn slowly through a half-circle. Floor and walls are detected as you go, and the room’s length, width and height are measured from them. Needs a device that can detect surfaces — you will be told if yours cannot.',
+      button: 'Scan the room'
+    }
+  };
+
   function setMeasureMode(mode) {
-    state.measureMode = mode === 'area' ? 'area' : 'clearance';
-    const isArea = state.measureMode === 'area';
+    state.measureMode = MEASURE_MODES[mode] ? mode : 'clearance';
+    const current = state.measureMode;
     $$('.mode-option').forEach(button => {
-      const active = button.dataset.measureMode === state.measureMode;
+      const active = button.dataset.measureMode === current;
       button.classList.toggle('is-active', active);
       button.setAttribute('aria-checked', String(active));
     });
-    $('#clearance-fields').hidden = isArea;
-    $('#area-fields').hidden = !isArea;
-    $('#measure-title').textContent = isArea ? 'Floor area scan' : 'Two-point room scan';
-    $('#measure-copy').textContent = isArea
-      ? 'Tap around the free floor — three points or more, in order, then close the outline. Two scans are compared before a reading is accepted.'
-      : 'Aim at a textured, non-reflective floor in bright light. On Android Chrome, tap two points across the opening. Otherwise use the fields below.';
-    $('#ar-button').textContent = isArea ? 'Scan floor area' : 'Scan with your camera';
-    try { localStorage.setItem('furnishar-measure-mode', state.measureMode); } catch { /* private mode */ }
+
+    // Each mode shows only the fields that belong to it, so there is never a
+    // stale number visible from a mode you are no longer in.
+    $('#clearance-fields').hidden = current !== 'clearance';
+    $('#area-fields').hidden = current !== 'area';
+    const roomFields = $('#room-fields');
+    if (roomFields) roomFields.hidden = current !== 'room';
+
+    const config = MEASURE_MODES[current];
+    $('#measure-title').textContent = config.title;
+    $('#measure-copy').textContent = config.copy;
+    $('#ar-button').textContent = config.button;
+    try { localStorage.setItem('furnishar-measure-mode', current); } catch { /* private mode */ }
     updateFitVerdict();
   }
   function updateFitVerdict() {
     const product = state.selected;
     if (!product || !geo) return;
+
+    /*
+       A scanned room answers a better question than a measured span.
+
+       "Does it fit through this gap" and "can this live in this room" are not
+       the same, and only the second is what somebody shopping for a sofa
+       actually wants to know. When a whole-room scan has been taken, the
+       verdict is computed against the floor rectangle and the ceiling — so a
+       piece that clears the doorway but cannot stand anywhere is told so.
+    */
+    if (state.measureMode === 'room') {
+      const room = state.scannedRoom;
+      $('#verdict-title').textContent = 'Room verdict';
+      $('#check-clearance-label').textContent = 'Room (shortest side)';
+
+      if (!room?.rectangle) {
+        $('#check-clearance').textContent = '—';
+        $('#fit-verdict').className = 'fit-verdict';
+        $('#fit-verdict').innerHTML =
+          '<div class="verdict-icon">·</div><h3>No room measured yet.</h3>' +
+          '<p>Scan the room and the fit is worked out against its real floor and ceiling.</p>';
+        drawFitPlan(product, { kind: 'none' });
+        return;
+      }
+
+      const piece = {
+        width: product.dimensions.width / 100,
+        depth: product.dimensions.depth / 100,
+        height: product.dimensions.height / 100
+      };
+      const verdict = fitInRoom(room, piece);
+      $('#check-clearance').textContent = metres(room.width);
+      $('#fit-verdict').className = `fit-verdict ${verdict.fits ? '' : 'fail'}`;
+      $('#fit-verdict').innerHTML = verdict.fits
+        ? `<div class="verdict-icon">✓</div><h3>It fits this room.</h3>` +
+          `<p>${escapeHtml(verdict.reason)} The room measured ` +
+          `${metres(room.length)} × ${metres(room.width)}` +
+          `${room.height ? ` × ${metres(room.height)}` : ''}.</p>`
+        : `<div class="verdict-icon">!</div><h3>It does not fit this room.</h3>` +
+          `<p>${escapeHtml(verdict.reason)}</p>`;
+      drawFitPlan(product, { kind: 'room', length: room.length, width: room.width });
+      return;
+    }
 
     // The verdict card names what was actually measured.
     const isArea = state.measureMode === 'area';
@@ -714,7 +1070,27 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     // Metres of real space represented by the drawing, always square.
     let spaceWidth;
     let spaceDepth;
-    if (measurement.kind === 'area') {
+    if (measurement.kind === 'none') {
+      // Nothing measured yet. Drawing a plausible-looking room here would be
+      // a picture of a measurement that has not happened.
+      stage.dataset.state = 'empty';
+      $('#fit-plan-space-label').textContent = 'Not measured yet';
+      space.style.aspectRatio = '4 / 3';
+      space.style.width = '100%';
+      piece.hidden = true;
+      return;
+    }
+    stage.dataset.state = 'measured';
+    piece.hidden = false;
+
+    if (measurement.kind === 'room') {
+      // The real rectangle the scan found, at its real proportions — not a
+      // square of equivalent area.
+      spaceWidth = measurement.length;
+      spaceDepth = measurement.width;
+      $('#fit-plan-space-label').textContent =
+        `${metres(measurement.length)} × ${metres(measurement.width)} measured`;
+    } else if (measurement.kind === 'area') {
       const side = Math.sqrt(Math.max(measurement.area, 0.01));
       const longest = Number($('#floor-span').value) / 100;
       spaceWidth = longest > 0.1 ? longest : side;
@@ -1008,7 +1384,16 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       // Try with hit-test as required
       session = await navigator.xr.requestSession('immersive-ar', {
         requiredFeatures: ['hit-test'],
-        optionalFeatures: ['local-floor', 'dom-overlay', 'plane-detection'],
+        // Both stay OPTIONAL. Requiring plane-detection would deny a session
+        // to every device that can still measure perfectly well by tapping
+        // two points; requiring depth-sensing would deny it to almost all of
+        // them. What the session actually granted is read back below and
+        // reported, rather than assumed from having asked.
+        optionalFeatures: ['local-floor', 'dom-overlay', 'plane-detection', 'depth-sensing'],
+        depthSensing: {
+          usagePreference: ['cpu-optimized'],
+          dataFormatPreference: ['luminance-alpha', 'float32']
+        },
         domOverlay: { root }
       });
       state.hitTestRequired = true;
@@ -1017,7 +1402,13 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       try {
         // Fallback: try without hit-test as required
         session = await navigator.xr.requestSession('immersive-ar', {
-          optionalFeatures: ['hit-test', 'local-floor', 'dom-overlay', 'plane-detection'],
+          optionalFeatures: [
+            'hit-test', 'local-floor', 'dom-overlay', 'plane-detection', 'depth-sensing'
+          ],
+          depthSensing: {
+            usagePreference: ['cpu-optimized'],
+            dataFormatPreference: ['luminance-alpha', 'float32']
+          },
           domOverlay: { root }
         });
         state.hitTestRequired = false;
@@ -1066,16 +1457,35 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     }
 
     const product = state.selected;
-    setHint(state.arPurpose !== 'measurement'
-      ? 'Find the floor, then place. Use the tray to move, turn, and resize.'
-      : state.measureMode === 'area'
-        ? 'Tap the corners of the free floor in order. Three or more, then close the outline.'
-        : 'Tap point A, then point B. The reading updates as you move.');
+    const HINTS = {
+      scan: 'Stand near the middle of the room and turn slowly through a half-circle.',
+      placement: 'Find the floor, then place. Use the tray to move, turn, and resize.',
+      area: 'Tap the corners of the free floor in order. Three or more, then close the outline.',
+      clearance: 'Tap point A, then point B. The reading updates as you move.'
+    };
+    setHint(
+      state.arPurpose === 'scan' ? HINTS.scan
+        : state.arPurpose !== 'measurement' ? HINTS.placement
+        : HINTS[state.measureMode] || HINTS.clearance
+    );
+
+    // The scan panel and its button only exist during a scan.
+    const scanPanel = $('#scan-panel');
+    if (scanPanel) scanPanel.hidden = state.arPurpose !== 'scan';
+    const useRoom = $('#use-room');
+    if (useRoom && state.arPurpose === 'scan') {
+      useRoom.addEventListener('click', event => {
+        event.stopPropagation();
+        useScannedRoom();
+      });
+    }
+
     session.addEventListener('select', event => captureNativePoint(event.frame));
     session.addEventListener('end', cleanupAR);
 
-    // Load GLB model if this product has one
-    await loadGLBModel(product);
+    // Load GLB model if this product has one. A room scan has no product, and
+    // loading one would only cost time and memory for something never drawn.
+    if (product && state.arPurpose !== 'scan') await loadGLBModel(product);
 
     // Set up THREE.js rendering if model is available
     let renderer = null, scene = null, camera = null;
@@ -1104,7 +1514,19 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       setHint('Reset. Find the floor and place again.');
     });
 
-    if (THREE && state.loadedModel) {
+    /*
+       The scene is needed whenever there is anything to draw, which now
+       includes the x-ray net during a room scan.
+
+       It used to be created only when a GLB had loaded, and the render call
+       was gated on `arPurpose === 'placement'` — so in measurement mode the
+       frame loop computed poses and drew nothing at all. The net has to
+       appear over a room the person has not chosen a product for yet, so the
+       gate is "is there anything to render", not "is there a model".
+    */
+    const wantsScene = Boolean(THREE) && (state.loadedModel || state.arPurpose === 'scan');
+
+    if (wantsScene) {
       try {
         renderer = new THREE.WebGLRenderer({ canvas, context: gl, antialias: true, alpha: true });
         renderer.xr.enabled = true;
@@ -1129,10 +1551,16 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
         state.xrCamera = camera;
         state.xrLight = light;
 
-        // Clone the loaded model for this session
-        placedModel = state.loadedModel.clone();
-        scene.add(placedModel);
-        baseScale = placedModel.scale.clone();
+        // Clone the loaded model for this session. A room scan runs with no
+        // product chosen, so this is conditional now.
+        if (state.loadedModel) {
+          placedModel = state.loadedModel.clone();
+          scene.add(placedModel);
+          baseScale = placedModel.scale.clone();
+        }
+
+        // The net, drawn only over surfaces the device reports.
+        xrayNet = createXrayNet({ THREE, scene });
 
       } catch (error) {
         console.error('[AR] THREE.js renderer unavailable:', error.message);
@@ -1143,7 +1571,22 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     function frame(time, xrFrame) {
       session.requestAnimationFrame(frame);
       const pose = xrFrame.getViewerPose(state.referenceSpace);
-      if (!pose) return;
+
+      /*
+         No pose means the tracker has lost the room — moved too fast, pointed
+         at a blank wall, lights off. The loop used to return here silently, so
+         a scan simply froze with its last numbers on screen and no explanation.
+         Saying so is the whole of §24: the reading stops being updated, and
+         the panel says why and what to do about it.
+      */
+      if (!pose) {
+        setTracking('lost');
+        if (state.arPurpose === 'scan') {
+          setHint('Tracking lost — move slowly and point at a surface with some texture.');
+        }
+        return;
+      }
+      setTracking(state.latestHitPose ? 'stable' : 'acquiring');
 
       const hits = state.hitTestSource ? xrFrame.getHitTestResults(state.hitTestSource) : [];
       state.latestHitPose = hits[0]?.getPose(state.referenceSpace) || null;
@@ -1194,6 +1637,47 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
         1 - 2 * (viewerOrientation.y ** 2 + viewerOrientation.z ** 2)
       );
 
+      /* ===== THE ROOM SCAN =====
+         Planes in, room out. Runs whenever a net exists, because the surfaces
+         it finds are useful for placement too — knowing where the floor is
+         makes a placed piece sit on it rather than near it. */
+      if (xrayNet) {
+        const { supported, surfaces } = xrayNet.update(xrFrame, state.referenceSpace);
+
+        // Recorded once, from what the session actually granted rather than
+        // from what was asked for.
+        if (state.netSupport.planes !== supported) state.netSupport.planes = supported;
+
+        if (supported) {
+          state.detectedSurfaces = surfaces;
+          state.room = roomDimensions(surfaces);
+        }
+
+        // The depth layer, where the hardware has one. Tried per view because
+        // depth is per-view; the first that yields is enough for the net.
+        let depthLive = false;
+        for (const view of pose.views) {
+          if (xrayNet.updateDepth(xrFrame, view, state.referenceSpace, time)) {
+            depthLive = true;
+            break;
+          }
+        }
+        if (state.netSupport.depth !== depthLive) state.netSupport.depth = depthLive;
+
+        if (state.arPurpose === 'scan') {
+          // Only count the sweep while the tracker actually has a pose: yaw
+          // read during a tracking dropout is where the phone was, not where
+          // it is, and would credit coverage that never happened.
+          sweep.observe(state.viewerYaw);
+          state.scanReadiness = scanReadiness(sweep, state.room);
+          renderScanPanel();
+          renderSurfaceLabels(
+            state.detectedSurfaces,
+            renderer?.xr.getCamera?.() || camera
+          );
+        }
+      }
+
       // ===== REAL-TIME MEASUREMENT =====
       if (state.arPurpose === 'measurement') {
         const hitPos = state.latestHitPose?.transform.position;
@@ -1228,6 +1712,16 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       }
 
       arTransform.tickSpin();
+
+      /*
+         A room scan has no product and no anchor — the net IS the render. It
+         has to draw before the early return below, which exists to skip the
+         placement path when there is nothing placed.
+      */
+      if (state.arPurpose === 'scan') {
+        if (renderer && scene && camera) renderer.render(scene, camera);
+        return;
+      }
 
       const anchor = state.placedMatrix || state.latestHitPose?.transform.matrix;
       if (!anchor || state.arPurpose !== 'placement') return;
@@ -1672,7 +2166,10 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
   }
 
   async function startExperience(purpose) {
-    if (!state.selected) return toast('Choose a product first.');
+    /* Measuring a room is about the room, not about any one piece — you might
+       well scan first and go shopping afterwards. Only placement and the
+       piece-relative measurements need a product chosen. */
+    if (purpose !== 'scan' && !state.selected) return toast('Choose a product first.');
     // A second tap before the first call reaches mountARExperience() would
     // insert nothing new — mountARExperience() reuses #ar-experience if it
     // already exists — but it would re-run addEventListener('click', ...) on
@@ -1695,8 +2192,11 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     const product = state.selected;
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-    // Try iOS Quick Look if on iOS and USDZ is available and accessible
-    if (isIOS && product.modelUsdz) {
+    /* Quick Look renders a USDZ and hands nothing back to this page — no
+       poses, no planes, no measurement. It is the right answer for "show me
+       this chair on my floor" and completely the wrong one for "measure my
+       room", so a scan never goes down this path. */
+    if (purpose !== 'scan' && isIOS && product.modelUsdz) {
       try {
         const response = await fetch(product.modelUsdz, { method: 'HEAD' });
         if (response.ok) {
@@ -1716,10 +2216,16 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     }
 
     mountARExperience();
-    const { width, depth, height } = product.dimensions;
-    $('#ar-product-name').textContent = product.name;
-    $('#ar-product-dims').textContent = `${width} × ${depth} × ${height} cm`;
+    if (product) {
+      const { width, depth, height } = product.dimensions;
+      $('#ar-product-name').textContent = product.name;
+      $('#ar-product-dims').textContent = `${width} × ${depth} × ${height} cm`;
+    } else {
+      $('#ar-product-name').textContent = 'Room scan';
+      $('#ar-product-dims').textContent = '';
+    }
     state.arPurpose = purpose;
+    if (purpose === 'scan') sweep.reset();
     if (purpose === 'measurement' && state.measureMode === 'area') resetAreaScan();
     state.arPoints = [];
     state.placedMatrix = null;
@@ -1759,6 +2265,25 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     state.latestHitPose = null;
     state.session = null;
     hideLiveMeasurement();
+
+    /*
+       The net owns geometry and shader materials of its own, and it holds a
+       Map keyed by XRPlane objects belonging to the session that is ending.
+       Disposed before the scene walk below, so its meshes are gone rather
+       than disposed twice.
+    */
+    xrayNet?.dispose();
+    xrayNet = null;
+    sweep.reset();
+    state.detectedSurfaces = [];
+    state.scanReadiness = null;
+    // state.room is deliberately kept: the measurement survives the session
+    // that produced it, which is the point of taking it.
+
+    const scanPanel = $('#scan-panel');
+    if (scanPanel) scanPanel.hidden = true;
+    const labels = $('#surface-labels');
+    if (labels) labels.innerHTML = '';
 
     // Clean up THREE.js resources
     if (state.xrRenderer) {
@@ -1829,7 +2354,8 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     listeners.push(() => element.removeEventListener(event, handler));
   };
 
-  on('#ar-button', 'click', () => startExperience('measurement'));
+  on('#ar-button', 'click', () =>
+    startExperience(state.measureMode === 'room' ? 'scan' : 'measurement'));
   $$('.mode-option').forEach(button => {
     const handler = () => setMeasureMode(button.dataset.measureMode);
     button.addEventListener('click', handler);
@@ -1857,10 +2383,67 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
   await loadThreeJS();
   await checkARSupport();
 
+  /*
+     A seam for testing the room scan, because CI has no XR device.
+
+     Everything downstream of "here are the surfaces WebXR found" is ordinary
+     code, and it is the part most likely to break — the derivation, the
+     panel, the verdict, the kept result. This hands synthetic surfaces to
+     exactly the same functions the frame loop calls, so a check can drive a
+     whole scan and assert what a person would see.
+
+     It is a way to TEST the pipeline, never a way to fake a measurement for
+     somebody: it writes only to the same state the real scan writes, is
+     driven by the test rather than by the app, and nothing in the product
+     calls it.
+  */
+  window.__furnisharScan = {
+    // The panel is part of what is under test, and renderScanPanel() skips a
+    // hidden one, so a test opens it the way an AR session would.
+    openPanel() {
+      mountARExperience();
+      const panel = $('#scan-panel');
+      if (panel) panel.hidden = false;
+      return Boolean(panel);
+    },
+    feed(surfaces) {
+      state.detectedSurfaces = surfaces;
+      state.room = roomDimensions(surfaces);
+      state.netSupport.planes = true;
+      state.scanReadiness = scanReadiness(sweep, state.room);
+      renderScanPanel();
+      return state.room;
+    },
+    sweepTo(degrees) {
+      for (let d = 0; d <= degrees; d += 2) sweep.observe((d * Math.PI) / 180);
+      state.scanReadiness = scanReadiness(sweep, state.room);
+      renderScanPanel();
+      return { degrees: sweep.degrees, fraction: sweep.fraction };
+    },
+    accept() { useScannedRoom(); },
+    get state() {
+      return {
+        room: state.room,
+        scannedRoom: state.scannedRoom,
+        readiness: state.scanReadiness,
+        netSupport: state.netSupport,
+        sweep: { degrees: sweep.degrees, guidance: sweep.guidance() }
+      };
+    },
+    reset() {
+      sweep.reset();
+      state.room = null;
+      state.scannedRoom = null;
+      state.detectedSurfaces = [];
+      state.scanReadiness = null;
+    }
+  };
+
   if (autoStart) startExperience('placement');
 
   return function teardown() {
     window.removeEventListener('popstate', onPopState);
+    delete window.__furnisharScan;
     listeners.forEach(off => off());
     if (state.session) state.session.end().catch(cleanupAR);
     else if ($('#ar-experience')) cleanupAR();

@@ -100,6 +100,15 @@ function PlannerBody({ products }) {
             >
               Floor area
             </button>
+            <button
+              type="button"
+              className="mode-option"
+              data-measure-mode="room"
+              role="radio"
+              aria-checked="false"
+            >
+              Whole room
+            </button>
           </div>
 
           <p className="card-copy" id="measure-copy">
@@ -158,6 +167,27 @@ function PlannerBody({ products }) {
               <strong id="measured-area">12.0 m²</strong>
             </p>
             <p id="area-confidence" className="ar-status" aria-live="polite" />
+          </div>
+
+          {/*
+            The whole-room result, kept on the page after the scan closes so
+            the measurement outlives the session that produced it.
+
+            Every value starts as an em dash and is only replaced by something
+            the scan actually determined. A dimension the device could not
+            measure stays a dash — it is never filled with a typical room's
+            numbers to make the card look finished.
+          */}
+          <div id="room-fields" hidden>
+            <div className="room-readout" aria-live="polite">
+              <p><span>Length</span><b id="room-result-length">—</b></p>
+              <p><span>Width</span><b id="room-result-width">—</b></p>
+              <p><span>Height</span><b id="room-result-height">—</b></p>
+              <p><span>Floor area</span><b id="room-result-area">—</b></p>
+            </div>
+            <p id="room-result-note" className="ar-status" aria-live="polite">
+              Not scanned yet.
+            </p>
           </div>
 
           <button id="ar-button" className="button button-primary" type="button">
