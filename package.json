@@ -23,7 +23,8 @@
     "check:chrome": "node scripts/check-chrome.mjs",
     "check:contrast": "node scripts/check-contrast.mjs",
     "check:home": "node scripts/check-home-sections.mjs",
-    "check:hero": "node scripts/check-hero-perf.mjs"
+    "check:hero": "node scripts/check-hero-perf.mjs",
+    "audit": "node scripts/audit-site.mjs"
   },
   "engines": {
     "node": ">=20"

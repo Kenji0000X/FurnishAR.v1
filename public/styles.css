@@ -1394,7 +1394,10 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .login-panel { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--rule-strong); }
 .login-copy { padding: 2rem; border-right: 1px solid var(--rule-strong); background: var(--deep); color: var(--on-deep); }
 .secure-mark { margin-bottom: 1.2rem; color: var(--accent-lifted); }
-.login-copy h2 { font-size: 1.5rem; }
+/* The panel's heading is an h1 where the panel is the whole page (the
+   /admin gate states) and an h2 where it sits inside one. Same size
+   either way: the level is about structure, not about type scale. */
+.login-copy h1, .login-copy h2 { font-size: 1.5rem; }
 .login-copy p { margin-top: .8rem; font-size: .8125rem; opacity: .8; }
 .demo-note { font-family: var(--mono); font-size: .6875rem; letter-spacing: .02em; }
 

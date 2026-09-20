@@ -23,3 +23,6 @@ next-env.d.ts
 # needs them and they are the product's real picture. This entry exists only
 # to keep the renderer's scratch PNGs out.
 public/thumbs/*.png
+
+# The audit script writes this; it is a snapshot of one run, not source.
+audit-report.json
