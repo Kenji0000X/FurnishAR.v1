@@ -635,7 +635,7 @@ export default function Portal({ initialProducts }) {
       </section>
 
       <div className="inventory-table-wrap">
-        <table>
+        <table role="table">
           <thead>
             <tr>
               <th>Product</th><th>Dimensions</th><th>Price</th><th>In stock</th>
@@ -644,8 +644,8 @@ export default function Portal({ initialProducts }) {
           </thead>
           <tbody>
             {ownProducts.length ? ownProducts.map(product => (
-              <tr key={product.id}>
-                <td>
+              <tr key={product.id} role="row">
+                <td data-label="Product">
                   <div className="inventory-product">
                     {/* Their own render, so a shop can tell their listings
                         apart at a glance rather than by reading names. */}
@@ -672,13 +672,13 @@ export default function Portal({ initialProducts }) {
                     </span>
                   </div>
                 </td>
-                <td>
+                <td data-label="Dimensions">
                   {product.dimensions.width} × {product.dimensions.depth} × {product.dimensions.height} cm
                 </td>
-                <td>{peso(product.price)}</td>
-                <td>{product.stock}</td>
-                <td><small>{relativeTime(product.updatedAt)}</small></td>
-                <td>
+                <td data-label="Price">{peso(product.price)}</td>
+                <td data-label="In stock">{product.stock}</td>
+                <td data-label="Updated"><small>{relativeTime(product.updatedAt)}</small></td>
+                <td data-label="Actions">
                   <div className="table-actions">
                     <button className="icon-button" type="button" onClick={() => setEditing(product)}>Edit</button>
                     <button className="icon-button delete" type="button" onClick={() => handleDelete(product)}>

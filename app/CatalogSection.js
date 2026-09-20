@@ -62,6 +62,23 @@ export default function CatalogSection({ products }) {
   );
   const [sort, setSort] = useState('relevance');
 
+  /*
+     Whether the filter disclosure is open.
+     Starts closed so the server-rendered HTML is the same for everyone (an
+     `open` that depended on the viewport would be a hydration mismatch), then
+     opens itself on a wide screen where the panel sits beside the grid and
+     costs nothing. Kept in sync if the window is resized across the
+     breakpoint, so a rotated phone or a resized desktop stays sensible.
+  */
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  useEffect(() => {
+    const wide = window.matchMedia('(min-width: 821px)');
+    const apply = () => setFiltersOpen(wide.matches);
+    apply();
+    wide.addEventListener('change', apply);
+    return () => wide.removeEventListener('change', apply);
+  }, []);
+
   // How many pieces the shops have actually modelled, shown on the filter so
   // a shopper can see what turning it on will cost them before they do.
   const withModels = useMemo(
@@ -135,24 +152,57 @@ export default function CatalogSection({ products }) {
       )}
 
       <div className="catalog-layout">
-        <aside className="filters" aria-label="Filter furniture">
+        {/*
+           Search lives outside the disclosure below, and above it.
+
+           It went inside for one build, and on a phone that put the search
+           field behind a "Filters" button — so the quickest way to find a
+           chair was hidden behind the control for narrowing a list you could
+           not see. Searching and filtering are different acts; only the
+           second is worth collapsing.
+        */}
+        <label className="search-input catalog-search">
+          <span aria-hidden="true">⌕</span>
+          <input
+            type="search"
+            placeholder="Search furniture"
+            aria-label="Search furniture"
+            value={filters.search}
+            onChange={event => set({ search: event.target.value })}
+          />
+        </label>
+
+        {/*
+           A disclosure, not a sidebar, once the screen is narrow.
+
+           On a phone the filter panel is ~690px tall, so it stood between the
+           heading and the first piece of furniture: you landed on the
+           catalogue and scrolled a whole screen of controls before seeing
+           anything to buy. On a desktop, where it sits beside the grid rather
+           than above it, it costs nothing and stays open.
+
+           <details> rather than a hand-rolled panel because the disclosure
+           behaviour — keyboard, screen reader, the open/closed state itself —
+           is what the element is for. `open` is controlled so the desktop
+           layout can keep it open while the summary is hidden.
+        */}
+        <details
+          className="filters"
+          open={filtersOpen}
+          onToggle={event => setFiltersOpen(event.currentTarget.open)}
+        >
+          <summary className="filters-summary">
+            <span>Refine your search</span>
+            <span className="filters-count">
+              {active.length ? `${active.length} on` : `${found.length} of ${products.length}`}
+            </span>
+          </summary>
           <div className="filter-heading">
             <h3>Refine your search</h3>
             <button className="clear-button" type="button" onClick={() => setFilters(EMPTY)}>
               Clear all
             </button>
           </div>
-
-          <label className="search-input">
-            <span aria-hidden="true">⌕</span>
-            <input
-              type="search"
-              placeholder="Search furniture"
-              aria-label="Search furniture"
-              value={filters.search}
-              onChange={event => set({ search: event.target.value })}
-            />
-          </label>
 
           <fieldset className="filter-group">
             <legend>Category</legend>
@@ -247,7 +297,7 @@ export default function CatalogSection({ products }) {
               ))}
             </div>
           </fieldset>
-        </aside>
+        </details>
 
         <div className="product-grid" aria-live="polite">
           {found.length ? (
