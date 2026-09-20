@@ -82,21 +82,36 @@ await page.goto(`${BASE}/portal`, { waitUntil: 'domcontentloaded' });
 const portalBg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
 check('the portal is themed too', portalBg === darkBg, portalBg);
 
-console.log('--- mobile menu ---');
+/*
+   This section used to drive the hamburger. There is no hamburger: the bottom
+   bar replaced it, and the header's inline nav is hidden on a phone. So what
+   is checked is what a phone now has — a bar that is always on screen, that
+   says where you are, and that goes where it says.
+*/
+console.log('--- bottom nav (phone) ---');
 const phone = await browser.newPage({ viewport: { width: 390, height: 780 } });
 await phone.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
-check('the nav is collapsed on a phone', !(await phone.locator('.main-nav').isVisible()));
-check('there is a button to open it', await phone.locator('.nav-toggle').isVisible());
-await phone.click('.nav-toggle');
-await phone.waitForTimeout(200);
-check('tapping it opens the nav', await phone.locator('.main-nav').isVisible());
-check('the button reports its state', await phone.getAttribute('.nav-toggle', 'aria-expanded') === 'true');
-// The bug this guards: Next does a client-side transition, so an open menu
-// would otherwise survive the navigation and cover the new page.
-await phone.click('.main-nav .nav-link:has-text("Space planner")');
-await phone.waitForURL('**/plan', { timeout: 10000 }).catch(() => {});
+check('the header nav is hidden on a phone', !(await phone.locator('.main-nav').isVisible()));
+check('no menu button is left behind', await phone.locator('.nav-toggle').count() === 0);
+check('the bottom bar is on screen without a tap', await phone.locator('.bottom-nav').isVisible());
+check('it offers four destinations', await phone.locator('.bottom-nav-item').count() === 4);
+check(
+  'exactly one is marked current',
+  await phone.locator('.bottom-nav-item[aria-current="page"]').count() === 1
+);
+// It is pinned, so it must still be there after scrolling to the end.
+await phone.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
 await phone.waitForTimeout(300);
-check('navigating closes it again', !(await phone.locator('.main-nav').isVisible()));
+const barBox = await phone.locator('.bottom-nav').boundingBox();
+check('it stays pinned at the bottom', barBox && Math.abs(barBox.y + barBox.height - 780) < 2,
+  barBox ? `bottom ${Math.round(barBox.y + barBox.height)}` : 'missing');
+await phone.locator('.bottom-nav-item:has-text("Scan")').click();
+await phone.waitForURL('**/plan', { timeout: 10000 }).catch(() => {});
+check('tapping Scan goes to the planner', new URL(phone.url()).pathname === '/plan', phone.url());
+check(
+  'and Scan is now the current item',
+  await phone.locator('.bottom-nav-item[aria-current="page"]:has-text("Scan")').count() === 1
+);
 
 console.log('--- catalogue search ---');
 await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });

@@ -252,63 +252,114 @@ for (const device of [PHONES[1], PHONES[3]]) {
 }
 
 /* ----------------------------------------------------------- navigation -- */
+/*
+   The hamburger is gone; a bottom bar replaced it. So this no longer looks
+   for a menu that opens — it checks that every destination is visible and
+   reachable WITHOUT opening anything, which is the whole point of the change.
+*/
 {
   const { context, page } = await phone(PHONES[1]);
   await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(2000);
+  await page.waitForTimeout(2200);
 
-  const toggle = await page.$('.menu-toggle, [aria-controls][aria-expanded]');
-  if (!toggle) {
-    note('P1', 'navigation', 'no mobile menu control found at 360px', '');
+  const bar = await page.evaluate(() => {
+    const nav = document.querySelector('.bottom-nav');
+    if (!nav) return null;
+    const rect = nav.getBoundingClientRect();
+    const items = [...nav.querySelectorAll('.bottom-nav-item')];
+    return {
+      visible: rect.height > 0,
+      height: Math.round(rect.height),
+      pinnedToBottom: Math.abs(rect.bottom - window.innerHeight) < 2,
+      items: items.map(a => {
+        const r = a.getBoundingClientRect();
+        return {
+          label: a.querySelector('.bottom-nav-label')?.textContent?.trim() || '',
+          href: a.getAttribute('href'),
+          active: a.classList.contains('is-active'),
+          current: a.getAttribute('aria-current'),
+          width: Math.round(r.width), height: Math.round(r.height),
+          hasIcon: Boolean(a.querySelector('svg'))
+        };
+      }),
+      // Nothing may sit underneath the bar where it cannot be tapped.
+      coveredControls: [...document.querySelectorAll('a, button')].filter(el => {
+        if (el.closest('.bottom-nav')) return false;
+        const r = el.getBoundingClientRect();
+        if (r.height === 0) return false;
+        const fixed = getComputedStyle(el).position === 'fixed'
+          || Boolean(el.closest('.cookie-notice, .toast, .back-to-top'));
+        return fixed && r.bottom > rect.top && r.top < rect.bottom;
+      }).length,
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
+    };
+  });
+
+  rows.push({ device: 'bottom nav @360', route: '/', bar });
+
+  if (!bar) {
+    note('P0', 'navigation', 'no bottom navigation bar at 360px', '');
   } else {
-    const before = await page.evaluate(() => ({
-      expanded: document.querySelector('.menu-toggle, [aria-controls][aria-expanded]')?.getAttribute('aria-expanded'),
-      navVisible: (() => {
-        const nav = document.querySelector('.site-nav, nav');
-        if (!nav) return null;
-        const r = nav.getBoundingClientRect();
-        return r.width > 0 && r.height > 0;
-      })()
-    }));
-    await toggle.click();
-    await page.waitForTimeout(500);
-    const open = await page.evaluate(() => {
-      const t = document.querySelector('.menu-toggle, [aria-controls][aria-expanded]');
-      const nav = document.querySelector('.site-nav, nav');
-      const r = nav?.getBoundingClientRect();
-      const links = [...document.querySelectorAll('.site-nav a, nav a')]
-        .filter(a => a.getBoundingClientRect().height > 0);
-      return {
-        expanded: t?.getAttribute('aria-expanded'),
-        navVisible: r ? r.width > 0 && r.height > 0 : null,
-        linkCount: links.length,
-        linkTargets: links.map(a => a.getAttribute('href')),
-        smallLinks: links.filter(a => a.getBoundingClientRect().height < 44).length,
-        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-        focusInMenu: Boolean(document.activeElement?.closest('.site-nav, nav, .menu-toggle'))
-      };
-    });
+    if (!bar.visible) note('P0', 'navigation', 'the bottom nav renders with no height', '');
+    if (!bar.pinnedToBottom) note('P1', 'navigation', 'the bottom nav is not pinned to the bottom of the screen', '');
+    if (!bar.items.length) note('P0', 'navigation', 'the bottom nav has no destinations', '');
 
-    // Escape should close it, like every other overlay in this product.
-    await page.keyboard.press('Escape');
-    await page.waitForTimeout(400);
-    const afterEsc = await page.evaluate(() =>
-      document.querySelector('.menu-toggle, [aria-controls][aria-expanded]')?.getAttribute('aria-expanded'));
+    const unlabelled = bar.items.filter(i => !i.label);
+    if (unlabelled.length) note('P1', 'a11y', `${unlabelled.length} nav item(s) have no label`, '');
 
-    rows.push({ device: 'nav @360', route: 'menu', before, open, afterEsc });
+    const iconless = bar.items.filter(i => !i.hasIcon);
+    if (iconless.length) note('P2', 'navigation', `${iconless.length} nav item(s) have no icon`, '');
 
-    if (before.expanded === open.expanded) {
-      note('P1', 'navigation', 'the menu button does not change aria-expanded', `${before.expanded} -> ${open.expanded}`);
+    const small = bar.items.filter(i => i.height < TAP);
+    if (small.length) {
+      note('P2', 'touch', `${small.length} nav item(s) under ${TAP}px tall`,
+        small.map(i => `${i.label} ${i.width}x${i.height}`).join('; '));
     }
-    if (!open.linkCount) note('P0', 'navigation', 'the open menu contains no links', '');
-    if (open.smallLinks) {
-      note('P2', 'touch', `${open.smallLinks} menu link(s) under 44px tall`, '');
+
+    // Exactly one destination marks itself current, and it is the right one.
+    const active = bar.items.filter(i => i.active);
+    if (active.length !== 1) {
+      note('P1', 'navigation', `${active.length} nav items are marked active on "/"`, 'expected exactly one');
+    } else if (active[0].href !== '/') {
+      note('P1', 'navigation', `"${active[0].label}" is marked active on "/"`, `href ${active[0].href}`);
+    } else if (active[0].current !== 'page') {
+      note('P1', 'a11y', 'the active nav item has no aria-current="page"', '');
     }
-    if (open.overflow > 0) note('P0', 'layout', `the open menu causes ${open.overflow}px of sideways scroll`, '');
-    if (afterEsc !== 'false') {
-      note('P2', 'navigation', 'Escape does not close the mobile menu', `aria-expanded stayed "${afterEsc}"`);
+
+    if (bar.coveredControls) {
+      note('P1', 'navigation', `${bar.coveredControls} fixed control(s) sit underneath the bottom bar`,
+        'they cannot be tapped there');
+    }
+    if (bar.overflow > 0) note('P0', 'layout', `the bottom nav causes ${bar.overflow}px of sideways scroll`, '');
+
+    // And it actually navigates.
+    await page.click('.bottom-nav-item[href="/portal"]');
+    await page.waitForTimeout(1800);
+    const landed = page.url();
+    const nowActive = await page.evaluate(() =>
+      [...document.querySelectorAll('.bottom-nav-item.is-active')]
+        .map(a => a.getAttribute('href')));
+    rows.push({ device: 'bottom nav nav-to', route: landed, active: nowActive });
+    if (!landed.endsWith('/portal')) {
+      note('P0', 'navigation', 'tapping Stores did not go to /portal', landed);
+    }
+    if (nowActive.length !== 1 || nowActive[0] !== '/portal') {
+      note('P1', 'navigation', 'the active destination did not follow the navigation',
+        nowActive.join(', ') || 'none');
     }
   }
+
+  // The hamburger it replaced must be gone, not merely hidden behind it.
+  const stale = await page.evaluate(() => {
+    const toggle = document.querySelector('.nav-toggle');
+    if (!toggle) return null;
+    const r = toggle.getBoundingClientRect();
+    return { visible: r.height > 0, display: getComputedStyle(toggle).display };
+  });
+  if (stale?.visible) {
+    note('P2', 'navigation', 'the old hamburger is still visible alongside the bottom bar', JSON.stringify(stale));
+  }
+
   await context.close();
 }
 

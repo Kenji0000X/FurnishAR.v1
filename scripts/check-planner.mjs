@@ -14,7 +14,10 @@ page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
 page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
 
 await page.goto(`${BASE}/plan`, { waitUntil: 'domcontentloaded' });
-await page.waitForSelector('#point-b', { timeout: 20000 }).catch(() => {});
+// Not #point-b any more: whole-room is the default mode now, so the clearance
+// fields start hidden and waiting for one of them to be *visible* waits out
+// the timeout on a page that is perfectly fine.
+await page.waitForSelector('.mode-option.is-active', { timeout: 20000 }).catch(() => {});
 await page.waitForTimeout(2000);
 
 const result = await page.evaluate(() => {
@@ -39,7 +42,22 @@ const result = await page.evaluate(() => {
 console.log('--- planner after the engine mounted ---');
 for (const [k, v] of Object.entries(result)) console.log(`  ${k}: ${JSON.stringify(v)}`);
 
-// Interaction: changing a measurement must re-run the fit verdict.
+// The scan, not the shopping decision, is what the planner opens on.
+console.log('--- what the planner opens on ---');
+console.log(`  ${result.modeActive === 'Whole room' ? 'ok  ' : 'FAIL'} whole-room is the default mode — ${JSON.stringify(result.modeActive)}`);
+const opensOnScan = await page.evaluate(() => ({
+  roomFieldsShown: document.getElementById('room-fields')?.hidden === false,
+  clearanceHidden: document.getElementById('clearance-fields')?.hidden === true,
+  settings: !!document.querySelector('.scan-settings'),
+  units: [...document.querySelectorAll('.unit-option')].map(b => b.dataset.unit),
+  clearancePref: !!document.getElementById('clearance-pref')
+}));
+console.log(' ', JSON.stringify(opensOnScan));
+
+// Interaction: changing a measurement must re-run the fit verdict. Clearance
+// mode has to be asked for now — it is no longer where the card starts.
+await page.click('.mode-option[data-measure-mode="clearance"]');
+await page.waitForTimeout(300);
 await page.fill('#point-b', '60');
 await page.dispatchEvent('#point-b', 'input');
 await page.waitForTimeout(400);
