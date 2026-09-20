@@ -2182,6 +2182,25 @@ footer {
 /* The plan drawing before anything has been measured. */
 .fit-plan-stage[data-state="empty"] .fit-plan-space { border-style: dashed; opacity: .55; }
 
+/* Where the piece stands in the scanned room, while you move it. */
+.placement-verdict {
+  position: absolute; z-index: 4;
+  left: .7rem; right: .7rem;
+  bottom: max(9.5rem, calc(env(safe-area-inset-bottom) + 9rem));
+  display: grid; gap: .15rem;
+  max-width: 22rem; margin-inline: auto;
+  padding: .6rem .9rem; text-align: center;
+}
+.placement-verdict[hidden] { display: none; }
+.placement-verdict b {
+  font-family: var(--mono); font-size: .68rem;
+  letter-spacing: .1em; text-transform: uppercase;
+}
+.placement-verdict span { font-size: .72rem; line-height: 1.4; opacity: .85; }
+/* The WORD says which state this is; the tint only reinforces it. */
+.placement-verdict[data-state="ok"] b { color: var(--ar-ok); }
+.placement-verdict[data-state="problem"] b { color: var(--ar-alert); }
+
 /* Dimension labels pinned to each detected surface. */
 .surface-labels { position: absolute; z-index: 3; inset: 0; pointer-events: none; }
 .surface-label {
