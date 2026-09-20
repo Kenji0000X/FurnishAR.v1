@@ -3,7 +3,6 @@ import { getCatalog, getStores } from '../lib/catalog.mjs';
 import CatalogSection from './CatalogSection.js';
 import Faq from './Faq.js';
 import HeroStage from './HeroStage.js';
-import HeroDecor from './HeroDecor.js';
 import Promises from './Promises.js';
 import Marquee from './Marquee.js';
 import ProductThumb from './ProductThumb.js';
@@ -74,8 +73,6 @@ function capsulesFrom(products) {
 function Hero({ facts, capsules }) {
   return (
     <section className="hero" aria-labelledby="hero-title">
-      <HeroDecor />
-
       <div className="hero-copy">
         <p className="eyebrow">Furniture, made certain</p>
         {/* Stacked, one word to a line, set as large as the viewport allows.
