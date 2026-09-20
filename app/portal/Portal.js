@@ -284,7 +284,14 @@ export default function Portal({ initialProducts }) {
   // of what the server sees — deciding the first render from it is the classic
   // hydration mismatch.
   useEffect(() => {
-    if (window.location.hash === '#apply') setMode('signup');
+    if (window.location.hash !== '#apply') return;
+    setMode('signup');
+    // And put the person where they asked to go. The panel renders on the
+    // next tick, so the focus move waits for it.
+    const move = requestAnimationFrame(() => {
+      document.getElementById('apply')?.focus({ preventScroll: false });
+    });
+    return () => cancelAnimationFrame(move);
   }, []);
 
   // Counts the rate-limit wait down so the button can say how long is left
@@ -521,25 +528,38 @@ export default function Portal({ initialProducts }) {
   const awaitingApproval = loggedIn && usingSupabase() && (isAdmin || !user.storeUuid);
 
   if (!loggedIn) {
-    return mode === 'signup'
-      ? (
-        <SignupPanel
-          onSubmit={handleSignup}
-          message={signupMessage}
-          busy={busy}
-          cooldown={cooldown}
-          onShowLogin={() => { setMode('login'); setSignupMessage(null); }}
-        />
-      )
-      : (
-        <LoginPanel
-          onSubmit={handleLogin}
-          error={loginError}
-          busy={busy}
-          cooldown={cooldown}
-          onShowSignup={() => { setMode('signup'); setLoginError(''); }}
-        />
-      );
+    /*
+       id="apply" is the target of /portal#apply, linked from the footer of
+       every page. It sits on this wrapper rather than on the signup panel
+       because the panel only exists once the mode has switched — so the id
+       was absent at exactly the moment the browser looked for it, leaving the
+       hash pointing at nothing: no scroll, and nobody arriving by keyboard or
+       screen reader moved to the form they had just asked for.
+
+       tabIndex={-1} makes it a focus target without putting it in the tab
+       order, which is the standard way to land somebody on a region.
+    */
+    return (
+      <div id="apply" tabIndex={-1}>
+        {mode === 'signup' ? (
+          <SignupPanel
+            onSubmit={handleSignup}
+            message={signupMessage}
+            busy={busy}
+            cooldown={cooldown}
+            onShowLogin={() => { setMode('login'); setSignupMessage(null); }}
+          />
+        ) : (
+          <LoginPanel
+            onSubmit={handleLogin}
+            error={loginError}
+            busy={busy}
+            cooldown={cooldown}
+            onShowSignup={() => { setMode('signup'); setLoginError(''); }}
+          />
+        )}
+      </div>
+    );
   }
 
   if (awaitingApproval) {

@@ -156,7 +156,14 @@ export default function CatalogSection({ products }) {
 
           <fieldset className="filter-group">
             <legend>Category</legend>
+            {/*
+               A <legend> labels its fieldset, not the controls inside it, so
+               without this the select announced as "combo box, All furniture"
+               with no clue what it filtered. The visible legend stays as the
+               sighted label; this is the same word for a screen reader.
+            */}
             <select
+              aria-label="Filter by category"
               value={filters.category}
               onChange={event => set({ category: event.target.value })}
             >
@@ -169,7 +176,11 @@ export default function CatalogSection({ products }) {
 
           <fieldset className="filter-group">
             <legend>Store</legend>
-            <select value={filters.store} onChange={event => set({ store: event.target.value })}>
+            <select
+              aria-label="Filter by store"
+              value={filters.store}
+              onChange={event => set({ store: event.target.value })}
+            >
               <option value="">All local stores</option>
               {stores.map(store => (
                 <option key={store.slug} value={store.slug}>
