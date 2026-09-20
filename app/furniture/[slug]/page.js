@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getCatalog, getProduct, getStores } from '../../../lib/catalog.mjs';
-import FurnitureIllustration from '../../FurnitureIllustration.js';
+import ProductViewer from './ProductViewer.js';
+import { modelState, MODEL_STATE } from '../../model-state.js';
 import ProductActions from './ProductActions.js';
 import { peso, cm } from '../../format.js';
 
@@ -46,44 +47,78 @@ export default async function ProductPage({ params }) {
   if (!product) notFound();
 
   const store = stores[product.storeId];
+  const state = modelState(product);
+  const hasModel = state === MODEL_STATE.MODEL;
+  const inStock = Number.isFinite(Number(product.stock)) ? Number(product.stock) : null;
 
   return (
     <article className="view active product-page">
       <nav className="breadcrumb" aria-label="Breadcrumb">
         <Link href="/">Collection</Link>
         <span aria-hidden="true"> / </span>
+        <Link href={`/?category=${encodeURIComponent(product.category)}#catalog`}>
+          {product.category}
+        </Link>
+        <span aria-hidden="true"> / </span>
         <span aria-current="page">{product.name}</span>
       </nav>
 
-      <div className="dialog-layout">
-        <div className="dialog-image">
-          <FurnitureIllustration product={product} />
+      {/*
+        Viewer left, facts right. The viewer takes the larger half because the
+        whole point of this page is judging a physical object you cannot touch;
+        a product reduced to a thumbnail beside a wall of specification is the
+        layout of a parts catalogue, not a furniture one.
+      */}
+      <div className="product-detail">
+        <div className="product-detail-viewer">
+          <ProductViewer product={product} />
         </div>
 
-        <div className="dialog-info">
-          <p className="product-store">{product.store} · {product.category}</p>
+        <div className="product-detail-info">
+          <p className="product-store">{product.store}</p>
           <h1>{product.name}</h1>
-          <p className="dialog-price">{peso(product.price)}</p>
-          {product.description && <p>{product.description}</p>}
+          <p className="detail-price">{peso(product.price)}</p>
 
-          <div className="dialog-dimensions">
-            <div><span>WIDTH</span><b>{cm(product.dimensions.width)}</b></div>
-            <div><span>DEPTH</span><b>{cm(product.dimensions.depth)}</b></div>
-            <div><span>HEIGHT</span><b>{cm(product.dimensions.height)}</b></div>
-          </div>
+          {/* Stated, not implied by an absent badge. */}
+          <p className={`detail-availability${hasModel ? ' is-ar' : ''}`}>
+            {hasModel
+              ? 'Can be placed in your room at true scale'
+              : 'No 3D model — cannot be placed in AR yet'}
+            {inStock !== null && (
+              <>
+                {' · '}
+                {inStock > 0 ? `${inStock} in stock` : 'Out of stock'}
+              </>
+            )}
+          </p>
 
-          {store && (
-            <dl className="store-card">
-              <div><dt>Store</dt><dd>{store.name}</dd></div>
-              <div><dt>Address</dt><dd>{store.address}</dd></div>
-              <div><dt>Contact</dt><dd>{store.contactNumber}</dd></div>
-              <div><dt>Hours</dt><dd>{store.hours}</dd></div>
-            </dl>
-          )}
+          {product.description && <p className="detail-description">{product.description}</p>}
+
+          <dl className="detail-specs">
+            <div><dt>Size</dt><dd>{cm(product.dimensions.width)} × {cm(product.dimensions.depth)} × {cm(product.dimensions.height)}</dd></div>
+            <div><dt>Category</dt><dd>{product.category}</dd></div>
+            {product.style && <div><dt>Style</dt><dd>{product.style}</dd></div>}
+            {product.color && <div><dt>Colour</dt><dd>{product.color}</dd></div>}
+            <div>
+              <dt>3D model</dt>
+              <dd>{hasModel ? 'Uploaded by the shop' : 'Not provided'}</dd>
+            </div>
+          </dl>
 
           {/* Which AR button to show depends on the device, which the server
               cannot know — so only this part is a client component. */}
           <ProductActions product={product} />
+
+          {store && (
+            <section className="detail-store" aria-labelledby="store-heading">
+              <h2 id="store-heading">Sold by {store.name}</h2>
+              <dl className="store-card">
+                <div><dt>Address</dt><dd>{store.address}</dd></div>
+                <div><dt>Contact</dt><dd>{store.contactNumber}</dd></div>
+                <div><dt>Hours</dt><dd>{store.hours}</dd></div>
+              </dl>
+            </section>
+          )}
         </div>
       </div>
     </article>
