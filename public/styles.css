@@ -899,11 +899,35 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 }
 
 .catalog-layout {
-  display: grid; grid-template-columns: 220px 1fr;
+  /* Three children now — search, the filter panel, the grid — so the tracks
+     are named rather than left to the implicit flow, which would have put the
+     grid in the sidebar column under the filters. */
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
   gap: clamp(1.5rem, 4vw, 3.5rem);
 }
+.catalog-layout > .filters { grid-column: 1; grid-row: 2; }
+.catalog-layout > .product-grid { grid-column: 2; grid-row: 1 / span 2; }
 
+/*
+   The filter panel is a <details> so it can collapse on a phone, where it
+   would otherwise stand between the catalogue heading and the first piece of
+   furniture — about a screen's worth of controls before anything to buy.
+   Beside the grid on a desktop it costs nothing, so there the summary is
+   hidden and it stays open.
+*/
 .filters { align-self: start; position: sticky; top: calc(var(--header-h) + 1.5rem); }
+.filters-summary { display: none; }
+
+/* Search sits in the sidebar column above the filter panel on a desktop, and
+   above the Filters button on a phone. Either way it is never inside the
+   thing that collapses. */
+.catalog-search { grid-column: 1; grid-row: 1; align-self: start; margin-top: 0; }
+/* No disclosure triangle: the summary is styled as this product's own
+   control, and the marker is a browser default nobody chose. */
+.filters-summary::-webkit-details-marker { display: none; }
+.filters-summary::marker { content: ''; }
 .filter-heading {
   display: flex; align-items: center; justify-content: space-between; gap: 1rem;
   padding-bottom: .75rem;
@@ -980,15 +1004,21 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 
 /* ------------------------------------------- catalogue controls ------- */
 
-.catalog-tools { display: flex; align-items: center; gap: 1.25rem; }
+/* min-width: 0 on both, so the select may shrink below its longest option.
+   Without it the select is sized by "Newest first" plus its arrow, and once
+   the field went to 16px on phones (so iOS would stop zooming the page) that
+   was 6px wider than a 320px screen — a select that cannot shrink is a
+   classic source of sideways scroll. */
+.catalog-tools { display: flex; align-items: center; gap: 1.25rem; min-width: 0; flex-wrap: wrap; }
 
-.sort-control { display: flex; align-items: center; gap: .5rem; }
+.sort-control { display: flex; align-items: center; gap: .5rem; min-width: 0; }
 .sort-control > span {
   font-family: var(--mono); font-size: var(--micro);
   letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint);
 }
 .sort-control select {
   min-height: var(--tap);
+  min-width: 0; max-width: 100%;
   padding: .4rem 1.8rem .4rem .6rem;
   border: 1px solid var(--rule);
   background: transparent;
@@ -1320,9 +1350,11 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .measure-line { flex: 1; height: 1px; background: var(--ink); }
 .measure-point {
   display: grid; place-items: center;
-  width: 22px; height: 22px; flex: 0 0 22px;
+  width: 24px; height: 24px; flex: 0 0 24px;
   background: var(--ink); color: var(--paper);
-  font-family: var(--mono); font-size: .55rem;
+  /* 8.8px was too small to read on a phone for a marker that names the point
+     the whole measurement refers to. */
+  font-family: var(--mono); font-size: .6875rem;
 }
 .point-a, .point-b { position: static; }
 .measurement-visual #visual-distance {
@@ -2109,10 +2141,21 @@ footer {
    fill shows an em dash rather than a plausible number.
 */
 
+/*
+   The scan panel sits at the BOTTOM of the screen.
+   ---------------------------------------------------------------------
+   It was pinned under the title bar, which put "Use this room" in the top
+   40% of an 844px phone — out of reach of the thumb of the hand holding it,
+   while you are turning on the spot with the other hand nowhere near.
+
+   The bottom is also the right place for the camera: you point a phone at a
+   room slightly downward, so the part of the frame that matters is the upper
+   two thirds. Covering the lower third costs the least.
+*/
 .scan-panel {
   position: absolute; z-index: 4;
   left: .7rem; right: .7rem;
-  top: max(5.4rem, calc(env(safe-area-inset-top) + 4.5rem));
+  bottom: max(1rem, calc(env(safe-area-inset-bottom) + .7rem));
   display: grid; gap: .7rem;
   padding: .9rem 1rem;
   max-width: 24rem; margin-inline: auto;
@@ -2586,8 +2629,41 @@ footer {
 }
 
 @media (max-width: 820px) {
-  .catalog-layout { grid-template-columns: minmax(0, 1fr); }
-  .filters { position: static; padding-bottom: 1.5rem; }
+  /* One column: search, then the Filters button, then the furniture. */
+  .catalog-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto 1fr;
+    gap: 0;
+  }
+  .catalog-layout > .catalog-search { grid-column: 1; grid-row: 1; margin-bottom: .6rem; }
+  .catalog-layout > .filters { grid-column: 1; grid-row: 2; position: static; padding-bottom: 0; }
+  .catalog-layout > .product-grid { grid-column: 1; grid-row: 3; margin-top: 1.5rem; }
+
+  /* The summary becomes the "Filters" button. Full width and at the tap
+     minimum, because it is the one control standing between somebody and the
+     whole catalogue. */
+  .filters-summary {
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    min-height: var(--tap);
+    padding: .7rem 1rem;
+    border: 1px solid var(--rule-strong);
+    background: var(--paper-raised);
+    font-family: var(--mono); font-size: .7rem;
+    letter-spacing: .12em; text-transform: uppercase;
+    cursor: pointer; list-style: none;
+  }
+  .filters-summary::before { content: '⌖'; margin-right: .1em; opacity: .6; }
+  .filters[open] .filters-summary { border-bottom-color: var(--rule); }
+  .filters-count {
+    font-size: .6875rem; letter-spacing: .08em;
+    color: var(--ink-faint); text-transform: none;
+  }
+  /* The panel's own heading repeats the summary once it is open, so it goes. */
+  .filters[open] .filter-heading h3 { display: none; }
+  .filters[open] .filter-heading { justify-content: flex-end; border-bottom: 0; }
+  .filters > *:not(.filters-summary) { padding-inline: 1rem; }
+  .filters > .filter-heading { padding-top: .8rem; }
+  .filters[open] { border: 1px solid var(--rule); border-top: 0; padding-bottom: 1rem; }
   /* A <select> is as wide as its longest option unless it is told otherwise,
      and "All local stores" plus a long shop name is wider than a phone. */
   .filters select, .filters input { max-width: 100%; }
@@ -2627,11 +2703,65 @@ footer {
     border-bottom: 1px solid var(--rule);
     font-size: .9375rem;
   }
-  .main-nav .header-action { margin-top: .9rem; justify-content: center; }
+  /* The primary action in the menu came out at 37px — the one control in
+     there most likely to be aimed at in a hurry, and the shortest. */
+  .main-nav .header-action { margin-top: .9rem; justify-content: center; min-height: var(--tap); }
 }
 
 @media (max-width: 640px) {
-  :root { --header-h: 58px; }
+  /*
+     Micro-labels get a point bigger on a phone.
+     --micro is 10px, which is legible on a desktop at arm's length and
+     genuinely hard work on a handset held at reading distance — and it
+     carries real content here: dimensions, store names, stock counts.
+     11px is the floor this audit uses.
+  */
+  :root { --header-h: 58px; --micro: .6875rem; }
+
+  /*
+     The inventory table becomes a list of cards.
+     ------------------------------------------------------------------
+     Six columns need 699px; a phone has 321px. The table was sideways
+     scrollable, which technically works and practically means a shop owner
+     swipes a tiny viewport back and forth to read one product's price and
+     stock — while the row they are reading slides out from under them.
+
+     Each row is a card instead, and each cell prints its own column name
+     from data-label, because the <thead> that carried those names is gone.
+
+     `display: block` strips a table of its implicit roles, so role="table"
+     and role="row" are re-asserted in the markup; the cells keep theirs from
+     being <td>. Without that this reads to a screen reader as a pile of
+     unrelated text.
+  */
+  .inventory-table-wrap { overflow-x: visible; border: 0; background: none; }
+  .inventory-table-wrap table { display: block; }
+  .inventory-table-wrap thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .inventory-table-wrap tbody { display: grid; gap: .6rem; }
+  .inventory-table-wrap tr {
+    display: grid; grid-template-columns: minmax(0, 1fr);
+    border: 1px solid var(--rule); background: var(--paper-raised);
+  }
+  .inventory-table-wrap td {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
+    padding: .55rem .9rem; border-bottom: 1px solid var(--rule);
+  }
+  .inventory-table-wrap tr td:last-child { border-bottom: 0; }
+  .inventory-table-wrap td::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    font-family: var(--mono); font-size: .62rem;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint);
+  }
+  /* The product cell leads the card, so it gets the whole width and no label
+     — the name IS the heading of the card. */
+  .inventory-table-wrap td[data-label="Product"] { display: block; padding-top: .8rem; }
+  .inventory-table-wrap td[data-label="Product"]::before { content: none; }
+  .inventory-table-wrap td[data-label="Actions"] { padding-bottom: .7rem; }
+  .table-actions { gap: .5rem; }
+  .table-actions .icon-button { min-height: var(--tap); padding-inline: .9rem; }
+
+
   .footer-columns { grid-template-columns: 1fr 1fr; }
   .faq-item summary { font-size: .9375rem; }
   .site-header { gap: .85rem; }
@@ -2688,6 +2818,39 @@ footer {
   .search-input input { min-height: var(--tap); }
   .dialog-close { width: var(--tap); height: var(--tap); }
   .text-button { min-height: var(--tap); }
+
+  /*
+     Thumb-sized targets, measured rather than assumed.
+     ------------------------------------------------------------------
+     Each of these came out of scripts/audit-mobile.mjs at its real rendered
+     size on a phone. The padding is what grows, not the type: a breadcrumb
+     set in 16px to reach 44px would shout louder than the product name
+     under it.
+  */
+  /* Breadcrumbs were 70x11 and 35x11 — a link the height of its own text.
+     The padding also widens a short word like "Chair" past the minimum
+     without setting a width that would stretch a long one. */
+  .breadcrumb a, .breadcrumb span {
+    display: inline-flex; align-items: center;
+    min-height: var(--tap); padding-inline: .25rem;
+  }
+  /* "Superadmin sign-in" was 154x14. */
+  .demo-note a, .portal-intro a, .superadmin-entry a {
+    display: inline-flex; align-items: center; min-height: var(--tap);
+  }
+  /* The planner's three measure modes were 99x38, just under. The base rule
+     for .mode-option is declared LATER in this file at the same specificity,
+     so it wins; this has to out-specify it rather than merely follow it. */
+  .mode-switch .mode-option { min-height: var(--tap); }
+  /* The colour swatches were 16x16 dots. The dot stays the same size; the
+     box around it grows, so the design is unchanged and the target is not. */
+  .color-option {
+    min-width: var(--tap); min-height: var(--tap);
+    background-clip: content-box; padding: 13px;
+  }
+  /* A product card's title link was 80x30. The whole media well is already a
+     link to the same place, so this only has to clear the minimum. */
+  .product-card h3 a, .product-action { display: inline-flex; align-items: center; min-height: var(--tap); }
   .tray-btn { min-width: 38px; height: 38px; }
   .tray-pad { grid-template-columns: repeat(3, 38px); }
   .filter-group select, .measurement-inputs input,
@@ -2698,7 +2861,12 @@ footer {
      for every one. 16px is the threshold, not a design preference. */
   .login-form input, .login-form textarea,
   .product-form input, .product-form select, .product-form textarea,
-  .filter-group select, .measurement-inputs input, .search-input input {
+  .filter-group select, .measurement-inputs input, .search-input input,
+  /* The sort select was missing from this list and stayed at 13px. A bare
+     `select { font-size: 16px }` does not fix it: `.sort-control select` is
+     (0,1,1) and beats (0,0,1), so the generic rule loses to every
+     class-scoped one in this file. The list has to name them. */
+  .sort-control select, .form-dialog input, .form-dialog select, .form-dialog textarea {
     font-size: 16px;
   }
 }

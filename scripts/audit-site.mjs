@@ -38,17 +38,46 @@ for (const route of ROUTES) {
   const page = await context.newPage();
   const messages = [];
   page.on('pageerror', error => messages.push({ type: 'pageerror', text: error.message }));
+  /*
+     Noise this harness creates, as opposed to problems the app has.
+
+     Reported as findings for a while, which meant six P1s on a clean run and
+     a report nobody would read twice:
+       - swiftshader has no GPU, so it logs a driver performance message on
+         any readPixels. A real device does not.
+       - /does-not-exist is requested BY THIS SCRIPT to check the 404 page.
+         Its 404 is the pass condition, not a defect.
+       - Next.js aborts in-flight RSC prefetches when you navigate away.
+       - "database unavailable, using the bundled catalogue" is the correct,
+         deliberate message when no Supabase is configured, which is the case
+         in this sandbox. It is a real error worth logging in production, and
+         a fact of the environment here.
+  */
+  const ENVIRONMENTAL = [
+    /favicon|Download the React DevTools/i,
+    /GL Driver Message|GPU stall due to ReadPixels|swiftshader/i,
+    /database unavailable, using the bundled catalogue/i
+  ];
   page.on('console', m => {
     if (m.type() !== 'error' && m.type() !== 'warning') return;
     const text = m.text();
-    if (/favicon|Download the React DevTools/i.test(text)) return;
+    if (ENVIRONMENTAL.some(rx => rx.test(text))) return;
+    // The 404 this script asks for on purpose.
+    if (route === '/does-not-exist' && /404/.test(text)) return;
     messages.push({ type: m.type(), text: text.slice(0, 220) });
   });
   const failed = [];
-  page.on('requestfailed', request =>
-    failed.push(`${request.method()} ${request.url().slice(0, 140)} — ${request.failure()?.errorText}`));
+  page.on('requestfailed', request => {
+    // An aborted RSC prefetch is Next.js cancelling work for a navigation
+    // that did not happen. Nothing is broken and nothing is missing.
+    if (/[?&]_rsc=/.test(request.url())) return;
+    failed.push(`${request.method()} ${request.url().slice(0, 140)} — ${request.failure()?.errorText}`);
+  });
   page.on('response', response => {
-    if (response.status() >= 400) failed.push(`${response.status()} ${response.url().slice(0, 140)}`);
+    if (response.status() < 400) return;
+    // This script asks for /does-not-exist; a 404 is what it is checking for.
+    if (route === '/does-not-exist' && response.url().endsWith('/does-not-exist')) return;
+    failed.push(`${response.status()} ${response.url().slice(0, 140)}`);
   });
 
   const response = await page.goto(`${BASE}${route}`, { waitUntil: 'domcontentloaded' }).catch(() => null);
@@ -260,12 +289,21 @@ for (const route of ROUTES) {
     await page.fill('input[name="password"]', testCase.password);
     await page.click('form.login-form button[type="submit"]');
     await page.waitForTimeout(1800);
-    const result = await page.evaluate(() => ({
-      error: document.querySelector('form.login-form .form-error')?.textContent?.trim() || '',
-      stillOnLogin: Boolean(document.querySelector('form.login-form')),
-      // Did anything get injected as live markup rather than text?
-      injected: document.body.innerHTML.includes('<script>alert(1)</script>')
-    }));
+    const result = await page.evaluate(() => {
+      const form = document.querySelector('form.login-form');
+      const email = form?.querySelector('input[name="email"]');
+      return {
+        error: form?.querySelector('.form-error')?.textContent?.trim() || '',
+        stillOnLogin: Boolean(form),
+        /* The browser's own validation message, which is a real message to a
+           real person and is simply not in the DOM — it is a native bubble.
+           Counting only .form-error reported `type="email"` doing its job as
+           "rejected with no message". */
+        nativeMessage: email && !email.checkValidity() ? email.validationMessage : '',
+        // Did anything get injected as live markup rather than text?
+        injected: document.body.innerHTML.includes('<script>alert(1)</script>')
+      };
+    });
     report.forms.push({ ...testCase, ...result });
     if (!result.stillOnLogin) {
       note('P0', 'security', `login accepted "${testCase.label}"`, JSON.stringify(testCase));
@@ -273,7 +311,8 @@ for (const route of ROUTES) {
     if (result.injected) {
       note('P0', 'security', 'form input is rendered as live HTML (XSS)', testCase.label);
     }
-    if (result.stillOnLogin && !result.error && testCase.label !== 'empty credentials') {
+    if (result.stillOnLogin && !result.error && !result.nativeMessage
+        && testCase.label !== 'empty credentials') {
       note('P2', 'forms', `"${testCase.label}" was rejected with no message`, 'the user is not told why');
     }
   }
@@ -323,7 +362,8 @@ for (const b of report.buttons) console.log(`  ${b.route.padEnd(34)} ${b.count} 
 
 console.log('\n=== FORMS (login, bad input) ===');
 for (const f of report.forms) {
-  console.log(`  ${f.label.padEnd(22)} rejected=${f.stillOnLogin} injected=${f.injected} msg="${f.error.slice(0, 70)}"`);
+  const message = f.error || f.nativeMessage || '(none)';
+  console.log(`  ${f.label.padEnd(22)} rejected=${f.stillOnLogin} injected=${f.injected} msg="${message.slice(0, 66)}"`);
 }
 
 console.log('\n=== FINDINGS ===');
