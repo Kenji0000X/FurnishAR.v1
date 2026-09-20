@@ -147,7 +147,9 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     placementConfirmed: false,
     viewerYaw: 0,
     ownProducts: [],
-    measureMode: 'clearance',
+    measureMode: 'room',
+    // The unit every length is shown in. Changed in Scan settings.
+    units: 'm',
     // The room scan. `room` is null until a floor is found; `netSupport`
     // records what this device actually granted, so the UI can say which
     // layers are live instead of implying all of them.
@@ -229,8 +231,17 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
         <p><span>Length</span><b id="room-length">—</b></p>
         <p><span>Width</span><b id="room-width">—</b></p>
         <p><span>Height</span><b id="room-height">—</b></p>
-        <p><span>Floor area</span><b id="room-area">—</b></p>
+        <p><span>Perimeter</span><b id="room-perimeter">—</b></p>
       </div>
+
+      <!-- Volume, surface and perimeter, the way a room scanner states them.
+           The letters are conventional (V, S, P) and each is spelled out for
+           a screen reader, which cannot infer "volume" from a V. -->
+      <ul class="scan-totals" aria-label="Room totals">
+        <li><abbr title="Volume">V</abbr><b id="room-volume">—</b></li>
+        <li><abbr title="Surface, the floor area">S</abbr><b id="room-area">—</b></li>
+        <li><abbr title="Perimeter">P</abbr><b id="room-p">—</b></li>
+      </ul>
 
       <p id="scan-note" class="scan-note"></p>
       <button id="use-room" class="ar-outline-button glass" disabled>Use this room</button>
@@ -382,8 +393,40 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
      it cannot fill says so; none of them is ever filled with a plausible
      number to keep the panel looking complete. */
 
-  /** Metres, shown the way a person would say them. */
-  const metres = value => (value >= 1 ? `${value.toFixed(2)} m` : `${Math.round(value * 100)} cm`);
+  /**
+   * A length, in whatever unit the person asked for.
+   *
+   * One function, so a unit change reaches every readout at once. `m` is the
+   * default and shows centimetres below a metre, because "0.42 m" is not how
+   * anybody says it; the explicit cm and mm settings never switch on you.
+   */
+  const metres = value => {
+    if (!Number.isFinite(value)) return '—';
+    if (state.units === 'cm') return `${Math.round(value * 100)} cm`;
+    if (state.units === 'mm') return `${Math.round(value * 1000)} mm`;
+    return value >= 1 ? `${value.toFixed(2)} m` : `${Math.round(value * 100)} cm`;
+  };
+
+  /** Walking space the person wants left around a piece, in metres. */
+  const clearancePref = () => {
+    const field = $('#clearance-pref');
+    const cm = Number(field?.value || 0);
+    return Number.isFinite(cm) && cm > 0 ? cm / 100 : 0;
+  };
+
+  function setUnits(unit) {
+    state.units = ['m', 'cm', 'mm'].includes(unit) ? unit : 'm';
+    $$('.unit-option').forEach(button => {
+      const active = button.dataset.unit === state.units;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-checked', String(active));
+    });
+    try { localStorage.setItem('furnishar-units', state.units); } catch { /* private mode */ }
+    // Every readout that is already on screen, in the new unit.
+    renderScanPanel();
+    renderRoomResult();
+    updateFitVerdict();
+  }
 
   /**
    * Whether the tracker currently knows where it is.
@@ -525,7 +568,16 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     set('#room-length', room?.length ? metres(room.length) : '—');
     set('#room-width', room?.width ? metres(room.width) : '—');
     set('#room-height', room?.height ? metres(room.height) : '—');
-    set('#room-area', room?.floorArea ? `${room.floorArea.toFixed(1)} m²` : '—');
+    set('#room-perimeter', room?.perimeter ? metres(room.perimeter) : '—');
+
+    /* V stays a dash until a height has actually been measured — a volume
+       computed from a typical ceiling is a guess with three digits on it. */
+    set('#room-volume', room?.volume ? `${room.volume.toFixed(2)} m³` : '—');
+    set('#room-area', room?.floorArea ? `${room.floorArea.toFixed(2)} m²` : '—');
+    /* P is a length, so it follows the unit setting. V and S deliberately do
+       not: nobody asks for a room in 44 billion cubic millimetres, and m³/m²
+       are how volume and area are said whatever the lengths are shown in. */
+    set('#room-p', room?.perimeter ? metres(room.perimeter) : '—');
 
     set('#scan-guidance', sweep.guidance());
     renderSweepArc(sweep);
@@ -1061,7 +1113,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
         depth: product.dimensions.depth / 100,
         height: product.dimensions.height / 100
       };
-      const verdict = fitInRoom(room, piece);
+      const verdict = fitInRoom(room, piece, { clearance: clearancePref() });
       $('#check-clearance').textContent = metres(room.width);
       $('#fit-verdict').className = `fit-verdict ${verdict.fits ? '' : 'fail'}`;
       $('#fit-verdict').innerHTML = verdict.fits
@@ -1812,7 +1864,8 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
             state.scannedRoom,
             { width: shown.width / 100, depth: shown.depth / 100, height: shown.height / 100 },
             { x: placedModel.position.x, z: placedModel.position.z, yaw: arTransform.yaw },
-            state.placedPieces
+            state.placedPieces,
+            { clearance: clearancePref() }
           );
           renderPlacementVerdict(verdict);
         }
@@ -2429,8 +2482,11 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
 
   await initGeometry();
 
-  let savedMode = 'clearance';
-  try { savedMode = localStorage.getItem('furnishar-measure-mode') || 'clearance'; } catch { /* private mode */ }
+  /* Whole-room is the default: it is what this product is for, and it needs
+     nothing chosen first. Somebody who previously picked another mode keeps
+     theirs. */
+  let savedMode = 'room';
+  try { savedMode = localStorage.getItem('furnishar-measure-mode') || 'room'; } catch { /* private mode */ }
   setMeasureMode(savedMode);
 
   const listeners = [];
@@ -2464,6 +2520,19 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     else cleanupAR();
   };
   window.addEventListener('popstate', onPopState);
+
+  // Scan settings: the unit switch and the clearance field. Both change a
+  // real calculation, so both re-run the readouts that depend on them.
+  /* on() takes a selector and registers its own teardown, so these bind
+     directly and push their own — there are three buttons and no id between
+     them. */
+  $$('.unit-option').forEach(button => {
+    const handler = () => setUnits(button.dataset.unit);
+    button.addEventListener('click', handler);
+    listeners.push(() => button.removeEventListener('click', handler));
+  });
+  on('#clearance-pref', 'input', () => { updateFitVerdict(); renderScanPanel(); });
+  try { setUnits(localStorage.getItem('furnishar-units') || 'm'); } catch { setUnits('m'); }
 
   restoreMeasurement();
   renderPlanner();
