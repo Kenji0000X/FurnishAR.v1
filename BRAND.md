@@ -14,7 +14,7 @@ Three ideas, one rule each, so they never fight:
 | Idea | Its one rule |
 | --- | --- |
 | **Minimalism** — carries the page | One paper, one ink, one accent. Two typefaces, few sizes. Space separates things, not boxes or colour. |
-| **Brutalism** — the structure, in small doses | Anything sitting *on* the page is square-cornered and drawn with a 1px ink rule. Emphasis is a hard offset block, never a blur. |
+| **Brutalism** — the structure, in small doses | Anything sitting *on* the page is square-cornered and drawn with a 1px ink rule. Emphasis is a hard offset block, never a blur. **One exception, stated in §5: the capsule.** |
 | **Glassmorphism** — the z-axis | Only surfaces that float *above* content are frosted. **If it is frosted, it is floating. If it is flat, it is part of the page.** |
 
 That last line is the load-bearing rule. It is what stops the glass reading as
@@ -202,6 +202,50 @@ two their meaning.
 
 Full-bleed, but the content inside is still held to `--maxw`: a band must
 never widen the measure of its own text.
+
+### The capsule, and the one exception to square
+
+Every surface is square-cornered — §1's rule — with exactly one exception,
+and it is a distinction rather than a lapse:
+
+> **Square acts. Rounded travels.**
+
+A square button *acts on the thing beside it*: save this product, delete this
+row, approve this application. It belongs to its panel and wears its panel's
+geometry. A **capsule** — a fully rounded pill — *takes you somewhere else*:
+the hero's two calls to action, the header's one, the category rail, the
+closing band. Those are the only capsules in the product.
+
+The distinction is what keeps the rounded shape from reading as drift. If a
+capsule ever appears inside the portal's product form or the admin console's
+review card, the rule has been broken and the shape has become decoration.
+
+Capsules carry no hard offset shadow. `--hard` is the square world's depth
+cue and on a pill it reads as a mistake; capsules lift 2px on hover instead.
+
+### The pinned stage
+
+The home page's first three sections share one `position: sticky` WebGL
+canvas — a room that travels and turns as you scroll past. Four rules make it
+affordable, and none of them is optional:
+
+1. **The model is a budget, not a file.** 71k triangles, under 600 KB. It
+   arrived at 2.0M triangles and 5.5 MB. `npm run check:hero` fails if the
+   geometry budget is abandoned, because a heavier re-export looks identical
+   in every screenshot and every build.
+2. **Nothing 3D is on the critical path.** three.js is imported inside an
+   effect, behind an IntersectionObserver. The headline is server-rendered
+   and readable before a byte of renderer is requested.
+3. **It stops.** Off screen, in a background tab, or once the scroll has
+   settled, the loop stops or drops to 24fps. A renderer running behind the
+   FAQ is pure battery.
+4. **It always has a still.** No WebGL, reduced motion, or Save-Data resolve
+   to a real render of the same room at the same angle — never a blank space
+   and never a spinner.
+
+On a phone the composition changes rather than shrinking: copy in the top
+half, room in the bottom half. See the narrow-viewport offset in
+`app/HeroStage.js`.
 
 ### Grid tracks
 
