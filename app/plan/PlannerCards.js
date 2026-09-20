@@ -55,8 +55,8 @@ function PlannerBody({ products }) {
         <p className="eyebrow">Fit before you commit</p>
         <h1 id="planner-title">Your room, planned with confidence.</h1>
         <p>
-          Choose a product, scan a doorway or free floor area, and get a clear fit check in
-          centimeters.
+          Scan your room and get its length, width, height, floor area and volume.
+          Then, if you want, stand a real piece of furniture in it and see whether it fits.
         </p>
       </section>
 
@@ -67,27 +67,29 @@ function PlannerBody({ products }) {
       )}
 
       <div className="planner-layout">
-        <section className="planner-card product-picker" aria-labelledby="picker-title">
-          <div className="card-heading">
-            <span className="step-number">01</span>
-            <div><p>Pick a product</p><h2 id="picker-title">What are you placing?</h2></div>
-          </div>
-          <div id="planner-product" className="planner-product" />
-        </section>
+        {/*
+            Scanning comes first, and needs nothing chosen.
 
+            The order used to be pick-a-product, then measure — so the first
+            thing anybody saw was a shopping decision, and measuring your own
+            room appeared to depend on having already made it. It does not:
+            a room is a room. Somebody standing in their living room wanting
+            to know how big it is can now do that on arrival, and choose
+            furniture afterwards or not at all.
+        */}
         <section className="planner-card measure-card" aria-labelledby="measure-title">
           <div className="card-heading">
-            <span className="step-number">02</span>
+            <span className="step-number">01</span>
             <div><p>Measure your space</p><h2 id="measure-title">Room scan</h2></div>
           </div>
 
           <div className="mode-switch" role="radiogroup" aria-label="What to measure">
             <button
               type="button"
-              className="mode-option is-active"
+              className="mode-option"
               data-measure-mode="clearance"
               role="radio"
-              aria-checked="true"
+              aria-checked="false"
             >
               Clearance
             </button>
@@ -102,14 +104,52 @@ function PlannerBody({ products }) {
             </button>
             <button
               type="button"
-              className="mode-option"
+              className="mode-option is-active"
               data-measure-mode="room"
               role="radio"
-              aria-checked="false"
+              aria-checked="true"
             >
               Whole room
             </button>
           </div>
+
+          {/*
+             Settings, rather than only the two-point mode.
+
+             Both of these change a real calculation: the unit changes every
+             figure the scan reports, and the clearance is fed to the fit
+             verdict as walking space that must be left around a piece. There
+             is deliberately nothing here that only looks like a setting.
+          */}
+          <details className="scan-settings">
+            <summary>
+              <span aria-hidden="true">⚙</span> Scan settings
+            </summary>
+            <div className="scan-settings-body">
+              <fieldset>
+                <legend>Units</legend>
+                <div className="unit-switch" role="radiogroup" aria-label="Units">
+                  <button type="button" className="unit-option is-active" data-unit="m" role="radio" aria-checked="true">m</button>
+                  <button type="button" className="unit-option" data-unit="cm" role="radio" aria-checked="false">cm</button>
+                  <button type="button" className="unit-option" data-unit="mm" role="radio" aria-checked="false">mm</button>
+                </div>
+              </fieldset>
+              <label className="setting-row">
+                <span>Walking space to leave around furniture</span>
+                <span className="setting-value">
+                  <input
+                    id="clearance-pref"
+                    type="number"
+                    min="0"
+                    max="200"
+                    step="5"
+                    defaultValue={0}
+                    inputMode="numeric"
+                  />{' '}cm
+                </span>
+              </label>
+            </div>
+          </details>
 
           <p className="card-copy" id="measure-copy">
             Aim at a textured, non-reflective floor in bright light. On Android Chrome, tap two
@@ -196,6 +236,20 @@ function PlannerBody({ products }) {
           <p id="ar-status" className="ar-status" aria-live="polite">
             Checking AR support…
           </p>
+        </section>
+
+        <section className="planner-card product-picker" aria-labelledby="picker-title">
+          <div className="card-heading">
+            <span className="step-number">02</span>
+            <div>
+              <p>Optional</p>
+              <h2 id="picker-title">Place a piece in it</h2>
+            </div>
+          </div>
+          <p className="card-copy">
+            Skip this if you only wanted the measurements — they are yours either way.
+          </p>
+          <div id="planner-product" className="planner-product" />
         </section>
 
         <section className="planner-card verdict-card" aria-labelledby="verdict-title">

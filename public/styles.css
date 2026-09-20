@@ -42,6 +42,10 @@
   --accent-ink: #b44a26;
   --accent-lifted: #e08159;
   --on-accent: #ffffff;    /*  4.8:1 on the accent fill */
+  /* The accent at low opacity, for a fill that marks a state without
+     becoming a button — the bottom bar's active pill. Text on it is --ink,
+     not --on-accent, because the ground underneath is still paper. */
+  --accent-soft: rgba(192, 80, 42, .14);
   --deep: #12332c;
 
   /* Rules — the brutalist hairline, and its heavier structural sibling */
@@ -179,6 +183,7 @@
   --accent-ink: #f0906c;   /*  7.71:1 on --paper */
   --accent-lifted: #f0906c;
   --on-accent: #16100d;    /*  4.91:1 on the accent fill */
+  --accent-soft: rgba(210, 96, 58, .22);
   --deep: #0c1a16;
 
   --rule: rgba(238, 242, 239, .20);
@@ -214,6 +219,7 @@
     --accent-ink: #f0906c;
     --accent-lifted: #f0906c;
     --on-accent: #16100d;
+    --accent-soft: rgba(210, 96, 58, .22);
     --deep: #0c1a16;
 
     --rule: rgba(238, 242, 239, .20);
@@ -2152,6 +2158,42 @@ footer {
    room slightly downward, so the part of the frame that matters is the upper
    two thirds. Covering the lower third costs the least.
 */
+/* Scan settings: a disclosure in the measure card. Closed by default because
+   the defaults are right for most people; open, it offers the two things that
+   actually change a calculation. */
+.scan-settings { margin-bottom: 1rem; border: 1px solid var(--rule); background: var(--paper-raised); }
+.scan-settings summary {
+  display: flex; align-items: center; gap: .5rem;
+  min-height: var(--tap); padding: .5rem .8rem;
+  font-family: var(--mono); font-size: .68rem;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--ink-muted);
+  cursor: pointer; list-style: none;
+}
+.scan-settings summary::-webkit-details-marker { display: none; }
+.scan-settings summary::marker { content: ''; }
+.scan-settings[open] summary { border-bottom: 1px solid var(--rule); }
+.scan-settings-body { display: grid; gap: .9rem; padding: .8rem; }
+.scan-settings fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: .4rem; }
+.scan-settings legend {
+  padding: 0; font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint);
+}
+
+.unit-switch { display: flex; border: 1px solid var(--rule-strong); width: max-content; }
+.unit-option {
+  min-width: 52px; min-height: var(--tap); padding: .4rem .8rem;
+  border-right: 1px solid var(--rule-strong);
+  font-family: var(--mono); font-size: .75rem; color: var(--ink-faint);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.unit-option:last-child { border-right: 0; }
+.unit-option.is-active { background: var(--ink); color: var(--paper); }
+
+.setting-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.setting-row > span:first-child { font-size: .8125rem; color: var(--ink-muted); flex: 1 1 12rem; }
+.setting-value { display: inline-flex; align-items: center; gap: .35rem; font-family: var(--mono); font-size: .75rem; }
+.setting-value input { width: 5rem; min-height: var(--tap); padding: .3rem .5rem; border: 1px solid var(--rule); background: var(--paper); }
+
 .scan-panel {
   position: absolute; z-index: 4;
   left: .7rem; right: .7rem;
@@ -2213,6 +2255,25 @@ footer {
 .scan-dimensions p { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; }
 .scan-dimensions span { font-size: .68rem; opacity: .6; }
 .scan-dimensions b { font-family: var(--mono); font-size: .85rem; letter-spacing: -.02em; }
+
+/* V / S / P, the way a room scanner states its totals. Laid out as a row of
+   chips so the three read as one group rather than as more of the dimension
+   list above them. */
+.scan-totals {
+  display: flex; flex-wrap: wrap; gap: .35rem;
+  list-style: none; margin: 0; padding: 0;
+}
+.scan-totals li {
+  display: flex; align-items: baseline; gap: .4em;
+  padding: .3rem .6rem;
+  border: 1px solid var(--glass-dark-line);
+  font-family: var(--mono); font-size: .68rem;
+}
+.scan-totals abbr {
+  text-decoration: none; border-bottom: 0;
+  opacity: .55; font-size: .9em;
+}
+.scan-totals b { letter-spacing: -.02em; }
 
 .scan-note { font-size: .66rem; line-height: 1.45; opacity: .7; }
 .scan-note:empty { display: none; }
@@ -2684,28 +2745,91 @@ footer {
    off-screen but still in the tab order sends a keyboard user through links
    they cannot see, which is worse than not having the menu. */
 @media (max-width: 760px) {
-  .nav-toggle { display: inline-flex; }
+  /*
+     The hamburger and its drawer are gone; the bottom bar below replaces
+     them. A menu button hides every destination behind a tap and a guess, on
+     the device this product is actually used on — in a room, one-handed,
+     holding the phone up. The destinations belong under the thumb.
+  */
+  .nav-toggle { display: none; }
+  .main-nav { display: none; }
+}
 
-  .main-nav {
-    display: none;
-    position: absolute; top: 100%; left: 0; right: 0;
-    flex-direction: column; align-items: stretch; gap: 0;
-    padding: .5rem var(--gutter) 1rem;
-    border-bottom: 1px solid var(--rule);
+/* ------------------------------------------------------ bottom nav ------- */
+/*
+   Pinned to the bottom on phones, gone entirely on a desktop where the header
+   carries the same destinations inline.
+*/
+.bottom-nav { display: none; }
+
+@media (max-width: 760px) {
+  .bottom-nav {
+    display: block;
+    position: fixed; z-index: 40; left: 0; right: 0; bottom: 0;
+    border-top: 1px solid var(--rule-strong);
     background: var(--glass);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
+    /* The home indicator on a modern phone sits over the bottom of the
+       screen; without this the labels are underneath it. */
+    padding-bottom: env(safe-area-inset-bottom);
   }
-  .site-header.menu-open .main-nav { display: flex; }
+  .bottom-nav ul {
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
+    list-style: none; margin: 0; padding: 0;
+  }
+  .bottom-nav-item {
+    display: grid; justify-items: center; gap: .15rem;
+    padding: .45rem .2rem .5rem;
+    min-height: var(--tap);
+    color: var(--ink-faint);
+    text-decoration: none;
+    transition: color var(--dur-fast) var(--ease-out);
+  }
+  .bottom-nav-item.is-active { color: var(--ink); }
 
-  .main-nav .nav-link {
-    padding: .85rem 0;
-    border-bottom: 1px solid var(--rule);
-    font-size: .9375rem;
+  /* The pill behind the icon. This is reference style 6: the active
+     destination's icon sits on a filled shape, with the label beneath. */
+  .bottom-nav-pill {
+    display: grid; place-items: center;
+    width: 52px; height: 30px;
+    /* The one rounded shape in a square-cornered system, and for the same
+       reason the capsule rail is: it travels (it moves between destinations)
+       rather than sitting still. BRAND.md §5 — square acts, rounded travels. */
+    border-radius: 999px;
+    transition: background var(--dur-fast) var(--ease-out);
   }
-  /* The primary action in the menu came out at 37px — the one control in
-     there most likely to be aimed at in a hurry, and the shortest. */
-  .main-nav .header-action { margin-top: .9rem; justify-content: center; min-height: var(--tap); }
+  .bottom-nav-item.is-active .bottom-nav-pill { background: var(--accent-soft); }
+  .bottom-nav-pill svg { width: 22px; height: 22px; display: block; }
+
+  .bottom-nav-label {
+    /* .58rem measured 9.28px — under the 11px floor, on the labels that name
+       every destination in the app. The bar has the room. */
+    font-family: var(--mono); font-size: .6875rem;
+    letter-spacing: .04em; text-transform: uppercase;
+  }
+  .bottom-nav-item.is-active .bottom-nav-label { color: var(--accent-ink); }
+
+  /* Scan is what this product is for, so it is the one that is raised. */
+  .bottom-nav-item.is-primary .bottom-nav-pill {
+    background: var(--ink); color: var(--paper);
+    width: 56px; height: 34px;
+  }
+  .bottom-nav-item.is-primary.is-active .bottom-nav-pill { background: var(--accent); color: var(--on-accent); }
+
+  /* The bar floats over the page, so the page needs somewhere to end. */
+  body { padding-bottom: calc(4.4rem + env(safe-area-inset-bottom)); }
+
+  /* Everything else pinned to the bottom of the screen has to clear the bar.
+     The cookie notice sat on top of it — a higher z-index and a 1.2rem offset
+     put its buttons exactly where the nav's are, so the first tap after
+     landing hit the wrong thing. These are the three fixed things this app
+     has; each is lifted by the bar's height. */
+  .cookie-notice { bottom: calc(5.6rem + env(safe-area-inset-bottom)); }
+  .back-to-top { bottom: calc(5.6rem + env(safe-area-inset-bottom)); }
+  .toast { bottom: calc(5.6rem + env(safe-area-inset-bottom)); }
+  /* Except in AR, which is full-screen and has its own controls. */
+  body:has(.ar-layer) .bottom-nav { display: none; }
 }
 
 @media (max-width: 640px) {
@@ -2866,7 +2990,10 @@ footer {
      `select { font-size: 16px }` does not fix it: `.sort-control select` is
      (0,1,1) and beats (0,0,1), so the generic rule loses to every
      class-scoped one in this file. The list has to name them. */
-  .sort-control select, .form-dialog input, .form-dialog select, .form-dialog textarea {
+  .sort-control select, .form-dialog input, .form-dialog select, .form-dialog textarea,
+  /* The scan-settings clearance field, added with the settings panel and
+     missed by this list until the audit measured it at 12px. */
+  .setting-value input {
     font-size: 16px;
   }
 }

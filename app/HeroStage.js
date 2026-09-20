@@ -431,8 +431,22 @@ export default function HeroStage({ children }) {
       const forPhone = k => {
         if (!narrow()) return k;
         return {
-          // Centre it: at 390px there is no left half and right half.
-          x: k.x * 0.25,
+          // Centred, not nudged toward one side.
+          //
+          // This was `k.x * 0.25`, which is a quarter of a DESKTOP offset —
+          // and a desktop offset exists to move the room out from behind a
+          // headline that sits beside it. On a phone the headline is above
+          // it, so there is nothing to move out of the way of, and the
+          // fraction just pushed the room right until it was clipped by the
+          // screen edge: measured at 360, 390 and 430px, the painted pixels
+          // ran to exactly the viewport width every time.
+          //
+          // -0.05, not 0: the room is seen from a corner, so the pixels it
+          // actually paints are not symmetric about its pivot — measured at
+          // 360, 390 and 430px the painted centre sat 14, 17 and 20px right
+          // of the screen's, a consistent ~4% of the width. This takes that
+          // back out.
+          x: -0.05,
           // DOWN into the lower third, clear of the copy above. Negative,
           // because +Y is up in three.js — the first version of this line
           // added instead of subtracted and lifted the room straight into

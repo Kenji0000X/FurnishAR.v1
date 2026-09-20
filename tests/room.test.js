@@ -245,3 +245,71 @@ test('fitting against an unmeasured room says so instead of answering', () => {
   assert.equal(verdict.fits, null);
   assert.match(verdict.reason, /not been measured/);
 });
+
+/* ------------------------------------------- volume, area and perimeter -- */
+/*
+   The V / S / P a room scanner is expected to show. Each is only reported
+   when it can actually be computed from what was scanned.
+*/
+
+test('perimeter, area and volume of a known room', () => {
+  const room = roomDimensions([
+    floorRect(4.81, 3.42, { y: 0 }),
+    floorRect(4.81, 3.42, { y: 2.70 }),
+    wall(2.70, -1.71)
+  ]);
+  assert.ok(Math.abs(room.perimeter - 2 * (4.81 + 3.42)) < 1e-6, `P ${room.perimeter}`);
+  assert.ok(Math.abs(room.floorArea - 4.81 * 3.42) < 1e-6, `S ${room.floorArea}`);
+  assert.ok(Math.abs(room.volume - 4.81 * 3.42 * 2.70) < 1e-6, `V ${room.volume}`);
+});
+
+test('perimeter agrees with the length and width on screen', () => {
+  /* The panel shows L, W and P together. If P were summed from the raw floor
+     polygon it would not equal 2(L+W) and the scanner would be contradicting
+     itself in three adjacent readouts — which is the actual reason it comes
+     from the rectangle. It is NOT that a scan's polygon perimeter is wildly
+     larger: measured on a deliberately ragged edge below, the two are within
+     a percent of each other. */
+  const ragged = {
+    orientation: 'horizontal',
+    polygon: [
+      p(0, 0, 0), p(2, 0, 0.04), p(4, 0, -0.03), p(4, 0, 3),
+      p(2, 0, 2.95), p(0, 0, 3)
+    ]
+  };
+  const room = roomDimensions([ragged]);
+  assert.ok(
+    Math.abs(room.perimeter - 2 * (room.length + room.width)) < 1e-9,
+    `P ${room.perimeter} should equal 2 x (${room.length} + ${room.width})`
+  );
+});
+
+test('volume is null when no height was measured', () => {
+  const room = roomDimensions([floorRect(4, 3, { y: 0 })]);
+  assert.equal(room.volume, null, 'a typical ceiling is not a measurement');
+  // The two that CAN be derived from a floor alone still are.
+  assert.ok(room.perimeter > 0);
+  assert.ok(room.floorArea > 0);
+});
+
+test('no floor means no P and no V either', () => {
+  const room = roomDimensions([wall(2.4, -1.5)]);
+  assert.equal(room.perimeter, null);
+  assert.equal(room.volume, null);
+});
+
+test('each wall reports its own run and height', () => {
+  const room = roomDimensions([floorRect(4, 3, { y: 0 }), wall(2.4, -1.5), wall(2.4, 1.5)]);
+  assert.equal(room.wallSpans.length, 2);
+  for (const span of room.wallSpans) {
+    assert.ok(Math.abs(span.run - 4) < 1e-6, `run ${span.run}`);
+    assert.ok(Math.abs(span.height - 2.4) < 1e-6, `height ${span.height}`);
+  }
+});
+
+test('a wall stub is left out of the spans', () => {
+  const stub = { orientation: 'vertical',
+    polygon: [p(-0.1, 0, 1), p(0.1, 0, 1), p(0.1, 0.4, 1), p(-0.1, 0.4, 1)] };
+  const room = roomDimensions([floorRect(4, 3, { y: 0 }), wall(2.4, -1.5), stub]);
+  assert.equal(room.wallSpans.length, 1, '20 cm of wall is not a wall');
+});

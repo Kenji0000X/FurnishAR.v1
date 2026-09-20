@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
 import ThemeToggle from './ThemeToggle.js';
 
 /*
@@ -38,8 +37,6 @@ export function BrandMark() {
 
 export default function SiteHeader() {
   const pathname = usePathname();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const toggleRef = useRef(null);
 
   /*
    * A product page is part of Discover, so that tab stays lit while browsing.
@@ -55,28 +52,18 @@ export default function SiteHeader() {
     return pathname.startsWith(href);
   };
 
-  // Navigating is the most common way the menu should close, and it is easy to
-  // miss: Next does a client-side transition, so the component never unmounts
-  // and an open menu would survive the route change and cover the new page.
-  useEffect(() => { setMenuOpen(false); }, [pathname]);
+  /*
+     There is no menu button here any more, and so no open/closed state, no
+     Escape handler and no close-on-navigate effect.
 
-  // Escape closes it, and focus goes back to the button that opened it —
-  // otherwise focus is left on a panel that no longer exists and the next Tab
-  // starts from the top of the document.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onKey = event => {
-      if (event.key === 'Escape') {
-        setMenuOpen(false);
-        toggleRef.current?.focus();
-      }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [menuOpen]);
-
+     The hamburger and its drawer were replaced by the bottom bar (BottomNav).
+     Leaving the button in the markup as `display: none` would have been
+     cheaper, but it is a control nothing can reach, wired to state nothing
+     reads — the next person to touch this file would have had to work out
+     which of the two navigations was live.
+  */
   return (
-    <header className={`site-header${menuOpen ? ' menu-open' : ''}`}>
+    <header className="site-header">
       <Link className="brand" href="/" aria-label="FurnishAR home">
         <BrandMark />
         <span>Furnish<span>AR</span></span>
@@ -100,17 +87,6 @@ export default function SiteHeader() {
 
       <div className="header-tools">
         <ThemeToggle />
-        <button
-          ref={toggleRef}
-          className="nav-toggle"
-          type="button"
-          onClick={() => setMenuOpen(open => !open)}
-          aria-expanded={menuOpen}
-          aria-controls="main-nav"
-          aria-label="Menu"
-        >
-          <span aria-hidden="true">{menuOpen ? '✕' : '☰'}</span>
-        </button>
       </div>
     </header>
   );
