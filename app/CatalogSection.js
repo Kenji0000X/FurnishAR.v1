@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import ProductCard from './ProductCard.js';
 import { colorFor } from './format.js';
-import { matches, NO_LIMIT, EMPTY_FILTERS as EMPTY } from './catalog-filter.js';
+import { matches, sortProducts, SORTS, NO_LIMIT, EMPTY_FILTERS as EMPTY } from './catalog-filter.js';
 
 /**
  * The grid and its filters.
@@ -60,10 +60,37 @@ export default function CatalogSection({ products }) {
     () => [...new Set(products.map(product => product.category).filter(Boolean))].sort(),
     [products]
   );
-  const found = useMemo(
-    () => products.filter(product => matches(product, filters)),
-    [products, filters]
+  const [sort, setSort] = useState('relevance');
+
+  // How many pieces the shops have actually modelled, shown on the filter so
+  // a shopper can see what turning it on will cost them before they do.
+  const withModels = useMemo(
+    () => products.filter(product => product.modelGlb).length,
+    [products]
   );
+
+  const found = useMemo(
+    () => sortProducts(products.filter(product => matches(product, filters)), sort),
+    [products, filters, sort]
+  );
+
+  // Which controls are actually narrowing the results. Shown as removable
+  // chips, because a filter you cannot see is a filter you cannot undo —
+  // "no results" with a forgotten colour still selected is the most common
+  // dead end in any catalogue.
+  const active = [];
+  if (filters.search) active.push({ key: 'search', label: `"${filters.search}"`, clear: { search: '' } });
+  if (filters.category) active.push({ key: 'category', label: filters.category, clear: { category: '' } });
+  if (filters.store) {
+    const name = stores.find(s => s.slug === filters.store)?.name || filters.store;
+    active.push({ key: 'store', label: name, clear: { store: '' } });
+  }
+  if (filters.color) active.push({ key: 'color', label: filters.color, clear: { color: '' } });
+  if (filters.width < NO_LIMIT) {
+    active.push({ key: 'width', label: `Up to ${filters.width} cm`, clear: { width: NO_LIMIT } });
+  }
+  if (filters.modelOnly) active.push({ key: 'model', label: 'Has a 3D model', clear: { modelOnly: false } });
+  if (filters.inStockOnly) active.push({ key: 'stock', label: 'In stock', clear: { inStockOnly: false } });
 
   return (
     <section id="catalog" className="catalog-section" aria-labelledby="catalog-title">
@@ -72,10 +99,40 @@ export default function CatalogSection({ products }) {
           <p className="eyebrow">Made nearby, chosen by you</p>
           <h2 id="catalog-title">Explore the collection</h2>
         </div>
-        <p className="result-count" aria-live="polite">
-          {found.length} {found.length === 1 ? 'piece' : 'pieces'} to explore
-        </p>
+        <div className="catalog-tools">
+          <p className="result-count" aria-live="polite">
+            {found.length} {found.length === 1 ? 'piece' : 'pieces'}
+          </p>
+          <label className="sort-control">
+            <span>Sort</span>
+            <select value={sort} onChange={event => setSort(event.target.value)}>
+              {Object.entries(SORTS).map(([key, { label }]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
+
+      {active.length > 0 && (
+        <div className="active-filters">
+          <span className="active-filters-label">Filtered by</span>
+          <ul>
+            {active.map(chip => (
+              <li key={chip.key}>
+                <button type="button" onClick={() => set(chip.clear)}>
+                  {chip.label}
+                  <span aria-hidden="true">×</span>
+                  <span className="sr-only">, remove this filter</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <button className="clear-button" type="button" onClick={() => setFilters(EMPTY)}>
+            Clear all
+          </button>
+        </div>
+      )}
 
       <div className="catalog-layout">
         <aside className="filters" aria-label="Filter furniture">
@@ -138,6 +195,29 @@ export default function CatalogSection({ products }) {
             <div><span>70 cm</span><span>240 cm+</span></div>
           </fieldset>
 
+          <fieldset className="filter-group toggle-group">
+            <legend>Show only</legend>
+            <label className="filter-toggle">
+              <input
+                type="checkbox"
+                checked={filters.modelOnly}
+                onChange={event => set({ modelOnly: event.target.checked })}
+              />
+              <span>
+                Pieces with a 3D model
+                <small>{withModels} of {products.length}</small>
+              </span>
+            </label>
+            <label className="filter-toggle">
+              <input
+                type="checkbox"
+                checked={filters.inStockOnly}
+                onChange={event => set({ inStockOnly: event.target.checked })}
+              />
+              <span>In stock now</span>
+            </label>
+          </fieldset>
+
           <fieldset className="filter-group color-group">
             <legend>Colour</legend>
             <div className="color-options">
@@ -164,8 +244,14 @@ export default function CatalogSection({ products }) {
           ) : (
             <div className="no-results">
               <b>No furniture matches these filters.</b>
-              <br />
-              <small>Try widening your search or clearing a filter.</small>
+              <p>
+                {filters.modelOnly && withModels === 0
+                  ? 'None of the pieces listed here have a 3D model yet.'
+                  : 'Try removing one of the filters above.'}
+              </p>
+              <button className="button button-outline" type="button" onClick={() => setFilters(EMPTY)}>
+                Clear all filters
+              </button>
             </div>
           )}
         </div>
