@@ -521,6 +521,29 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .hero-facts dt { font-family: var(--mono); font-size: 1.5rem; letter-spacing: -.04em; }
 .hero-facts dd { margin-top: .25rem; }
 
+/*
+  A laptop window is SHORT, not just narrow.
+
+  1366x768 with browser chrome leaves about 680px of viewport, and the hero is
+  a full-height section with a display headline, a lead, two buttons and a row
+  of figures in it. Sized for a 900px window that stack runs past the fold and
+  the figures get cut in half — which is what the deployed page was doing.
+
+  Height queries rather than width ones, because this has nothing to do with
+  how wide the window is: a 1440x700 window has the same problem and a
+  1100x1000 window does not.
+*/
+@media (max-height: 820px) and (min-width: 901px) {
+  .hero { padding-top: clamp(3rem, 7vh, 5rem); padding-bottom: 2rem; }
+  .hero h1 { font-size: clamp(2.4rem, 5.4vw, 4rem); margin: .8rem 0 1rem; }
+  .hero-text { font-size: 1rem; }
+  .hero-actions { margin-top: 1.4rem; }
+  .hero-facts { margin-top: 1.8rem; }
+  .hero-facts dt { font-size: 1.3rem; }
+  .capsule-thumb { width: 48px; height: 48px; }
+  .capsule-card { padding-top: .4rem; padding-bottom: .4rem; }
+}
+
 /* ------------------------------------------------------------ capsules ---- */
 /*
    The one rounded shape in the system.
