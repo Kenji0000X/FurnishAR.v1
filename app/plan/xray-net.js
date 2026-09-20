@@ -116,6 +116,35 @@ export function createXrayNet({ THREE, scene, colours = {} }) {
   group.renderOrder = 2;
   scene.add(group);
 
+  /*
+     Occluders: real geometry hiding virtual furniture.
+     ---------------------------------------------------------------------
+     A sofa pushed past the far wall used to keep drawing on top of it, which
+     makes the whole scene read as a sticker over a photograph rather than an
+     object in a room — and, worse for this product, hides the single clearest
+     signal that a piece does not fit.
+
+     These meshes write DEPTH ONLY: colorWrite is off, so nothing appears, but
+     the depth buffer afterwards says "there is a wall here". Anything drawn
+     later and further away fails the depth test and is not seen.
+
+     They live in their own group at a lower renderOrder because the trick
+     only works in that order: depth first, furniture second.
+  */
+  const occluders = new THREE.Group();
+  occluders.renderOrder = -1;
+  scene.add(occluders);
+
+  const occluderMaterial = new THREE.MeshBasicMaterial({
+    colorWrite: false,
+    depthWrite: true,
+    depthTest: true,
+    side: THREE.DoubleSide
+  });
+
+  let occlusionOn = true;
+  const occluderMeshes = new Map();
+
   // One mesh per XRPlane, keyed by the plane object itself. WebXR reuses the
   // same XRPlane instance as it grows, and gives a `lastChangedTime` so the
   // geometry is only rebuilt when the plane actually changed — rebuilding
@@ -125,6 +154,7 @@ export function createXrayNet({ THREE, scene, colours = {} }) {
 
   let visible = true;
   let depthMesh = null;
+  let depthOccluder = null;
   let depthLastBuilt = 0;
 
   function makeMaterial(colour, vertical) {
@@ -223,6 +253,23 @@ export function createXrayNet({ THREE, scene, colours = {} }) {
       entry.mesh.matrix.fromArray(pose.transform.matrix);
       entry.mesh.visible = visible;
 
+      /* The same polygon again, writing depth only. Shares the plane mesh's
+         geometry rather than copying it: the two are always the same shape,
+         and a second copy is a second thing to keep in step and to dispose. */
+      let occluder = occluderMeshes.get(plane);
+      if (!occluder) {
+        occluder = new THREE.Mesh(entry.mesh.geometry, occluderMaterial);
+        occluder.matrixAutoUpdate = false;
+        occluder.renderOrder = -1;
+        occluders.add(occluder);
+        occluderMeshes.set(plane, occluder);
+      } else if (occluder.geometry !== entry.mesh.geometry) {
+        // The plane grew and its geometry was replaced.
+        occluder.geometry = entry.mesh.geometry;
+      }
+      occluder.matrix.copy(entry.mesh.matrix);
+      occluder.visible = occlusionOn;
+
       // The polygon in world space, for room measurement. Done here because
       // this is the one place that already holds both the polygon and its
       // pose, and doing it twice invites the two copies to disagree.
@@ -243,6 +290,13 @@ export function createXrayNet({ THREE, scene, colours = {} }) {
     // Planes the tracker has dropped for good.
     for (const [plane, entry] of meshes) {
       if (alive.has(plane)) continue;
+      const occluder = occluderMeshes.get(plane);
+      if (occluder) {
+        occluders.remove(occluder);
+        // The geometry belongs to the plane mesh and is disposed below; the
+        // material is shared by every occluder and outlives all of them.
+        occluderMeshes.delete(plane);
+      }
       group.remove(entry.mesh);
       entry.mesh.geometry.dispose();
       entry.mesh.material.dispose();
@@ -295,7 +349,7 @@ export function createXrayNet({ THREE, scene, colours = {} }) {
         // hardware. Neither is drawn, so the net has holes exactly where the
         // device does not know — which is the honest picture.
         if (!(metres > 0.2) || metres > 5) continue;
-        points.push({ u, v, metres });
+        points.push({ u, v, metres, row, col });
       }
     }
 
@@ -336,6 +390,60 @@ export function createXrayNet({ THREE, scene, colours = {} }) {
       group.add(depthMesh);
     }
     depthMesh.visible = visible;
+
+    /*
+       The same samples again, as a surface that writes depth.
+       ------------------------------------------------------------------
+       This is what makes a real table hide a virtual chair behind it, not
+       only a wall the tracker happened to classify as a plane.
+
+       Built from the lattice rather than by injecting the depth texture into
+       every furniture material. Shader surgery on the model's material is the
+       textbook approach and gives per-pixel edges, but it cannot be verified
+       anywhere in this project's test setup, and getting it wrong does not
+       degrade — it makes the furniture vanish. A 40x30 depth surface is
+       coarser at the silhouette and is ordinary geometry that either draws or
+       does not.
+
+       Neighbouring samples are only joined when they agree about how far away
+       they are. Across a real silhouette — the edge of a table against the
+       far wall — they disagree by metres, and stitching those into a triangle
+       would drape a sheet across open space and swallow anything behind it.
+    */
+    const index = new Map(points.map((point, i) => [`${point.row}:${point.col}`, i]));
+    const triangles = [];
+    const AGREE = 0.15;        // metres two neighbours may differ by
+
+    for (const point of points) {
+      const right = index.get(`${point.row}:${point.col + 1}`);
+      const below = index.get(`${point.row + 1}:${point.col}`);
+      const corner = index.get(`${point.row + 1}:${point.col + 1}`);
+      if (right === undefined || below === undefined || corner === undefined) continue;
+
+      const quad = [point, points[right], points[below], points[corner]];
+      const depths = quad.map(q => q.metres);
+      if (Math.max(...depths) - Math.min(...depths) > AGREE) continue;
+
+      const self = index.get(`${point.row}:${point.col}`);
+      triangles.push(self, right, below, right, corner, below);
+    }
+
+    if (triangles.length >= 3) {
+      const occluderGeometry = new THREE.BufferGeometry();
+      occluderGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      occluderGeometry.setIndex(triangles);
+
+      if (depthOccluder) {
+        depthOccluder.geometry.dispose();
+        depthOccluder.geometry = occluderGeometry;
+      } else {
+        depthOccluder = new THREE.Mesh(occluderGeometry, occluderMaterial);
+        depthOccluder.renderOrder = -1;
+        occluders.add(depthOccluder);
+      }
+      depthOccluder.visible = occlusionOn;
+    }
+
     return true;
   }
 
@@ -344,12 +452,35 @@ export function createXrayNet({ THREE, scene, colours = {} }) {
     group.visible = next;
   }
 
+  /**
+   * Occlusion on or off.
+   *
+   * Worth being able to turn off, and worth saying which it is. A detected
+   * plane sits where the tracker thinks the wall is, which on a bad scan can
+   * be tens of centimetres in front of the real one — and then a piece of
+   * furniture that is genuinely in the room disappears into a wall that is not
+   * there. Somebody seeing that needs a way to rule it out.
+   */
+  function setOcclusion(next) {
+    occlusionOn = next;
+    occluders.visible = next;
+    if (depthOccluder) depthOccluder.visible = next;
+  }
+
   function dispose() {
     for (const [, entry] of meshes) {
       entry.mesh.geometry.dispose();
       entry.mesh.material.dispose();
     }
     meshes.clear();
+    occluderMeshes.clear();
+    occluders.clear();
+    occluderMaterial.dispose();
+    if (depthOccluder) {
+      depthOccluder.geometry.dispose();
+      depthOccluder = null;
+    }
+    scene.remove(occluders);
     if (depthMesh) {
       depthMesh.geometry.dispose();
       depthMesh.material.dispose();
@@ -358,5 +489,10 @@ export function createXrayNet({ THREE, scene, colours = {} }) {
     scene.remove(group);
   }
 
-  return { update, updateDepth, setVisible, dispose, get planeCount() { return meshes.size; } };
+  return {
+    update, updateDepth, setVisible, setOcclusion, dispose,
+    get planeCount() { return meshes.size; },
+    get occlusionOn() { return occlusionOn; },
+    get depthOcclusion() { return depthOccluder !== null; }
+  };
 }

@@ -23,6 +23,7 @@ import { resolveScale } from '../../lib/spatial/model-scale.mjs';
 import { OneEuroFilter, Steadiness, displayPrecision } from '../../lib/spatial/smoothing.mjs';
 import { roomDimensions, fitInRoom, minimumAreaRectangle } from '../../lib/spatial/room.mjs';
 import { SweepCoverage, scanReadiness } from '../../lib/spatial/coverage.mjs';
+import { assessPlacement, snapInsideRoom } from '../../lib/spatial/placement.mjs';
 import { createXrayNet } from './xray-net.js';
 
 /**
@@ -154,6 +155,8 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     // The room the person accepted, which outlives the AR session that
     // produced it. `room` is the live derivation; this is the kept one.
     scannedRoom: null,
+    // Pieces already standing in the scanned room, for collision checks.
+    placedPieces: [],
     detectedSurfaces: [],
     netSupport: { planes: false, depth: false },
     scanReadiness: null,
@@ -185,6 +188,14 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       <b id="live-m">0.00 m</b>
       <span><i id="live-cm">0 cm</i><i id="live-mm">0 mm</i></span>
       <em id="live-caption"></em>
+    </div>
+
+    <!-- Where the piece being placed stands in the scanned room. Hidden
+         entirely until a room has been measured — there is nothing to be
+         inside of before that. -->
+    <div id="placement-verdict" class="placement-verdict glass" hidden role="status" aria-live="polite">
+      <b id="placement-word"></b>
+      <span id="placement-detail"></span>
     </div>
 
     <!-- Dimension labels pinned to each detected surface. Built and positioned
@@ -245,12 +256,13 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
           <button class="tray-btn" data-step="rotate" data-dir="1" aria-label="Rotate right">↻</button>
         </div>
       </div>
-      <div class="tray-cluster" data-cluster="scale">
-        <span class="tray-label">Scale <i id="scale-value">100%</i></span>
+      <!-- There is no scale control, deliberately. See arTransform.resize. -->
+      <div class="tray-cluster" data-cluster="view">
+        <span class="tray-label">View</span>
         <div class="tray-row">
-          <button class="tray-btn" data-step="scale" data-dir="-1" aria-label="Smaller">−</button>
+          <button class="tray-btn tray-wide" id="toggle-occlusion" aria-pressed="true"
+            aria-label="Hide furniture behind real walls">Occlusion</button>
           <button class="tray-btn tray-wide" id="reset-model" aria-label="Reset model">Reset</button>
-          <button class="tray-btn" data-step="scale" data-dir="1" aria-label="Larger">+</button>
         </div>
       </div>
       <button id="place-button" class="ar-place" aria-label="Confirm placement" disabled><span></span></button>
@@ -272,7 +284,18 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       this.z += viewZ * Math.cos(yaw) - viewX * Math.sin(yaw);
     },
     rotate(dir, radians = 0.035) { this.yaw = (this.yaw + dir * radians) % (Math.PI * 2); syncTrayReadout(); },
-    resize(dir, amount = 0.01) { this.scale = clamp(this.scale + dir * amount, 0.5, 2); syncTrayReadout(); },
+    /*
+       Scale is fixed at 1, and there is no control for it.
+
+       The tray used to offer -/+ buttons spanning 0.5x to 2x. That is a
+       reasonable control in a decorating toy and a serious bug in a fit
+       checker: a 2.10 m sofa could be shrunk to 1.05 m until it fitted, while
+       the verdict card went on reporting the catalogue's 210 cm and saying
+       yes. The whole product is the claim that what you see is the real size.
+
+       Kept as a no-op rather than deleted so any stray caller cannot throw.
+    */
+    resize() { /* intentionally does nothing — see above */ },
     tickSpin() {
       const now = performance.now();
       const elapsed = Math.min((now - (this.lastSpin || now)) / 1000, 0.1);
@@ -287,8 +310,6 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
 
   /* ===== The control tray and AR chrome ===== */
   function syncTrayReadout() {
-    const scaleValue = $('#scale-value');
-    if (scaleValue) scaleValue.textContent = `${Math.round(arTransform.scale * 100)}%`;
     const yawValue = $('#yaw-value');
     if (yawValue) yawValue.textContent = `${Math.round((arTransform.yaw * 180 / Math.PI + 360) % 360)}°`;
   }
@@ -564,6 +585,30 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     set('#room-result-note', notes.join(' ') || 'Measured from the detected floor, walls and ceiling.');
   }
 
+  /**
+   * Where the piece is standing, said while you move it.
+   *
+   * Only ever shown when a room has actually been scanned. Without one there
+   * is nothing to be inside or outside of, and a panel reporting "fits" from
+   * no measurement is the exact failure this product exists to avoid.
+   */
+  function renderPlacementVerdict(verdict) {
+    const panel = $('#placement-verdict');
+    if (!panel) return;
+    if (!verdict || verdict.ok === null) { panel.hidden = true; return; }
+
+    panel.hidden = false;
+    const state_ = verdict.ok ? 'ok' : 'problem';
+    if (panel.dataset.state !== state_) panel.dataset.state = state_;
+
+    const word = $('#placement-word');
+    const detail = $('#placement-detail');
+    // The word carries it; the tint only reinforces it.
+    const label = verdict.ok ? 'In the room' : 'Does not fit here';
+    if (word && word.textContent !== label) word.textContent = label;
+    if (detail && detail.textContent !== verdict.reason) detail.textContent = verdict.reason;
+  }
+
   /** Hands the scanned room to the planner and closes AR. */
   function useScannedRoom() {
     const room = state.room;
@@ -684,12 +729,14 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     const top = new THREE.Vector3((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2);
     // Read the size off the product's own footprint, not the world-aligned box,
     // so turning the piece never inflates the numbers.
-    const bounds = product.modelBounds || product.dimensions;
-    const scale = arTransform.scale;
+    // The real size, full stop. There is no user scale to multiply by any
+    // more, and quoting anything else here would be quoting a piece of
+    // furniture that does not exist.
+    const shown = state.scaleDecision?.actualCm || product.modelBounds || product.dimensions;
     positionAnchorChip(
       projectToScreen(top, camera),
-      `${Math.round(bounds.width * scale)} × ${Math.round(bounds.depth * scale)} cm`,
-      `${Math.round(bounds.height * scale)} cm tall · ${product.name}`
+      `${Math.round(shown.width)} × ${Math.round(shown.depth)} cm`,
+      `${Math.round(shown.height)} cm tall · ${product.name}`
     );
   }
 
@@ -1505,6 +1552,22 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       event.stopPropagation();
       captureNativePoint(null);
     });
+    /* Occlusion on/off. Worth offering because a plane detected slightly in
+       front of the real wall will swallow a piece that is genuinely in the
+       room, and somebody seeing that needs a way to rule it out. */
+    const occlusionButton = $('#toggle-occlusion');
+    if (occlusionButton) {
+      occlusionButton.addEventListener('click', event => {
+        event.stopPropagation();
+        const next = occlusionButton.getAttribute('aria-pressed') !== 'true';
+        occlusionButton.setAttribute('aria-pressed', String(next));
+        xrayNet?.setOcclusion(next);
+        setHint(next
+          ? 'Real walls now hide furniture behind them.'
+          : 'Occlusion off — furniture draws over everything.');
+      });
+    }
+
     $('#reset-model').addEventListener('click', event => {
       event.stopPropagation();
       arTransform.reset();
@@ -1734,7 +1797,25 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
         // Anchor pose + the tray's offset, heading and scale.
         placedModel.position.set(anchorPosition.x + arTransform.x, anchorPosition.y, anchorPosition.z + arTransform.z);
         placedModel.quaternion.copy(anchorQuaternion).multiply(userYawQuaternion());
-        placedModel.scale.copy(baseScale).multiplyScalar(arTransform.scale);
+        placedModel.scale.copy(baseScale);
+
+        /*
+           Where is this piece, relative to the room that was scanned?
+
+           Only asked when a room HAS been scanned — placement without one
+           still works exactly as before, and the panel below stays hidden
+           rather than reporting against a room nobody measured.
+        */
+        if (state.scannedRoom?.rectangle) {
+          const shown = state.scaleDecision?.actualCm || product.dimensions;
+          const verdict = assessPlacement(
+            state.scannedRoom,
+            { width: shown.width / 100, depth: shown.depth / 100, height: shown.height / 100 },
+            { x: placedModel.position.x, z: placedModel.position.z, yaw: arTransform.yaw },
+            state.placedPieces
+          );
+          renderPlacementVerdict(verdict);
+        }
 
         // three.js drives the XR framebuffer, viewports and per-eye cameras itself.
         renderer.render(scene, camera);
@@ -2027,6 +2108,12 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     let previewTilt = 0;
 
     setPlacementButtonState(false);
+    /* There is nothing to occlude with in the untracked preview: no planes,
+       no depth, no idea where the walls are. The control is hidden rather
+       than shown doing nothing. */
+    const previewOcclusion = $('#toggle-occlusion');
+    if (previewOcclusion) previewOcclusion.hidden = true;
+
     $('#reset-model').addEventListener('click', event => {
       event.stopPropagation();
       arTransform.reset();
@@ -2072,7 +2159,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       arTransform.tickSpin();
       modelRoot.position.set(arTransform.x, 0, arTransform.z);
       modelRoot.rotation.y = arTransform.yaw;
-      modelRoot.scale.copy(baseScale).multiplyScalar(arTransform.scale);
+      modelRoot.scale.copy(baseScale);
 
       const nextBlocked = Math.abs(previewTilt) > 45;
       if (nextBlocked !== surfaceBlocked) {
@@ -2123,7 +2210,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     stage.addEventListener('wheel', event => {
       if (isLocked()) return;
       event.preventDefault();
-      arTransform.resize(event.deltaY > 0 ? -1 : 1, 0.05);
+      // Nothing: the wheel used to resize the piece. See arTransform.resize.
     }, { passive: false });
 
     stage.addEventListener('touchmove', event => {
@@ -2131,10 +2218,10 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       const [a, b] = [event.touches[0], event.touches[1]];
       const distance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
       const angle = Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX);
-      if (pinchDistance && Math.abs(distance - pinchDistance) > 6) {
-        arTransform.scale = clamp(arTransform.scale * (distance / pinchDistance), 0.5, 2);
-        syncTrayReadout();
-      }
+      // Pinch turns the piece; it does not resize it. Resizing was the same
+      // bug as the tray's scale buttons, reachable by a second route — a
+      // shopper could pinch a sofa down until it fitted while the verdict
+      // went on quoting the catalogue's real 210 cm.
       if (lastAngle !== null) arTransform.rotate(1, angle - lastAngle);
       pinchDistance = distance;
       lastAngle = angle;

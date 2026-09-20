@@ -404,7 +404,8 @@ export default function AdminConsole() {
       <div className="login-panel">
         <div className="login-copy">
           <span className="secure-mark" aria-hidden="true">⌑</span>
-          <h2>The console needs the database.</h2>
+          {/* The whole page in this state, so it is the page's h1. */}
+          <h1>The console needs the database.</h1>
           <p>Store applications live in Supabase; without it there is nothing to review.</p>
           <p className="demo-note">{reason}</p>
         </div>
@@ -417,7 +418,7 @@ export default function AdminConsole() {
       <div className="login-panel">
         <div className="login-copy">
           <span className="secure-mark" aria-hidden="true">⌑</span>
-          <h2>Platform console</h2>
+          <h1>Platform console</h1>
           <p>Sign in with an administrator account.</p>
           <p className="demo-note">
             This is not the store portal. Store owners sign in at{' '}
@@ -463,7 +464,7 @@ export default function AdminConsole() {
       <div className="login-panel">
         <div className="login-copy">
           <span className="secure-mark" aria-hidden="true">⌑</span>
-          <h2>This account is not an administrator.</h2>
+          <h1>This account is not an administrator.</h1>
           <p>
             You are signed in, but this account is not on the platform administrator
             list, so the review queue is not available to it.
