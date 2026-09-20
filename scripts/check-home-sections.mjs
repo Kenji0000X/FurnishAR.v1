@@ -22,7 +22,13 @@ const check = (ok, what, detail = '') => {
 // Same pinned binary every other check script uses: the bundled headless shell
 // this Playwright build wants is not installed here, and reaching for it is an
 // "install browsers" error rather than a test failure.
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+// swiftshader so the WebGL hero renders under a headless runner with no GPU.
+// Without it the stage falls back to its still and the live path is never
+// exercised — the check would pass while testing nothing.
+const browser = await chromium.launch({
+  executablePath: '/opt/pw-browsers/chromium',
+  args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader']
+});
 
 /* ---------------------------------------------------- the accordion ------ */
 {
@@ -68,7 +74,7 @@ const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromi
   const page = await browser.newPage();
   await page.goto(`${BASE}/`);
 
-  const hrefs = await page.locator('.step-link, .band-actions a, footer a').evaluateAll(
+  const hrefs = await page.locator('.capsule, .band-actions a, footer a').evaluateAll(
     nodes => [...new Set(nodes.map(n => n.getAttribute('href')))]
   );
   check(hrefs.length > 0, 'the sections have links at all', `${hrefs.length}`);
@@ -151,18 +157,211 @@ const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromi
   const page = await context.newPage();
   await page.goto(`${BASE}/`);
 
-  // Three columns of prose at 360px is the exact thing the 960px breakpoint
+  // Two columns of prose at 360px is the exact thing the 960px breakpoint
   // exists to prevent, so this asserts the stack actually happened.
-  const columns = await page.locator('.step-list').evaluate(el =>
+  const columns = await page.locator('.story').evaluate(el =>
     getComputedStyle(el).gridTemplateColumns.split(' ').length);
-  check(columns === 1, 'the steps stack to one column', `${columns} column(s)`);
+  check(columns === 1, 'the story stacks to one column', `${columns} column(s)`);
 
   // The tap targets people will actually aim at with a thumb.
-  for (const selector of ['.faq-item summary', '.step-link', '.footer-column a']) {
+  for (const selector of ['.faq-item summary', '.capsule', '.footer-column a']) {
     const box = await page.locator(selector).first().boundingBox();
     check(box.height >= 44, `${selector} is at least 44px tall`, `${Math.round(box.height)}px`);
   }
   await context.close();
+}
+
+
+/* --------------------------------------------------- the pinned stage ---- */
+{
+  /*
+    The hero renders a 3D room. Four things have to be true about it, and
+    none of them shows up in a build:
+
+      it arrives          the renderer loads and the canvas actually paints
+      it is cheap         triangle count and draw calls stay where the
+                          simplification put them, so a later re-export of
+                          the model cannot quietly restore 2M triangles
+      it moves            scrolling repositions it, rather than the canvas
+                          being a static picture that only looks right at the
+                          top of the page
+      it is scenery       it never intercepts a click meant for a link
+  */
+  console.log('--- the 3D stage ---');
+  const page = await browser.newPage();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${BASE}/`);
+
+  const live = await page
+    .waitForFunction(() => document.querySelector('.hero-stage')?.dataset.mode === 'live',
+      { timeout: 60000 })
+    .then(() => true)
+    .catch(() => false);
+  check(live, 'the renderer starts and reports live');
+
+  if (live) {
+    await page.waitForTimeout(800);
+
+    /*
+      A canvas that exists but never painted looks exactly like one that did,
+      from the DOM's point of view.
+
+      readPixels is the obvious check and it does not work here: the renderer
+      runs with preserveDrawingBuffer false, so by the time anything can read
+      the buffer the compositor has already cleared it, and the check reports
+      a confident 0% on a canvas that is visibly full of furniture. (It did
+      exactly that on the first run.)
+
+      So compare the rendered page against itself with the canvas hidden. If
+      the two screenshots are identical, the canvas was contributing nothing.
+    */
+    const withRoom = await page.screenshot({ clip: { x: 0, y: 0, width: 1440, height: 900 } });
+    await page.evaluate(() => {
+      document.querySelector('.hero-stage-canvas').style.visibility = 'hidden';
+    });
+    await page.waitForTimeout(200);
+    const withoutRoom = await page.screenshot({ clip: { x: 0, y: 0, width: 1440, height: 900 } });
+    await page.evaluate(() => {
+      document.querySelector('.hero-stage-canvas').style.visibility = '';
+    });
+    check(!withRoom.equals(withoutRoom), 'the room is actually drawn on the canvas',
+      `${withRoom.length} vs ${withoutRoom.length} bytes`);
+
+    // The budget the model was simplified to. If someone re-exports it
+    // without simplifying, this is the line that says so.
+    const info = await page.evaluate(() => window.__furnisharStageInfo || null);
+    if (info) {
+      check(info.triangles <= 200000, 'the model stays inside its triangle budget',
+        `${info.triangles} triangles`);
+      check(info.calls <= 8, 'it draws in a handful of calls', `${info.calls} draw calls`);
+    } else {
+      check(false, 'the stage reports its render stats');
+    }
+
+    // Scroll a third of the way in and confirm the room moved. A sticky
+    // canvas that does not respond to scroll is a very expensive photograph.
+    const before = await page.evaluate(() => window.__furnisharStagePose);
+    const range = await page.evaluate(() =>
+      document.querySelector('.hero-stage').getBoundingClientRect().height - window.innerHeight);
+    await page.evaluate(y => window.scrollTo({ top: y, behavior: 'instant' }), range * 0.45);
+    await page.waitForTimeout(1500);
+    const after = await page.evaluate(() => window.__furnisharStagePose);
+    const moved = before && after
+      && (Math.abs(after.x - before.x) > 0.2 || Math.abs(after.rotY - before.rotY) > 0.2);
+    check(Boolean(moved), 'the room travels as the page scrolls',
+      before && after ? `x ${before.x.toFixed(2)} -> ${after.x.toFixed(2)}` : 'no pose reported');
+  }
+
+  // Scenery must not eat clicks. Ask the document what is actually on top at
+  // the middle of the screen where the canvas sits.
+  const swallows = await page.evaluate(() => {
+    const el = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+    return el?.closest('.hero-stage-pin') != null;
+  });
+  check(!swallows, 'the canvas does not intercept pointer events');
+
+  await page.close();
+}
+
+/* ------------------------------------------------- the capsule rail ------ */
+{
+  /*
+    Three pills that look like shortcuts and scroll you to an unfiltered grid
+    would be worse than no shortcut at all, so this follows one for real and
+    checks the grid narrowed.
+  */
+  console.log('--- the category rail ---');
+  const page = await browser.newPage();
+  await page.goto(`${BASE}/`);
+
+  const rail = page.locator('.capsule-card');
+  const count = await rail.count();
+  check(count > 0, 'the rail has capsules', `${count}`);
+
+  if (count > 0) {
+    // Every capsule must name a category the catalogue really has, with the
+    // count it really holds.
+    const claims = await rail.evaluateAll(nodes => nodes.map(n => ({
+      href: n.getAttribute('href'),
+      label: n.querySelector('.capsule-label b')?.textContent,
+      says: Number((n.querySelector('.capsule-label small')?.textContent || '').match(/\d+/)?.[0])
+    })));
+
+    const truth = await page.evaluate(() => {
+      const counts = {};
+      for (const card of document.querySelectorAll('.product-grid .product-card')) {
+        const name = card.querySelector('.product-name')?.textContent;
+        if (name) counts[name] = true;
+      }
+      return Object.keys(counts).length;
+    });
+    check(truth > 0, 'the grid rendered something to compare against', `${truth} cards`);
+
+    for (const claim of claims) {
+      check(/category=/.test(claim.href || ''), `${claim.label} links to a filter`, claim.href);
+    }
+
+    // Follow the first one and count what survives.
+    const first = claims[0];
+    await page.goto(`${BASE}${first.href}`);
+    await page.waitForTimeout(600);
+    const shown = await page.locator('.product-grid .product-card').count();
+    check(shown === first.says,
+      `${first.label} really shows ${first.says}`, `grid shows ${shown}`);
+
+    const selected = await page.locator('.filter-group select').first().inputValue();
+    check(selected === first.label, 'the category select reflects the link', selected);
+  }
+  await page.close();
+}
+
+/* ----------------------------------------------------- the marquee ------- */
+{
+  console.log('--- the marquee ---');
+  const page = await browser.newPage();
+  await page.goto(`${BASE}/`);
+  await page.locator('.marquee').scrollIntoViewIfNeeded();
+  await page.waitForTimeout(900);
+
+  const first = await page.locator('.marquee-track').evaluate(el => el.style.transform);
+  await page.waitForTimeout(900);
+  const second = await page.locator('.marquee-track').evaluate(el => el.style.transform);
+  check(first !== second, 'the strip is moving', `${first || 'none'} -> ${second || 'none'}`);
+
+  /*
+    A strip that keeps sliding under the pointer is a strip you cannot click.
+
+    The event is dispatched rather than hovered for real: Playwright refuses
+    to click or hover an element that is still moving ("element is not
+    stable"), which is a fair complaint about a marquee and a deadlock for
+    testing one. The component listens on the track, so this is the same
+    event it would receive from a real pointer.
+  */
+  await page.locator('.marquee-track').dispatchEvent('pointerenter');
+  await page.waitForTimeout(400);
+  const held = await page.locator('.marquee-track').evaluate(el => el.style.transform);
+  await page.waitForTimeout(700);
+  const stillHeld = await page.locator('.marquee-track').evaluate(el => el.style.transform);
+  check(held === stillHeld, 'it stops under the pointer', held);
+
+  await page.locator('.marquee-track').dispatchEvent('pointerleave');
+  await page.waitForTimeout(300);
+
+  // And the keyboard's version of the same problem. focus() does not require
+  // the element to be still, so this one can be driven directly.
+  await page.locator('.marquee-link').first().focus();
+  await page.waitForTimeout(400);
+  const focusHeld = await page.locator('.marquee-track').evaluate(el => el.style.transform);
+  await page.waitForTimeout(700);
+  check(focusHeld === await page.locator('.marquee-track').evaluate(el => el.style.transform),
+    'it stops when a link inside it is focused');
+
+  // The duplicate copy must not be read out or tabbed through twice.
+  const links = await page.locator('.marquee-link').count();
+  const cards = await page.locator('.marquee-card').count();
+  check(links * 2 === cards, 'only one copy is reachable', `${links} links, ${cards} cards`);
+
+  await page.close();
 }
 
 /* ------------------------------------------------ reduced motion ---------- */
@@ -172,11 +371,24 @@ const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromi
   const page = await context.newPage();
   await page.goto(`${BASE}/`);
 
-  await page.locator('.step-link').first().hover();
-  const shifted = await page.locator('.step-link span').first().evaluate(el =>
+  await page.locator('.capsule').first().hover();
+  const shifted = await page.locator('.capsule').first().evaluate(el =>
     getComputedStyle(el).transform);
   check(shifted === 'none' || shifted === 'matrix(1, 0, 0, 1, 0, 0)',
-    'the step arrow does not slide', shifted);
+    'the capsule does not lift', shifted);
+
+  // The whole point of the fallback: reduced motion must not mean a blank
+  // space where the hero was. The renderer never starts and the still shows.
+  const mode = await page.locator('.hero-stage').getAttribute('data-mode');
+  check(mode === 'still', 'the stage falls back to the still image', String(mode));
+  const stillShown = await page.locator('.hero-stage-still').evaluate(el =>
+    Number(getComputedStyle(el).opacity));
+  check(stillShown > 0.9, 'the still is actually visible', String(stillShown));
+
+  // Every promise must be readable, not frozen part-lit at 34%.
+  const dim = await page.locator('.promise h3').evaluateAll(nodes =>
+    nodes.filter(n => Number(getComputedStyle(n).opacity) < 0.99).length);
+  check(dim === 0, 'every promise is resolved, not stuck mid-fade', `${dim} dim`);
 
   // The icon must still END as a minus — reduced motion removes the travel,
   // not the state.

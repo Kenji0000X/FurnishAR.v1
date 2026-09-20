@@ -2,6 +2,11 @@ import Link from 'next/link';
 import { getCatalog, getStores } from '../lib/catalog.mjs';
 import CatalogSection from './CatalogSection.js';
 import Faq from './Faq.js';
+import HeroStage from './HeroStage.js';
+import HeroDecor from './HeroDecor.js';
+import Promises from './Promises.js';
+import Marquee from './Marquee.js';
+import FurnitureIllustration from './FurnitureIllustration.js';
 
 // The catalogue is a file the owner portal can write to, so pages are allowed
 // to render again rather than being frozen at build time.
@@ -13,119 +18,142 @@ export const metadata = {
 };
 
 /**
- * The three steps, at 01/02/03.
+ * The three claims that light up on the way past.
  *
- * This is the same numbering the planner already uses on its own cards, moved
- * up to the page where someone decides whether to start. Each step links to
- * the route that actually performs it — none of them is a label for something
- * that has to be built later.
+ * Each one is a thing the software does, phrased as what it gets you. Nothing
+ * here describes a feature that has to be built first.
  */
-const STEPS = [
+const PROMISES = [
   {
-    n: '01',
-    title: 'Find the piece',
-    body: `Browse what the shops in Mamburao have in stock, filtered by room, by colour,
-           or by the widest thing that will fit.`,
-    href: '#catalog',
-    cta: 'Open the collection'
+    title: 'Real sizes, not press photos.',
+    body: `Every piece carries the width, depth and height its shop measured. The
+           planner puts it in your room at exactly that, so what clears the door on
+           screen clears it in the house.`
   },
   {
-    n: '02',
-    title: 'Measure the space',
-    body: `Point your camera at the doorway, the wall, or the empty floor. The planner
-           reads the surface and gives you the span in centimetres.`,
-    href: '/plan',
-    cta: 'Start the planner'
+    title: 'No app, no appointment.',
+    body: `It runs in the browser you already have. Point the camera at the wall,
+           the doorway or the empty floor and read the span back in centimetres.`
   },
   {
-    n: '03',
-    title: 'Stand it in the room',
-    body: `The piece is placed at its real size — not a preview scaled to look good —
-           so what clears the door on screen clears it in the house.`,
-    href: '/plan',
-    cta: 'Place a piece'
+    title: 'The shops are down the road.',
+    body: `Everything listed is stocked by a store in Mamburao. You check the fit
+           here and buy it from them — there is no cart, and no middleman.`
   }
 ];
 
-function Hero({ facts }) {
+/**
+ * The capsule rail beside the headline.
+ *
+ * Built from what the catalogue actually contains, not from a written-down
+ * list of categories. A rail of four beautiful pills pointing at three empty
+ * filters is the single easiest way to make a shop look bigger than it is,
+ * and the quickest way to lose someone who taps one.
+ */
+function capsulesFrom(products) {
+  const byCategory = new Map();
+  for (const product of products) {
+    if (!product.category) continue;
+    const seen = byCategory.get(product.category);
+    if (seen) seen.count += 1;
+    else byCategory.set(product.category, { count: 1, sample: product });
+  }
+  return [...byCategory]
+    .sort((a, b) => b[1].count - a[1].count)
+    .slice(0, 3)
+    .map(([category, { count, sample }]) => ({ category, count, sample }));
+}
+
+function Hero({ facts, capsules }) {
   return (
-    <section className="hero">
+    <section className="hero" aria-labelledby="hero-title">
+      <HeroDecor />
+
       <div className="hero-copy">
         <p className="eyebrow">Furniture, made certain</p>
-        <h1 id="hero-title">Find the piece that fits <em>your life.</em></h1>
+        {/* Stacked, one word to a line, set as large as the viewport allows.
+            The reference's headline is the page's whole structure; this is
+            the same idea in the brand's own voice. */}
+        <h1 id="hero-title">
+          <span>See it.</span>
+          <span>Fit it.</span>
+          <span className="hero-title-accent">Live with it.</span>
+        </h1>
         <p className="hero-text">
-          Explore furniture from Mamburao stores, see it at true scale, and check your room
-          before you buy.
+          Explore furniture from Mamburao stores, stand it in your own room at true
+          scale, and know it fits before you buy.
         </p>
         <div className="hero-actions">
-          <a className="button button-primary" href="#catalog">
-            Browse furniture <span aria-hidden="true">→</span>
-          </a>
-          <Link className="text-button" href="/plan">
-            <span className="play-icon" aria-hidden="true">▶</span> How it works
+          <Link className="capsule capsule-solid" href="/plan">
+            Measure my space <span aria-hidden="true">→</span>
           </Link>
+          <a className="capsule capsule-quiet" href="#catalog">
+            Browse the collection
+          </a>
         </div>
-        {/*
-          Counted from the catalogue that is being rendered on this very page.
-
-          Two of these three used to be typed in by hand, and one of them —
-          "3 local stores" — was a number nobody had checked since the day it
-          was written. A figure in a hero is a claim; deriving it is the only
-          way it stays true after the next shop is approved.
-        */}
         <dl className="hero-facts">
           <div><dt>{facts.stores}</dt><dd>{facts.stores === 1 ? 'Local store' : 'Local stores'}</dd></div>
           <div><dt>{facts.arReady}</dt><dd>{facts.arReady === 1 ? 'Piece in AR' : 'Pieces in AR'}</dd></div>
-          <div><dt>1:1</dt><dd>True-scale preview</dd></div>
+          <div><dt>1:1</dt><dd>True scale</dd></div>
         </dl>
       </div>
-      <div
-        className="hero-room"
-        aria-label="Illustration of an airy living room with a sofa, chair, table, and plant"
-      >
-        <span className="sun-glow" /><span className="window window-one" /><span className="window window-two" />
-        <span className="wall-art art-one" /><span className="wall-art art-two" />
-        <span className="room-sofa"><i /><b /><b /></span>
-        <span className="room-chair"><i /></span>
-        <span className="room-table" />
-        <span className="room-plant"><i /><i /><i /><b /></span>
-        <span className="room-rug" />
-        <span className="measure-tag tag-sofa">210 cm</span>
-        <span className="measure-tag tag-chair">78 cm</span>
+
+      {/* The rail. Each capsule is a real filter over a real category, with
+          the count it actually holds. */}
+      {capsules.length > 0 && (
+        <nav className="capsule-rail" aria-label="Browse by category">
+          {capsules.map(({ category, count, sample }) => (
+            <Link
+              className="capsule capsule-card"
+              key={category}
+              href={`/?category=${encodeURIComponent(category)}#catalog`}
+            >
+              <span className="capsule-thumb" aria-hidden="true">
+                <FurnitureIllustration product={sample} />
+              </span>
+              <span className="capsule-label">
+                <b>{category}</b>
+                <small>{count} {count === 1 ? 'piece' : 'pieces'}</small>
+              </span>
+            </Link>
+          ))}
+        </nav>
+      )}
+    </section>
+  );
+}
+
+function Story() {
+  return (
+    <section className="story" aria-labelledby="story-title">
+      <div className="story-copy">
+        <p className="eyebrow">Born from one bad delivery day</p>
+        <h2 id="story-title">Nothing arrives too big.</h2>
+        <p>
+          A sofa that does not turn the corner of the stairs goes back on the truck,
+          and everybody loses — the family that waited three weeks for it, and the
+          shop that has to eat the trip. The measurement that would have prevented
+          it takes about forty seconds.
+        </p>
+        <p>
+          FurnishAR is that forty seconds, handed to the shopper before the order
+          instead of to the driver after it.
+        </p>
+        <Link className="capsule capsule-solid" href="/plan">
+          Try the planner <span aria-hidden="true">→</span>
+        </Link>
       </div>
     </section>
   );
 }
 
-function HowItWorks() {
+function PromiseSection() {
   return (
-    <section className="band band-deep" aria-labelledby="how-title">
-      <div className="band-inner">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Three steps, one afternoon</p>
-            <h2 id="how-title">How FurnishAR works.</h2>
-          </div>
-        </div>
-
-        <ol className="step-list">
-          {STEPS.map(step => (
-            <li className="step-item" key={step.n}>
-              <span className="step-number">{step.n}</span>
-              <h3>{step.title}</h3>
-              <p>{step.body}</p>
-              {step.href.startsWith('#') ? (
-                <a className="step-link" href={step.href}>
-                  {step.cta} <span aria-hidden="true">→</span>
-                </a>
-              ) : (
-                <Link className="step-link" href={step.href}>
-                  {step.cta} <span aria-hidden="true">→</span>
-                </Link>
-              )}
-            </li>
-          ))}
-        </ol>
+    <section className="promise-section" aria-labelledby="promise-title">
+      <div className="promise-copy">
+        <p className="eyebrow">What you get</p>
+        <h2 id="promise-title">Three things this actually does.</h2>
+        <Promises items={PROMISES} />
       </div>
     </section>
   );
@@ -142,10 +170,10 @@ function ClosingCta() {
           who finds it can check it against their own room first.
         </p>
         <div className="band-actions">
-          <Link className="button button-primary" href="/portal">
+          <Link className="capsule capsule-solid" href="/portal">
             Open the store portal <span aria-hidden="true">→</span>
           </Link>
-          <Link className="button button-outline" href="/plan">
+          <Link className="capsule capsule-outline" href="/plan">
             Try the planner
           </Link>
         </div>
@@ -166,9 +194,15 @@ export default async function HomePage() {
   };
 
   return (
-    <section className="view active" aria-labelledby="hero-title">
-      <Hero facts={facts} />
-      <HowItWorks />
+    <section className="view active">
+      {/* The room is pinned behind these three, and travels as they scroll. */}
+      <HeroStage>
+        <Hero facts={facts} capsules={capsulesFrom(products)} />
+        <Story />
+        <PromiseSection />
+      </HeroStage>
+
+      <Marquee products={products} />
       <CatalogSection products={products} />
       <Faq />
       <ClosingCta />
