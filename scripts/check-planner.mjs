@@ -277,6 +277,68 @@ check('the plan view is drawn at the room’s real proportions',
   /4\.81 m . 3\.42 m/.test(accepted.planLabel || ''), accepted.planLabel);
 
 
+/* ------------------------------ the room scan WITHOUT plane detection --- */
+/*
+   The failure this exists to catch.
+
+   The whole-room scan was built on frame.detectedPlanes, which Chrome for
+   Android does not ship outside chrome://flags/#webxr-incubations. On an
+   ordinary phone `supported` came back false, state.room was never assigned,
+   and the room could not be measured at all — the product's headline feature,
+   dead on the device it was built for, while every check in this file passed
+   because they all fed it synthetic PLANES.
+
+   So this one never touches the plane path. It taps corners, the way a person
+   standing in the room does, and asserts a real measurement comes out.
+   A 4.00 x 3.00 m room, tapped at its four corners, with a ceiling at 2.50 m.
+*/
+console.log('--- the room scan with NO plane detection (tap the corners) ---');
+const tapped = await page.evaluate(async () => {
+  window.__furnisharScan.reset();
+  window.__furnisharScan.openPanel();
+  // Deliberately NOT calling feed(): detectedPlanes is unavailable here, the
+  // same as on the phone this failed on.
+  const corners = [
+    { x: 0, y: 0, z: 0 },
+    { x: 4, y: 0, z: 0 },
+    { x: 4, y: 0, z: 3 },
+    { x: 0, y: 0, z: 3 }
+  ];
+  for (const corner of corners) window.__furnisharScan.tapCorner(corner);
+  window.__furnisharScan.closeFloor();
+  const beforeHeight = window.__furnisharScan.state.room;
+  window.__furnisharScan.tapCorner({ x: 2, y: 2.5, z: 1.5 });   // the ceiling
+  const room = window.__furnisharScan.state.room;
+  return {
+    planesSupported: window.__furnisharScan.state.netSupport.planes,
+    heightBefore: beforeHeight?.height,
+    length: room?.length, width: room?.width, height: room?.height,
+    area: room?.floorArea, perimeter: room?.perimeter, volume: room?.volume,
+    ready: window.__furnisharScan.state.readiness?.ready,
+    blocking: window.__furnisharScan.state.readiness?.blocking,
+    panelLength: document.getElementById('room-length')?.textContent
+  };
+});
+
+const nearTapped = (value, target, tol = 0.02) => typeof value === 'number' && Math.abs(value - target) <= tol;
+check('plane detection really is unavailable in this run', tapped.planesSupported === false,
+  `netSupport.planes=${tapped.planesSupported}`);
+check('the room still measures its length', nearTapped(tapped.length, 4), `${tapped.length?.toFixed(3)} m`);
+check('and its width', nearTapped(tapped.width, 3), `${tapped.width?.toFixed(3)} m`);
+check('the floor area follows from the corners', nearTapped(tapped.area, 12, 0.05), `${tapped.area?.toFixed(2)} m2`);
+check('and the perimeter agrees with 2(L+W)', nearTapped(tapped.perimeter, 14, 0.05), `${tapped.perimeter?.toFixed(2)} m`);
+/* Height is optional on purpose: a ceiling is often featureless and hit-test
+   returns nothing up there. Unmeasured must read as unmeasured, not as a
+   typical ceiling — so it is null before the ceiling tap and only then real. */
+check('height is null until the ceiling is actually tapped', tapped.heightBefore == null,
+  String(tapped.heightBefore));
+check('the ceiling tap gives the height', nearTapped(tapped.height, 2.5), `${tapped.height?.toFixed(2)} m`);
+check('volume only exists once there is a height', nearTapped(tapped.volume, 30, 0.15),
+  `${tapped.volume?.toFixed(2)} m3`);
+check('the room is usable without any sweep or detected walls', tapped.ready === true,
+  `blocking: ${(tapped.blocking || []).join(', ')}`);
+check('and the panel shows it', tapped.panelLength === '4.00 m', tapped.panelLength);
+
 /* The oversized case is covered exhaustively in tests/room.test.js against
    fitInRoom() directly; repeating it here would need a fake product in the
    catalogue, which is a worse test of the same arithmetic. */

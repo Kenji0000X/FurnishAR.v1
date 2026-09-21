@@ -162,6 +162,9 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     detectedSurfaces: [],
     netSupport: { planes: false, depth: false },
     scanReadiness: null,
+    // Floor corners tapped by hand, and the optional ceiling tap. This is the
+    // measurement path that works without plane detection.
+    roomTaps: { corners: [], ceilingY: null, closed: false },
     areaPoints: [],
     membership: null,
     unsubscribeCatalog: null
@@ -221,11 +224,21 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       </div>
 
       <dl class="scan-found">
-        <div><dt>Floor</dt><dd id="found-floor">—</dd></div>
+        <div><dt>Corners</dt><dd id="found-floor">0</dd></div>
         <div><dt>Walls</dt><dd id="found-walls">—</dd></div>
         <div><dt>Height</dt><dd id="found-height">—</dd></div>
         <div><dt>Sweep</dt><dd id="found-sweep">0°</dd></div>
       </dl>
+
+      <!-- The tap-to-measure controls. The room scan used to depend entirely
+           on WebXR plane detection, which Chrome for Android does not ship
+           outside a flag — so on an ordinary phone the sweep filled up and
+           nothing was ever measured. Tapping corners runs on hit-test, which
+           every WebXR device has. -->
+      <div class="scan-actions">
+        <button id="close-room" class="ar-outline-button glass" hidden>Close the floor</button>
+        <button id="undo-corner" class="ar-outline-button glass" hidden>Undo corner</button>
+      </div>
 
       <div class="scan-dimensions" aria-live="polite">
         <p><span>Length</span><b id="room-length">—</b></p>
@@ -566,8 +579,17 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       if (node && node.textContent !== text) node.textContent = text;
     };
 
-    set('#found-floor', room?.rectangle ? 'Found' : 'Looking…');
-    set('#found-walls', room ? `${room.walls} found` : '—');
+    /* Two ways to measure a room, and the panel reports whichever is in use.
+       Tapping is the one that works on a phone without plane detection, so
+       the readouts lead with the corner count rather than with a "Looking…"
+       that would never resolve. */
+    const taps = state.roomTaps || { corners: [], closed: false };
+    const tapping = taps.corners.length > 0;
+
+    set('#found-floor', tapping
+      ? (taps.closed ? `${taps.corners.length} ✓` : String(taps.corners.length))
+      : (room?.rectangle ? 'Found' : 'Looking…'));
+    set('#found-walls', tapping ? '—' : (room ? `${room.walls} found` : '—'));
     set('#found-height', room?.height ? 'Measured' : 'Not yet');
     set('#found-sweep', `${Math.round(sweep.degrees)}°`);
 
@@ -586,15 +608,24 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
        are how volume and area are said whatever the lengths are shown in. */
     set('#room-p', room?.perimeter ? metres(room.perimeter) : '—');
 
-    set('#scan-guidance', sweep.guidance());
+    set('#scan-guidance', tapping
+      ? (taps.closed
+        ? (room?.height ? 'Room measured.' : 'Floor measured. Tap the ceiling for the height, or use the room as it is.')
+        : `${taps.corners.length} corner${taps.corners.length === 1 ? '' : 's'} tapped. Walk to the next one.`)
+      : (state.netSupport.planes ? sweep.guidance() : 'Tap each corner where the floor meets a wall.'));
     renderSweepArc(sweep);
 
     // What the device cannot do is said once, plainly, rather than left for
     // somebody to infer from a panel that never fills in.
     const notes = [];
-    if (!state.netSupport.planes) {
-      notes.push('This browser cannot detect surfaces, so the room cannot be measured automatically here. Tap two points to measure a span instead.');
-    } else if (!state.netSupport.depth) {
+    if (!state.netSupport.planes && !tapping) {
+      /* This used to read "the room cannot be measured automatically here.
+         Tap two points to measure a span instead" — which was true of the
+         plane path and, on a phone without plane detection, amounted to
+         telling somebody the room scanner could not scan their room. It can:
+         by tapping its corners. The note now says how. */
+      notes.push('This browser does not detect surfaces on its own, so the room is measured by tapping: aim at each corner where the floor meets a wall and tap it.');
+    } else if (state.netSupport.planes && !state.netSupport.depth) {
       notes.push('No depth sensor on this device — the net follows detected walls and floor only, not furniture.');
     }
     if (room?.heightSource === 'wall-extent') {
@@ -669,6 +700,182 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
   }
 
   /** Hands the scanned room to the planner and closes AR. */
+  /* =============== the tap-measured room ===============================
+
+     Why this exists at all.
+
+     The room scan was built on `frame.detectedPlanes` — the WebXR Plane
+     Detection API. On paper that is the right tool: the device's own tracker
+     hands you real planes with real extents. In practice Chrome for Android
+     does not ship it outside chrome://flags/#webxr-incubations, so on an
+     ordinary phone `detectedPlanes` is undefined, `supported` comes back
+     false, `state.room` is never assigned, and the scan can never finish.
+     The sweep arc filled up and the room was never measured. The headline
+     feature of this product was built on an API the target device does not
+     have.
+
+     Hit-test is different: it is in `requiredFeatures`, every WebXR runtime
+     implements it, and it demonstrably works here — it is what the two-point
+     measurement already uses. So the room is measured the way a tape measure
+     would be: the person walks the room and taps each corner where the floor
+     meets the wall, and each tap is a real point on a real surface.
+
+     None of the geometry is new. The taps become a floor polygon, and that
+     goes through the same convex hull, the same minimum-area rectangle and
+     the same roomDimensions() that the plane path used — all of it already
+     covered by tests/room.test.js. Plane detection, where a device does have
+     it, still runs and still draws the net; it is an enhancement now rather
+     than the foundation.
+  */
+  const FLOOR_TOLERANCE = 0.25;   // how far below/above the first tap still counts as floor
+  const MIN_CEILING_RISE = 1.5;   // a "ceiling" tap must clear the floor by this much
+
+  function resetRoomTaps() {
+    state.roomTaps = { corners: [], ceilingY: null, closed: false };
+    syncRoomTapControls();
+  }
+
+  function syncRoomTapControls() {
+    const taps = state.roomTaps;
+    const close = $('#close-room');
+    const undo = $('#undo-corner');
+    if (close) {
+      close.hidden = !taps || taps.closed || taps.corners.length < 3;
+      close.textContent = 'Close the floor';
+    }
+    if (undo) undo.hidden = !taps || taps.closed || taps.corners.length === 0;
+    const found = $('#found-floor');
+    if (found && taps) found.textContent = taps.closed ? `${taps.corners.length} ✓` : String(taps.corners.length);
+  }
+
+  /* A tap during a room scan. Floor corners first, then one optional tap at
+     the ceiling for the height. */
+  function captureRoomCorner(point) {
+    const taps = state.roomTaps;
+    if (!taps) return;
+
+    if (taps.closed) {
+      /* The floor is closed, so this tap is the ceiling. A ceiling is usually
+         featureless and hit-test often returns nothing up there at all, which
+         is why height is optional rather than required: a room with an
+         unmeasured height still reports its length, width, area and
+         perimeter, and says the height is unknown instead of guessing one. */
+      const floorY = Math.min(...taps.corners.map(corner => corner.y));
+      if (point.y - floorY < MIN_CEILING_RISE) {
+        toast('That is not the ceiling — aim higher and tap again.');
+        return;
+      }
+      taps.ceilingY = point.y;
+      buildTappedRoom();
+      setHint(`Height ${metres(point.y - floorY)}. The room is measured.`);
+      toast(`Height ${metres(point.y - floorY)}.`);
+      return;
+    }
+
+    /* A corner well above the floor is somebody tapping a table or a shelf,
+       not the corner of the room. Caught here rather than silently shrinking
+       the floor polygon around it. */
+    if (taps.corners.length) {
+      const floorY = Math.min(...taps.corners.map(corner => corner.y));
+      if (Math.abs(point.y - floorY) > FLOOR_TOLERANCE) {
+        toast('That point is not on the floor. Aim at the base of the wall.');
+        return;
+      }
+    }
+
+    taps.corners.push({ x: point.x, y: point.y, z: point.z });
+    syncRoomTapControls();
+    const count = taps.corners.length;
+    setHint(count < 3
+      ? `Corner ${count} of 3. Walk to the next corner of the floor and tap it.`
+      : `${count} corners. Tap the remaining corners, or close the floor to read the room.`);
+    if (count >= 3) buildTappedRoom();
+  }
+
+  function closeTappedFloor() {
+    const taps = state.roomTaps;
+    if (!taps || taps.corners.length < 3) { toast('Tap at least three floor corners first.'); return; }
+    taps.closed = true;
+    buildTappedRoom();
+    syncRoomTapControls();
+    setHint('Floor measured. Aim at the ceiling and tap once for the height, or use the room as it is.');
+  }
+
+  function undoTappedCorner() {
+    const taps = state.roomTaps;
+    if (!taps || !taps.corners.length) return;
+    taps.corners.pop();
+    buildTappedRoom();
+    syncRoomTapControls();
+    setHint(`${taps.corners.length} corner${taps.corners.length === 1 ? '' : 's'}. Tap the next one.`);
+  }
+
+  /* The tapped points, turned into the same shape the plane path produced, so
+     everything downstream — the panel, the fit verdict, the plan view,
+     placement — is fed from one kind of room object and does not care which
+     way it was measured. */
+  function buildTappedRoom() {
+    const taps = state.roomTaps;
+    if (!taps || taps.corners.length < 3) {
+      state.room = null;
+      state.scanReadiness = tappedReadiness();
+      renderScanPanel();
+      return;
+    }
+
+    const floorY = Math.min(...taps.corners.map(corner => corner.y));
+    const surfaces = [{
+      id: 'tapped-floor',
+      orientation: 'horizontal',
+      polygon: taps.corners.map(corner => ({ x: corner.x, y: floorY, z: corner.z }))
+    }];
+
+    if (taps.ceilingY !== null) {
+      // A ceiling plane spanning the same footprint, so roomDimensions reads
+      // the height from a ceiling the way it does on a plane-detection device.
+      surfaces.push({
+        id: 'tapped-ceiling',
+        orientation: 'horizontal',
+        polygon: taps.corners.map(corner => ({ x: corner.x, y: taps.ceilingY, z: corner.z }))
+      });
+    }
+
+    /* minFloorArea defaults to 1 m², which is right for sifting real detected
+       planes but wrong here: these points were deliberately placed by a
+       person, so a genuinely small room must not be discarded as noise. */
+    state.room = roomDimensions(surfaces, { minFloorArea: 0.5 });
+    state.detectedSurfaces = surfaces;
+    state.scanReadiness = tappedReadiness();
+    renderScanPanel();
+  }
+
+  /* Readiness for a tapped room.
+
+     scanReadiness() asks for two detected walls and a 75% sweep, neither of
+     which a tap-measured room produces — nothing is walking the walls and
+     nothing needs a half-circle of coverage. What makes a tapped room usable
+     is simply a closed floor with a rectangle fitted to it. Height stays
+     optional and is reported as unknown when it was not taken. */
+  function tappedReadiness() {
+    const taps = state.roomTaps || { corners: [], closed: false };
+    const hasFloor = Boolean(state.room?.rectangle);
+    const checks = [
+      { key: 'corners', ok: taps.corners.length >= 3, label: 'Corners' },
+      { key: 'floor', ok: hasFloor, label: 'Floor' },
+      { key: 'closed', ok: Boolean(taps.closed), label: 'Closed' }
+    ];
+    const blocking = checks.filter(check => !check.ok).map(check => check.key);
+    return {
+      ready: blocking.length === 0,
+      blocking,
+      checks,
+      progress: checks.filter(check => check.ok).length / checks.length,
+      // Named so the panel can say which way this room was measured, and so
+      // nothing downstream has to guess.
+      method: 'tap'
+    };
+  }
+
   function useScannedRoom() {
     const room = state.room;
     if (!room?.rectangle) return;
@@ -857,6 +1064,8 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     syncTrayReadout();
     $('#exit-ar').addEventListener('click', () => state.session ? state.session.end() : cleanupAR(), { once: true });
     $('#close-outline').addEventListener('click', closeAreaOutline);
+    $('#close-room').addEventListener('click', event => { event.stopPropagation(); closeTappedFloor(); });
+    $('#undo-corner').addEventListener('click', event => { event.stopPropagation(); undoTappedCorner(); });
     /* The reading is already on the card — applyLiveClearance and the area
        scan write it as it changes — so this confirms and leaves rather than
        transferring anything. Saying so beats a silent exit that leaves people
@@ -1712,7 +1921,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
 
     const product = state.selected;
     const HINTS = {
-      scan: 'Stand near the middle of the room and turn slowly through a half-circle.',
+      scan: 'Point at the floor where it meets a wall, and tap that corner.',
       placement: 'Find the floor, then place. Use the tray to move, turn, and resize.',
       area: 'Tap the corners of the free floor in order. Three or more, then close the outline.',
       clearance: 'Tap point A, then point B. The reading updates as you move.'
@@ -1926,7 +2135,10 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
         // from what was asked for.
         if (state.netSupport.planes !== supported) state.netSupport.planes = supported;
 
-        if (supported) {
+        /* Plane detection, where the device has it, still measures the room
+           on its own — but it must not overwrite corners somebody has tapped.
+           Once a tap exists the person's own points win: they chose them. */
+        if (supported && !state.roomTaps?.corners.length) {
           state.detectedSurfaces = surfaces;
           state.room = roomDimensions(surfaces);
         }
@@ -1947,7 +2159,14 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
           // read during a tracking dropout is where the phone was, not where
           // it is, and would credit coverage that never happened.
           sweep.observe(state.viewerYaw);
-          state.scanReadiness = scanReadiness(sweep, state.room);
+          /* Which readiness applies depends on how this room is being
+             measured. A tapped room is ready when its floor is closed; a
+             plane-detected one when the sweep and the walls are in. Using the
+             sweep-and-walls test on a tapped room would hold "Use this room"
+             disabled forever on exactly the devices this path exists for. */
+          state.scanReadiness = state.roomTaps?.corners.length
+            ? tappedReadiness()
+            : scanReadiness(sweep, state.room);
           renderScanPanel();
           renderSurfaceLabels(
             state.detectedSurfaces,
@@ -2087,6 +2306,11 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       toast(`${state.selected.name} placed at true scale.`);
       return;
     }
+
+    // A tap during a room scan is a floor corner (or, once the floor is
+    // closed, the ceiling). This is what actually measures the room on a
+    // device without plane detection — which is to say, on almost all of them.
+    if (state.arPurpose === 'scan') return captureRoomCorner(point);
 
     if (state.measureMode === 'area') return captureAreaPoint(point);
 
@@ -2571,7 +2795,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       $('#ar-product-dims').textContent = sub;
     }
     state.arPurpose = purpose;
-    if (purpose === 'scan') sweep.reset();
+    if (purpose === 'scan') { sweep.reset(); resetRoomTaps(); }
     if (purpose === 'measurement' && state.measureMode === 'area') resetAreaScan();
     state.arPoints = [];
     state.placedMatrix = null;
@@ -2783,6 +3007,13 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       renderScanPanel();
       return { degrees: sweep.degrees, fraction: sweep.fraction };
     },
+    /* The path that works on a phone with no plane detection: corners tapped
+       on the floor, then optionally the ceiling. Each call is exactly what a
+       tap on a hit-test point does, so a check can measure a whole room the
+       way a person standing in one would, with detectedPlanes unavailable. */
+    tapCorner(point) { captureRoomCorner(point); return state.room; },
+    closeFloor() { closeTappedFloor(); return state.room; },
+    undoCorner() { undoTappedCorner(); return state.room; },
     accept() { useScannedRoom(); },
     get state() {
       return {
@@ -2790,6 +3021,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
         scannedRoom: state.scannedRoom,
         readiness: state.scanReadiness,
         netSupport: state.netSupport,
+        taps: state.roomTaps,
         sweep: { degrees: sweep.degrees, guidance: sweep.guidance() }
       };
     },
@@ -2799,6 +3031,12 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       state.scannedRoom = null;
       state.detectedSurfaces = [];
       state.scanReadiness = null;
+      /* Cleared too, or a check that ran feed() earlier leaves planes marked
+         supported and the next one cannot honestly claim to be testing the
+         no-plane-detection path. */
+      state.netSupport = { planes: false, depth: false };
+      sweep.reset();
+      resetRoomTaps();
     }
   };
 
