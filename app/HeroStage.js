@@ -84,27 +84,39 @@ import { useEffect, useRef, useState } from 'react';
  * the window, so every frame of the scroll is an angle the room actually
  * looks good at, and the travel is a turn rather than a full revolution.
  */
+/*
+   One keyframe. The room is stationary.
+
+   It used to be four, blended by scroll position: the room slid from the
+   right of the headline across to the left, turning from 0.35 to 0.82 radians
+   as you read. It was the single most expensive thing on the page — a full
+   re-render of a 3D scene on every scroll event, for the whole pinned range —
+   and what it bought was a piece of furniture wandering around underneath the
+   text somebody was trying to read.
+
+   Scroll-linked motion of an object that is not the subject of the scroll is
+   noise, in the signal-to-noise sense: it competes for attention with the
+   copy and it answers no question the reader has. The room is now framed once,
+   well, and left alone. `at` is kept so sample() and the phone override below
+   need no change, and so a future deliberate move has somewhere to go.
+*/
 const KEYFRAMES = [
-  // Hero: right of the headline, tucked under the capsule rail.
-  //
-  // y is +0.05 rather than centred because the room's BOUNDING BOX centre is
+  // y is +0.11 rather than centred because the room's BOUNDING BOX centre is
   // not its visual centre: the framed panel at the back is tall and empty, so
   // a box-centred room reads as sitting low and loses its legs to the fold on
   // a short window.
-  { at: 0.00, x: 0.14, y: 0.11, width: 0.48, rotY: 0.35, rotX: 0.16 },
-  // Handing over to the story: crosses to the left and keeps turning.
   //
-  // The width stays near constant through all four. An early version grew it
-  // to 1.16x here on the theory that closer is more dramatic, and what it
-  // actually did was push the coffee table on top of the second paragraph and
-  // run the shelving off the left edge. The room is the page's companion
-  // through this stretch, not its subject — it moves and turns, it does not
-  // loom.
-  { at: 0.38, x: -0.31, y: -0.02, width: 0.50, rotY: 0.52, rotX: 0.15 },
-  // The three promises: settles, turning slowly.
-  { at: 0.72, x: -0.30, y: 0.00, width: 0.52, rotY: 0.68, rotX: 0.12 },
-  // Leaves toward the catalogue.
-  { at: 1.00, x: -0.25, y: 0.08, width: 0.50, rotY: 0.82, rotX: 0.09 }
+  // x is +0.21, not the +0.14 it sat at while it was moving. A room that
+  // drifts across the page can pass behind the headline for a moment and read
+  // as depth; a stationary one parked there is just a sofa on top of the
+  // words. Measured at 1280px: at 0.14 the room's left edge landed at 535px
+  // and "Live with it." ended at 540 — they overlapped every time.
+  //
+  // 0.25 fixed the overlap and then ran the room 32–48px PAST the content
+  // column at every width check:home measures. 0.21 is the value that clears
+  // the copy at 1344 (a 155px gap) and still lands inside the column at 1920.
+  { at: 0.00, x: 0.21, y: 0.11, width: 0.44, rotY: 0.35, rotX: 0.16 },
+  { at: 1.00, x: 0.21, y: 0.11, width: 0.44, rotY: 0.35, rotX: 0.16 }
 ];
 
 /** Cubic ease-out — the curve the rest of the stylesheet already uses. */

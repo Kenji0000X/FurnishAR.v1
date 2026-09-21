@@ -24,37 +24,66 @@
 --------------------------------------------------------------------------- */
 
 :root {
-  /* Surface */
-  --paper: #f2f1ec;
-  --paper-raised: #fbfaf7;
-  --paper-sunken: #e7e5dd;
+  /* Surface — warm cream, after the Nordic reference.
+     The old paper was #f2f1ec, a cool grey-white. These are the same family
+     pushed warm: the page is cream, cards are plain white so they lift off it
+     without needing a border, and the sunken tone is the beige used for
+     photographic wells and the category circles. */
+  --paper: #faf7f1;
+  --paper-raised: #ffffff;
+  --paper-sunken: #efe8dc;
 
-  /* Ink. --ink-faint carries every micro-label, so it is held at 5.1:1 on
-     paper and 4.6:1 on the sunken tone — small text never drops below AA. */
-  --ink: #141413;          /* 16.3:1 on paper */
-  --ink-muted: #5d5b53;    /*  6.0:1 on paper */
-  --ink-faint: #68655c;    /*  5.2:1 on paper */
+  /* Ink. --ink-faint carries every micro-label, so it is held above 4.5:1 on
+     paper and on the sunken tone — small text never drops below AA.
+     Warm near-black rather than neutral, so it belongs to the cream. */
+  --ink: #241f1a;
+  --ink-muted: #5a5048;
+  --ink-faint: #665c53;
 
   /* Accent in three weights, because one hue cannot serve every background:
      --accent fills and large display type, --accent-ink small text on paper
      (4.7:1), --accent-lifted small text on the ink and deep blocks (6.5:1 / 4.9:1). */
-  --accent: #c0502a;
-  --accent-ink: #b44a26;
-  --accent-lifted: #e08159;
-  --on-accent: #ffffff;    /*  4.8:1 on the accent fill */
+  /* Warm brown, after the reference's buttons — not the old terracotta
+     #c0502a, which against a cream page read as an alert rather than as the
+     brand. */
+  --accent: #8a6243;
+  --accent-ink: #7a5439;
+  --accent-lifted: #dcb491;
+  --on-accent: #ffffff;
   /* The accent at low opacity, for a fill that marks a state without
      becoming a button — the bottom bar's active pill. Text on it is --ink,
      not --on-accent, because the ground underneath is still paper. */
-  --accent-soft: rgba(192, 80, 42, .14);
-  --deep: #12332c;
+  --accent-soft: rgba(138, 98, 67, .15);
+  --deep: #3a463f;
 
-  /* Rules — the brutalist hairline, and its heavier structural sibling */
-  --rule: rgba(20, 20, 19, .18);
-  --rule-strong: var(--ink);
+  /* Rules. The hairline is now the quiet separator the reference uses rather
+     than a structural outline: cards are told apart by their own surface and
+     by space, not by being boxed. */
+  --rule: rgba(36, 31, 26, .12);
+  --rule-strong: rgba(36, 31, 26, .22);
 
-  /* The single hard shadow. No blurred shadows anywhere on the page. */
-  --hard: 5px 5px 0 var(--ink);
-  --hard-sm: 3px 3px 0 var(--ink);
+  /*
+     Corners and shadow.
+
+     This is the part of BRAND.md that has changed, deliberately and on
+     request. The old thesis was brutalist: square corners, a 1px ink outline
+     on everything, and emphasis as a hard offset block (`5px 5px 0`) with no
+     blur. The reference this is now built to is the opposite — soft radii,
+     no outlines, and depth carried by a diffuse shadow under a white card on
+     cream.
+
+     Both are coherent systems; they cannot be half-applied. So the tokens
+     changed rather than being overridden case by case, and --hard/--hard-sm
+     keep their names so the couple of hundred rules that reference them did
+     not each need editing to say the same new thing. BRAND.md §1 and §5 are
+     updated to match.
+  */
+  --radius: 14px;
+  --radius-sm: 10px;
+  --radius-lg: 22px;
+  --radius-pill: 999px;
+  --hard: 0 18px 40px -22px rgba(36, 31, 26, .30);
+  --hard-sm: 0 10px 24px -16px rgba(36, 31, 26, .26);
 
   /* Glass — floating layers only */
   --glass: rgba(251, 250, 247, .68);
@@ -128,7 +157,7 @@
      footer and 2.1:1 on the light one — a failure nobody could see without
      switching themes, and the reason this pair is now in
      scripts/check-contrast.mjs. */
-  --on-ink-accent: #e08159;   /* 6.54:1 on the light theme's --ink */
+  --on-ink-accent: #dcb491;   /* the lifted brown, on an --ink ground */
 
   /* The ground under the two full-bleed home-page bands.
      It starts as --deep and has to be its own token because the bands are
@@ -169,76 +198,144 @@
 --------------------------------------------------------------------------- */
 
 :root[data-theme="dark"] {
-  --paper: #101715;
-  --paper-raised: #182220;
-  --paper-sunken: #0b1210;
+  /* The warm family after dark: the cream becomes a warm charcoal rather than
+     a cold one, so the two themes read as the same brand at two times of day. */
+  --paper: #191512;
+  --paper-raised: #221d19;
+  --paper-sunken: #120f0d;
 
-  --ink: #eef2ef;          /* 16.08:1 on --paper */
-  --ink-muted: #b3bcb8;    /*  9.35:1 on --paper */
-  --ink-faint: #9aa4a0;    /*  7.09:1 on --paper, 6.36:1 on raised — AA */
+  --ink: #f3efe9;
+  --ink-muted: #bdb4a9;
+  --ink-faint: #a79d92;
 
-  /* The warm accent is too dark to read on a dark surface, so small text uses
-     the lifted weight and the fill keeps the original hue for brand identity. */
-  --accent: #d2603a;
-  --accent-ink: #f0906c;   /*  7.71:1 on --paper */
-  --accent-lifted: #f0906c;
-  --on-accent: #16100d;    /*  4.91:1 on the accent fill */
-  --accent-soft: rgba(210, 96, 58, .22);
-  --deep: #0c1a16;
+  /* The brown is too dark to read on a dark surface, so small text uses the
+     lifted weight and the fill lightens to keep the brand legible. */
+  --accent: #b5825b;
+  --accent-ink: #dcb491;
+  --accent-lifted: #dcb491;
+  --on-accent: #191512;
+  --accent-soft: rgba(181, 130, 91, .22);
+  --deep: #2b332e;
 
-  --rule: rgba(238, 242, 239, .20);
-  --rule-strong: rgba(238, 242, 239, .82);
+  --rule: rgba(243, 239, 233, .14);
+  --rule-strong: rgba(243, 239, 233, .26);
 
-  /* The hard offset block is the brand's one shadow. On a dark page an ink
-     shadow is invisible, so it inverts to light. */
-  --hard: 5px 5px 0 rgba(238, 242, 239, .82);
-  --hard-sm: 3px 3px 0 rgba(238, 242, 239, .82);
+  /* A diffuse shadow under a raised card. On a dark page it goes darker
+     still rather than inverting to light — a light halo around a card is a
+     glow, which is a different statement from depth. */
+  --hard: 0 18px 40px -22px rgba(0, 0, 0, .72);
+  --hard-sm: 0 10px 24px -16px rgba(0, 0, 0, .62);
 
-  --glass: rgba(24, 34, 32, .72);
+  --glass: rgba(34, 29, 25, .72);
   --glass-line: rgba(238, 242, 239, .14);
 
   --ok: #6dd39b;
   --danger: #ff8a70;
   --on-deep: #eef2ef;
-  --on-ink-accent: #b44a26;   /* 4.71:1 on the dark theme's --ink */
-  --band: #1b2b26;            /* lifts off the page instead of sinking into it */
+  --on-ink-accent: #7a5439;   /* --ink inverts, so this one does too */
+  --band: #262f29;            /* lifts off the page instead of sinking into it */
   --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.055' style='mix-blend-mode:screen'/%3E%3C/svg%3E");
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --paper: #101715;
-    --paper-raised: #182220;
-    --paper-sunken: #0b1210;
+    --paper: #191512;
+    --paper-raised: #221d19;
+    --paper-sunken: #120f0d;
 
-    --ink: #eef2ef;
-    --ink-muted: #b3bcb8;
-    --ink-faint: #9aa4a0;
+    --ink: #f3efe9;
+    --ink-muted: #bdb4a9;
+    --ink-faint: #a79d92;
 
-    --accent: #d2603a;
-    --accent-ink: #f0906c;
-    --accent-lifted: #f0906c;
-    --on-accent: #16100d;
-    --accent-soft: rgba(210, 96, 58, .22);
-    --deep: #0c1a16;
+    --accent: #b5825b;
+    --accent-ink: #dcb491;
+    --accent-lifted: #dcb491;
+    --on-accent: #191512;
+    --accent-soft: rgba(181, 130, 91, .22);
+    --deep: #2b332e;
 
-    --rule: rgba(238, 242, 239, .20);
-    --rule-strong: rgba(238, 242, 239, .82);
+    --rule: rgba(243, 239, 233, .14);
+    --rule-strong: rgba(243, 239, 233, .26);
 
-    --hard: 5px 5px 0 rgba(238, 242, 239, .82);
-    --hard-sm: 3px 3px 0 rgba(238, 242, 239, .82);
+    --hard: 0 18px 40px -22px rgba(0, 0, 0, .72);
+    --hard-sm: 0 10px 24px -16px rgba(0, 0, 0, .62);
 
-    --glass: rgba(24, 34, 32, .72);
-    --glass-line: rgba(238, 242, 239, .14);
+    --glass: rgba(34, 29, 25, .72);
+    --glass-line: rgba(243, 239, 233, .14);
 
     --ok: #6dd39b;
     --danger: #ff8a70;
     --on-deep: #eef2ef;
-    --on-ink-accent: #b44a26;   /* 4.71:1 on the dark theme's --ink */
-    --band: #1b2b26;            /* lifts off the page instead of sinking into it */
+    --on-ink-accent: #7a5439;
+    --band: #262f29;            /* lifts off the page instead of sinking into it */
     --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.055' style='mix-blend-mode:screen'/%3E%3C/svg%3E");
   }
 }
+
+/* ---------------------------------------------------------------------------
+   THE CORNERS
+
+   The brutalist pass drew every surface square with a 1px ink rule, and each
+   of those rules said so individually. Rather than edit twenty declarations
+   to say the same new thing twenty times, the radius is applied once here, by
+   what a surface IS.
+
+   Three families, because they are not the same kind of object:
+     • Panels — anything the page sits you in front of: cards, forms, wells,
+       tables, dialogs. --radius.
+     • Controls — things you press or type in. --radius-sm, except buttons and
+       capsules, which are pills.
+     • Media — photographs and product wells, which the reference rounds more
+       generously than the panel around them. --radius-lg where they are the
+       subject.
+
+   Anything that must stay square says so after this block. The AR layer is
+   the main one: a reticle or a measurement tag with rounded corners reads as
+   a UI sticker rather than as an instrument.
+--------------------------------------------------------------------------- */
+.planner-card,
+.product-card .product-media,
+.conditions > div,
+.faq-item,
+.fit-verdict,
+.dashboard,
+.admin-console,
+.confirm-dialog,
+.detail-description,
+.measurement-visual,
+.measurement-result,
+.room-readout,
+.scan-settings,
+.inventory-table-wrap,
+.demo-note,
+.dashboard-nudge,
+.cookie-notice,
+.capsule-thumb,
+.fit-plan-stage {
+  border-radius: var(--radius);
+}
+
+input, select, textarea,
+.search-input,
+.sort-control select,
+.filters-summary,
+.setting-value input {
+  border-radius: var(--radius-sm);
+}
+
+.capsule, .capsule-card, .capsule-solid, .capsule-outline, .capsule-quiet,
+.color-option, .theme-toggle, .back-to-top, .contact-float, .page-tool {
+  border-radius: var(--radius-pill);
+}
+
+.hero-stage, .product-media img, .capsule-thumb img {
+  border-radius: var(--radius-lg);
+}
+
+/* Square on purpose. The AR layer is an instrument sitting over a live
+   camera, and its overlays borrow the language of a viewfinder — a rounded
+   reticle is a sticker, not a sight. */
+.ar-reticle, .ar-reticle span, .surface-labels *, .scan-arc { border-radius: 0; }
 
 /* Form controls, scrollbars and the like are drawn by the browser; this tells
    it which set to draw. Set on the element so it follows the toggle. */
@@ -510,7 +607,13 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   gap: clamp(2rem, 5vw, 4rem);
   min-height: 100svh;
   max-width: var(--maxw); margin: 0 auto;
-  padding: clamp(5rem, 11vh, 8rem) var(--gutter) clamp(3rem, 8vh, 6rem);
+  /* The top padding used to be clamp(5rem, 11vh, 8rem). With align-items:
+     center inside a 100svh grid the content is already centred, so that
+     padding was not creating breathing room — it was pushing a centred block
+     downward and leaving ~175px of empty cream above the eyebrow at 900px
+     tall. Trimmed to the point where the fold holds the headline, the copy,
+     both buttons and the facts row without scrolling. */
+  padding: clamp(2rem, 5vh, 3.5rem) var(--gutter) clamp(2.5rem, 7vh, 5rem);
 }
 
 .hero-copy { max-width: 36rem; }
@@ -869,8 +972,9 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .button {
   display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
   min-height: var(--tap);
-  padding: .8rem 1.4rem;
+  padding: .85rem 1.6rem;
   border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--ink);
   font-size: .8125rem; font-weight: 500;
@@ -881,11 +985,16 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
     background var(--dur-fast) var(--ease-out),
     color var(--dur-fast) var(--ease-out);
 }
-.button:hover { transform: translate(-2px, -2px); box-shadow: var(--hard); }
-.button:active { transform: translate(1px, 1px) scale(.995); box-shadow: none; transition-duration: var(--dur-press); }
+/* Lifts straight up rather than diagonally. The diagonal travel was the
+   partner of the hard offset shadow — the block appeared where the button
+   had been. With a diffuse shadow underneath, a sideways slide just looks
+   like the button slipped. */
+.button:hover { transform: translateY(-2px); box-shadow: var(--hard); }
+.button:active { transform: translateY(0) scale(.99); box-shadow: none; transition-duration: var(--dur-press); }
 
-.button-primary { background: var(--ink); color: var(--paper); }
-.button-primary:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); box-shadow: var(--hard); }
+/* The reference's filled button is the brown, not black. */
+.button-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.button-primary:hover { background: var(--accent-ink); border-color: var(--accent-ink); color: var(--on-accent); box-shadow: var(--hard); }
 
 .button-outline { background: transparent; }
 
@@ -1147,10 +1256,13 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   gap: .85rem;
 }
 
-/* The well. Square, hairline, sunken — the product's own ground. */
+/* The well. Rounded, borderless, sunken — the product's own ground, framed
+   the way the reference frames a photograph rather than the way a brutalist
+   grid frames a cell. */
 .product-media {
   position: relative;
   display: block;
+  border-radius: var(--radius);
   /* It is a link, but it must not LOOK like text: everything inside is a
      picture or a statement about a missing picture. Without this the empty
      state renders underlined and link-coloured, which reads as "click here"
@@ -1158,7 +1270,7 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   color: inherit;
   text-decoration: none;
   aspect-ratio: 1 / 1;
-  border: 1px solid var(--rule);
+  border: 1px solid transparent;
   background: var(--paper-sunken);
   overflow: hidden;
   /* Only the well responds to hover, and only by lifting its rule. The
@@ -2839,11 +2951,24 @@ footer {
   .bottom-nav-item.is-active .bottom-nav-label { color: var(--accent-ink); }
 
   /* Scan is what this product is for, so it is the one that is raised. */
+  /* Scan is the brand's action, so it wears the brand's fill rather than
+     plain ink — the same brown as the primary button, which is what it is. */
   .bottom-nav-item.is-primary .bottom-nav-pill {
-    background: var(--ink); color: var(--paper);
+    background: var(--accent); color: var(--on-accent);
     width: 56px; height: 34px;
   }
-  .bottom-nav-item.is-primary.is-active .bottom-nav-pill { background: var(--accent); color: var(--on-accent); }
+  .bottom-nav-item.is-primary.is-active .bottom-nav-pill { background: var(--accent-ink); color: var(--on-accent); }
+
+  /*
+     The floating mail button does not survive the bottom bar.
+
+     It is a mailto: that the footer already offers, and on a phone it sits in
+     the one corner the bar has just claimed — measured at 390px it landed on
+     top of a product card's "NOT AVAILABLE IN AR" line. Two controls fighting
+     for the bottom-right of a phone screen is one too many, and the one that
+     navigates wins.
+  */
+  .contact-float { display: none; }
 
   /* The bar floats over the page, so the page needs somewhere to end. */
   body { padding-bottom: calc(4.4rem + env(safe-area-inset-bottom)); }

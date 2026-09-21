@@ -246,10 +246,23 @@ const browser = await chromium.launch({
     await page.evaluate(y => window.scrollTo({ top: y, behavior: 'instant' }), range * 0.45);
     await page.waitForTimeout(1500);
     const after = await page.evaluate(() => window.__furnisharStagePose);
-    const moved = before && after
-      && (Math.abs(after.x - before.x) > 0.2 || Math.abs(after.rotY - before.rotY) > 0.2);
-    check(Boolean(moved), 'the room travels as the page scrolls',
-      before && after ? `x ${before.x.toFixed(2)} -> ${after.x.toFixed(2)}` : 'no pose reported');
+    /* The room is deliberately STATIONARY now.
+
+       This used to assert the opposite — that scrolling moved it by at least
+       0.2 in x or rotY. The scroll-linked travel was removed: it re-rendered
+       a 3D scene on every scroll event through the whole pinned range, and
+       what it bought was a sofa wandering underneath the text somebody was
+       reading. So the check is inverted rather than deleted, because "it does
+       not move" is just as much a property worth defending as "it does" —
+       without it, the travel could come back by accident and nothing would
+       notice. */
+    const held = before && after
+      && Math.abs(after.x - before.x) < 0.01
+      && Math.abs(after.rotY - before.rotY) < 0.01;
+    check(Boolean(held), 'the room stays put as the page scrolls',
+      before && after
+        ? `x ${before.x.toFixed(2)} -> ${after.x.toFixed(2)}, rotY ${before.rotY.toFixed(2)} -> ${after.rotY.toFixed(2)}`
+        : 'no pose reported');
   }
 
   // Scenery must not eat clicks. Ask the document what is actually on top at
