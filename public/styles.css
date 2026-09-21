@@ -3516,6 +3516,12 @@ footer {
 .diag-verdict.is-bad { border-left-color: var(--danger); }
 .diag-verdict.is-idle { border-left-color: var(--ink-faint); }
 
+.diag-subhead {
+  font-size: 1.0625rem;
+  margin: 2rem 0 .5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rule);
+}
 .diag-deep { margin: 1.5rem 0; }
 .diag-deep .button { width: 100%; }
 .diag-ua { margin-top: 2rem; }

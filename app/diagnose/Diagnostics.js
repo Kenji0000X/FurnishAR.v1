@@ -38,6 +38,8 @@ export default function Diagnostics() {
   const [basic, setBasic] = useState(null);
   const [deep, setDeep] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [fallback, setFallback] = useState(null);
+  const [fallbackBusy, setFallbackBusy] = useState(false);
   /* The element handed to the session as its DOM overlay root. The engine
      passes one; a check that asks for 'dom-overlay' without it is asking a
      different question than the scanner asks. */
@@ -248,6 +250,101 @@ export default function Diagnostics() {
     }
   }
 
+  /*
+     What is left when ARCore is not an option.
+
+     A phone that is not on ARCore's supported device list will never run
+     WebXR AR, and a native Android app would not change that — it would sit
+     on the same ARCore. So the honest question becomes: what CAN this phone
+     do? Two answers, both real measurement rather than AR theatre:
+
+       1. Tilt-and-tap trigonometry. Stand still, hold the phone at a height
+          you have told it, aim at the point where a wall meets the floor.
+          The tilt angle and the height give the distance by
+          distance = height x tan(angle from vertical). This is the same
+          trigonometry a surveyor's clinometer uses. It needs
+          DeviceOrientationEvent to actually FIRE with real numbers.
+
+       2. Reference-object scaling. Photograph the wall with something of
+          known size in shot — an A4 sheet is 297 x 210 mm, a bank card is
+          85.6 x 54 mm — and scale the picture from it. This needs only a
+          camera, so it is the floor: if this fails, nothing automatic works.
+
+     Both are tested the way the AR check is now tested: by running them and
+     counting what came back. 'ondeviceorientation' in window is true on
+     plenty of phones whose sensors then report nothing, which is the same
+     shape of lie as a feature list that promises planes and never sends one.
+  */
+  async function runFallback() {
+    setFallbackBusy(true);
+    const out = {
+      camera: 'no', cameraDetail: '', resolution: null,
+      orientation: 'no', orientationEvents: 0, tiltRange: null, absolute: false,
+      motion: 'no', motionEvents: 0,
+      error: null
+    };
+
+    // 1. The camera, actually opened — not merely present as an API.
+    let stream = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } }, audio: false
+      });
+      const track = stream.getVideoTracks()[0];
+      const s = track?.getSettings?.() || {};
+      out.camera = 'yes';
+      out.resolution = s.width && s.height ? `${s.width}x${s.height}` : 'unknown size';
+      out.cameraDetail = `Rear camera opened at ${out.resolution}.`;
+    } catch (err) {
+      out.cameraDetail = `${err?.name}: ${err?.message}`;
+    } finally {
+      for (const track of stream?.getTracks() || []) track.stop();
+    }
+
+    /* 2. The tilt sensor. iOS 13+ gates this behind a permission call that
+          must happen inside a user gesture; this whole function runs from
+          the button's click, so the call is legal here. Android ignores it. */
+    try {
+      const gate = window.DeviceOrientationEvent?.requestPermission;
+      if (typeof gate === 'function') {
+        const granted = await gate.call(window.DeviceOrientationEvent);
+        if (granted !== 'granted') out.error = 'Motion access was refused.';
+      }
+    } catch (err) {
+      out.error = `Motion permission: ${err?.name}`;
+    }
+
+    await new Promise(resolve => {
+      let min = Infinity, max = -Infinity;
+      const onOrient = e => {
+        // A phone with no sensor still fires the event with nulls. Count only
+        // the readings that carry a real number.
+        if (typeof e.beta !== 'number' || e.beta === null) return;
+        out.orientationEvents += 1;
+        if (e.absolute) out.absolute = true;
+        min = Math.min(min, e.beta);
+        max = Math.max(max, e.beta);
+      };
+      const onMotion = e => {
+        if (e.accelerationIncludingGravity?.x == null) return;
+        out.motionEvents += 1;
+      };
+      window.addEventListener('deviceorientation', onOrient);
+      window.addEventListener('devicemotion', onMotion);
+      setTimeout(() => {
+        window.removeEventListener('deviceorientation', onOrient);
+        window.removeEventListener('devicemotion', onMotion);
+        out.orientation = out.orientationEvents > 0 ? 'yes' : 'no';
+        out.motion = out.motionEvents > 0 ? 'yes' : 'no';
+        if (out.orientationEvents > 0 && max > min) out.tiltRange = (max - min).toFixed(1);
+        resolve();
+      }, 3000);
+    });
+
+    setFallback(out);
+    setFallbackBusy(false);
+  }
+
   if (!basic) return <p className="diagnose-intro">Asking the browser…</p>;
 
   const arSupported = basic.immersiveAR === true;
@@ -299,6 +396,23 @@ export default function Diagnostics() {
     if (deep.hitTest !== 'yes') return { tone: 'bad', text: 'No. AR starts, but this phone offers no hit-testing, and tapping room corners depends on it.' };
     if (deep.hits === 0) return { tone: 'idle', text: 'Almost — hit-testing works, but no surface was found in six seconds. That is usually the room, not the phone: try again in better light, pointing at a patterned floor and moving slowly.' };
     return { tone: 'ok', text: 'Yes. This phone found real surfaces, so it can measure your room by tapping its corners.' };
+  })();
+
+  /*
+     Deliberately ranked by honesty rather than by how impressive it sounds.
+     Tilt measuring is good to roughly a few percent when the phone is held
+     still at a height the person actually knows; the photo method is coarser
+     but needs nothing but a lens; and typing in tape-measure numbers beats
+     both on accuracy every time, so it is never presented as the booby prize.
+  */
+  const fallbackVerdict = fallback && (() => {
+    if (fallback.orientation === 'yes' && fallback.camera === 'yes') {
+      return { tone: 'ok', text: 'Yes. The camera and the tilt sensor both work, so this phone can measure a wall by aiming at the point where it meets the floor — no ARCore needed.' };
+    }
+    if (fallback.camera === 'yes') {
+      return { tone: 'idle', text: 'Partly. The camera works but the tilt sensor reported nothing, so aim-and-measure is out. Photographing the wall beside something of known size — an A4 sheet, a bank card — still works, and typing in tape-measure figures is more accurate than either.' };
+    }
+    return { tone: 'bad', text: `No automatic method will work: the rear camera would not open. ${fallback.cameraDetail} Room sizes can still be typed in, and that is the most accurate method anyway.` };
   })();
 
   return (
@@ -370,6 +484,44 @@ export default function Diagnostics() {
                 line is for the person who cannot scan their room. */}
             {refusal && <Row question="What to try next" verdict="unknown" detail={refusal} />}
             {deep.error && <Row question="Error while testing" verdict="no" detail={deep.error} />}
+          </div>
+        </>
+      )}
+
+      {/* Offered unprompted once AR has failed, and available to anyone else
+          who wants to know. A page that ends at "your phone cannot do AR"
+          leaves the person with nothing; these two methods need no ARCore. */}
+      <div className="diag-deep">
+        <h2 className="diag-subhead">If AR is not available</h2>
+        <p className="diagnose-intro">
+          A room can still be measured without ARCore — by aiming the phone at
+          the foot of a wall and reading the tilt angle, or by photographing
+          the wall next to something of known size. Both need real sensors,
+          so this runs them and counts what comes back. About four seconds;
+          hold the phone up and tilt it slowly while it runs.
+        </p>
+        <button className="button" type="button" onClick={runFallback} disabled={fallbackBusy}>
+          {fallbackBusy ? 'Checking — tilt the phone…' : 'Check the camera and tilt sensor'}
+        </button>
+      </div>
+
+      {fallback && (
+        <>
+          <p className={`diag-verdict is-${fallbackVerdict.tone}`}>
+            <b>Can this phone measure without AR?</b> {fallbackVerdict.text}
+          </p>
+          <div className="diag-list">
+            <Row question="Rear camera opens" verdict={fallback.camera}
+              detail={fallback.cameraDetail} />
+            <Row question="Tilt sensor reports angles" verdict={fallback.orientation}
+              detail={fallback.orientationEvents > 0
+                ? `${fallback.orientationEvents} readings in three seconds${fallback.tiltRange ? `, over a ${fallback.tiltRange}° range` : ''}. ${fallback.absolute ? 'Compass-referenced.' : 'Relative to where it started.'}`
+                : 'No readings with a real angle in them. Aim-at-the-floor measuring is not possible here.'} />
+            <Row question="Motion sensor responds" verdict={fallback.motion}
+              detail={fallback.motionEvents > 0
+                ? `${fallback.motionEvents} readings. Useful for telling the phone to hold still, not for measuring distance.`
+                : 'No accelerometer readings.'} />
+            {fallback.error && <Row question="Note" verdict="unknown" detail={fallback.error} />}
           </div>
         </>
       )}

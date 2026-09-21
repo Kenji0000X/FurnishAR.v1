@@ -118,10 +118,10 @@ await page.waitForSelector('.diag-row', { timeout: 10000 });
 check('the basic checks ran', await page.locator('.diag-row').count() >= 5,
   `${await page.locator('.diag-row').count()} rows`);
 check('and it offers the deep check when AR is available',
-  await page.locator('.diag-deep button').isVisible());
+  await page.locator('.diag-deep button:has-text("Run the AR check")').isVisible());
 
 console.log('--- the deep check, against a device that can see the room ---');
-await page.click('.diag-deep button');
+await page.click('.diag-deep button:has-text("Run the AR check")');
 /* Six seconds of fake frames plus teardown. Tolerated rather than awaited:
    with the old page restored there is no verdict element at all, and a hard
    timeout here would crash the run instead of reporting which assertions the
@@ -207,8 +207,8 @@ await refusing.addInitScript(() => {
   } });
 });
 await refusing.goto(`${BASE}/diagnose`, { waitUntil: 'domcontentloaded' });
-await refusing.waitForSelector('.diag-deep button', { timeout: 10000 });
-await refusing.click('.diag-deep button');
+await refusing.waitForSelector('.diag-deep button:has-text("Run the AR check")', { timeout: 10000 });
+await refusing.click('.diag-deep button:has-text("Run the AR check")');
 await refusing.waitForSelector('.diag-verdict', { timeout: 10000 }).catch(() => {});
 
 const refusedText = await refusing.locator('.diag-verdict').textContent().catch(() => '');
@@ -226,6 +226,80 @@ check('the raw errors keep the message, not just the name',
   dump.slice(0, 120));
 check('all five rungs are reported', (dump.match(/NotSupportedError/g) || []).length === 5,
   `${(dump.match(/NotSupportedError/g) || []).length} rungs`);
+
+/*
+   The no-ARCore path.
+
+   A phone that is not on ARCore's supported list will never run WebXR AR,
+   and a native app would sit on the same ARCore, so "install the runtime"
+   is not always the answer. What is left has to be measured too — and
+   'ondeviceorientation' in window is true on plenty of phones whose sensors
+   then report nothing, which is the same shape of lie as a feature list
+   promising planes it never sends. So the page must count readings that
+   carry a real angle, not ask whether the event exists.
+*/
+console.log('\n--- what is left when ARCore is not an option ---');
+
+const withSensors = async (fire) => {
+  const p = await browser.newPage({ viewport: { width: 390, height: 780 } });
+  await p.addInitScript(fire);
+  await p.goto(`${BASE}/diagnose`, { waitUntil: 'domcontentloaded' });
+  await p.waitForSelector('.diag-deep button:has-text("tilt sensor")', { timeout: 10000 });
+  await p.click('.diag-deep button:has-text("tilt sensor")');
+  await p.waitForSelector('.diag-verdict', { timeout: 15000 }).catch(() => {});
+  return p;
+};
+
+// A phone with a working camera and a real tilt sensor.
+const good = await withSensors(() => {
+  navigator.mediaDevices.getUserMedia = () => Promise.resolve({
+    getVideoTracks: () => [{ getSettings: () => ({ width: 1920, height: 1080 }) }],
+    getTracks: () => [{ stop() {} }]
+  });
+  let beta = 10;
+  setInterval(() => {
+    beta += 3;
+    window.dispatchEvent(Object.assign(new Event('deviceorientation'), {
+      alpha: 0, beta, gamma: 0, absolute: true
+    }));
+    window.dispatchEvent(Object.assign(new Event('devicemotion'), {
+      accelerationIncludingGravity: { x: 0.1, y: 9.8, z: 0.2 }
+    }));
+  }, 50);
+});
+const goodVerdict = await good.locator('.diag-verdict').last().textContent().catch(() => '');
+check('a phone with a tilt sensor is told it can measure without AR',
+  /Yes\./.test(goodVerdict) && /aiming/.test(goodVerdict), goodVerdict.slice(0, 140));
+const tilt = await good.locator('.diag-row:has-text("Tilt sensor") small').textContent().catch(() => '');
+check('and the readings are counted, not assumed', /\d+ readings/.test(tilt), tilt);
+check('the angle range is reported, so a dead sensor stuck at one value shows',
+  /range/.test(tilt), tilt);
+const cam = await good.locator('.diag-row:has-text("Rear camera") small').textContent().catch(() => '');
+check('the camera reports its real resolution', /1920x1080/.test(cam), cam);
+await good.close();
+
+/* The trap: the events fire, but every reading is null. This is a phone with
+   no gyroscope, and the old shape of this check ("is the event supported?")
+   would have called it a Yes. */
+const hollow = await withSensors(() => {
+  navigator.mediaDevices.getUserMedia = () => Promise.resolve({
+    getVideoTracks: () => [{ getSettings: () => ({ width: 640, height: 480 }) }],
+    getTracks: () => [{ stop() {} }]
+  });
+  setInterval(() => {
+    window.dispatchEvent(Object.assign(new Event('deviceorientation'), {
+      alpha: null, beta: null, gamma: null, absolute: false
+    }));
+  }, 50);
+});
+const hollowVerdict = await hollow.locator('.diag-verdict').last().textContent().catch(() => '');
+check('a phone whose sensor fires only nulls is NOT called working',
+  !/Yes\./.test(hollowVerdict), hollowVerdict.slice(0, 140));
+check('it is offered the photo method instead',
+  /known size|A4|bank card/.test(hollowVerdict), hollowVerdict.slice(0, 200));
+check('and told typing the numbers in is more accurate',
+  /accurate/.test(hollowVerdict));
+await hollow.close();
 
 await browser.close();
 console.log(problems.length ? `\nFAILED: ${problems.join('; ')}` : '\nthe device check actually checks the device');
