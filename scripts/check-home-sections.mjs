@@ -263,6 +263,33 @@ const browser = await chromium.launch({
       before && after
         ? `x ${before.x.toFixed(2)} -> ${after.x.toFixed(2)}, rotY ${before.rotY.toFixed(2)} -> ${after.rotY.toFixed(2)}`
         : 'no pose reported');
+
+    /*
+       Stays put over TIME, not just across a scroll event.
+
+       The check above compares k.rotY before and after a scroll — the
+       keyframe's own target, not what Three.js actually draws. That is
+       exactly the gap an idle spin hid behind: `pivot.rotation.y = k.rotY +
+       spin`, where spin grew every frame forever, driven by a 24fps idle
+       timer that kept rescheduling itself even after the scroll settled. The
+       keyframe comparison read "unchanged" the whole time because k.rotY
+       genuinely never changed — the model was visibly turning underneath it.
+
+       So this samples renderedRotY — pivot.rotation.y itself — twice, a full
+       second apart, with the page sitting still. If anything is still
+       incrementing an angle every frame, it shows up here even though the
+       check above would call it fine.
+    */
+    const stillA = await page.evaluate(() => window.__furnisharStagePose?.renderedRotY);
+    await page.waitForTimeout(1000);
+    const stillB = await page.evaluate(() => window.__furnisharStagePose?.renderedRotY);
+    check(
+      typeof stillA === 'number' && typeof stillB === 'number' && Math.abs(stillB - stillA) < 0.0005,
+      'the rendered rotation does not drift while nobody scrolls',
+      typeof stillA === 'number' && typeof stillB === 'number'
+        ? `${stillA.toFixed(4)} -> ${stillB.toFixed(4)} over 1s`
+        : 'renderedRotY not reported'
+    );
   }
 
   // Scenery must not eat clicks. Ask the document what is actually on top at

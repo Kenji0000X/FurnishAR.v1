@@ -741,7 +741,19 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 
 .capsule-rail {
   display: grid; gap: .75rem;
-  justify-self: end;
+  /*
+     Centred over the room, not pinned to the far corner.
+
+     `justify-self: end` put the rail hard against the column's right edge —
+     a fixed distance from the sofa rather than a relationship to it, so on a
+     wide window there was a visible gap of plain page between the pills and
+     the furniture they are supposed to sit above. Centred, the pair reads as
+     one composition with the room underneath it, which is also the shape the
+     phone layout already uses (a centred, full-width stack under the copy) —
+     this brings the desktop version in line with it instead of leaving two
+     different ideas of where these belong.
+  */
+  justify-self: center;
   /* 19rem, not 22: the rail and the room want the same pixels, and the room
      is a sofa — the one object on a furniture site that has to be visible.
      Every rem taken off here is a rem of sofa that stops being hidden behind
