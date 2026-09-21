@@ -94,7 +94,23 @@ await phone.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
 check('the header nav is hidden on a phone', !(await phone.locator('.main-nav').isVisible()));
 check('no menu button is left behind', await phone.locator('.nav-toggle').count() === 0);
 check('the bottom bar is on screen without a tap', await phone.locator('.bottom-nav').isVisible());
-check('it offers four destinations', await phone.locator('.bottom-nav-item').count() === 4);
+/* The count is not the property worth defending — it was four and is five
+   now that the device check exists, and it will change again. What must hold
+   is that every slot leads somewhere real and none of them is squeezed below
+   a usable tap target, which is what actually breaks when a slot is added. */
+const slots = await phone.locator('.bottom-nav-item').count();
+check('every slot leads somewhere', slots >= 4 && slots <= 5, `${slots} destinations`);
+const tooSmall = await phone.evaluate(() =>
+  [...document.querySelectorAll('.bottom-nav-item')]
+    .map(i => ({ t: i.textContent.trim(), w: Math.round(i.getBoundingClientRect().width) }))
+    .filter(i => i.w < 44));
+check('none of them is narrower than a fingertip', tooSmall.length === 0,
+  tooSmall.length ? JSON.stringify(tooSmall) : 'all >= 44px');
+const clipped = await phone.evaluate(() =>
+  [...document.querySelectorAll('.bottom-nav-label')]
+    .filter(l => l.scrollWidth > l.clientWidth + 1).map(l => l.textContent));
+check('and no label is cut off', clipped.length === 0,
+  clipped.length ? clipped.join(', ') : 'all labels fit');
 check(
   'exactly one is marked current',
   await phone.locator('.bottom-nav-item[aria-current="page"]').count() === 1
@@ -112,6 +128,22 @@ check(
   'and Scan is now the current item',
   await phone.locator('.bottom-nav-item[aria-current="page"]:has-text("Scan")').count() === 1
 );
+
+/* The device check is reachable from the bar, and the page it lands on is the
+   real one rather than a 404 wearing the site's chrome. It is the answer to
+   "will the scanner work on my phone", so it has to be reachable FROM the
+   phone that is failing — a footer link on a desktop is no use there. */
+await phone.locator('.bottom-nav-item:has-text("Device")').click();
+await phone.waitForURL('**/diagnose', { timeout: 10000 }).catch(() => {});
+check('tapping Device goes to the check', new URL(phone.url()).pathname === '/diagnose', phone.url());
+/* The page renders "Asking the browser…" until the capability probe resolves,
+   so wait for a row rather than for the URL. Asserting straight after
+   navigation reads the pre-hydration DOM and reports zero rows for a page
+   that is about to fill in perfectly. */
+await phone.waitForSelector('.diag-row', { timeout: 10000 }).catch(() => {});
+check('and the check actually ran on arrival',
+  await phone.locator('.diag-row').count() >= 5,
+  `${await phone.locator('.diag-row').count()} rows reported`);
 
 console.log('--- catalogue search ---');
 await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });

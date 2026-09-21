@@ -24,6 +24,10 @@ const NAV = [
   { href: '/', label: 'Discover' },
   { href: '/#catalog', label: 'Collection' },
   { href: '/plan', label: 'Space planner' },
+  /* The device check. It sits next to the planner rather than off with the
+     store links, because it answers a question about the planner: whether
+     this phone can run it at all. */
+  { href: '/diagnose', label: 'Device check' },
   { href: '/portal', label: 'For stores' }
 ];
 
