@@ -3498,6 +3498,24 @@ footer {
 .diag-row.is-bad b { color: var(--danger); }
 .diag-row.is-idle b { color: var(--ink-faint); }
 
+/* The headline answer. It sits above the evidence because "can my phone do
+   this" is the whole reason the page exists, and reading six rows to work it
+   out is asking the visitor to do the diagnosis themselves. */
+.diag-verdict {
+  margin: 1.5rem 0 .75rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--rule);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  font-size: .9375rem;
+  line-height: 1.55;
+  background: var(--paper-raised);
+}
+.diag-verdict b { display: block; margin-bottom: .25rem; }
+.diag-verdict.is-ok { border-left-color: var(--ok); }
+.diag-verdict.is-bad { border-left-color: var(--danger); }
+.diag-verdict.is-idle { border-left-color: var(--ink-faint); }
+
 .diag-deep { margin: 1.5rem 0; }
 .diag-deep .button { width: 100%; }
 .diag-ua { margin-top: 2rem; }

@@ -24,6 +24,7 @@
     "check:contrast": "node scripts/check-contrast.mjs",
     "check:home": "node scripts/check-home-sections.mjs",
     "check:hero": "node scripts/check-hero-perf.mjs",
+    "check:diagnose": "node scripts/check-diagnose.mjs",
     "audit": "node scripts/audit-site.mjs",
     "audit:mobile": "node scripts/audit-mobile.mjs"
   },
