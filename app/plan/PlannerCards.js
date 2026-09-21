@@ -1,7 +1,12 @@
 'use client';
 
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+
+/* Pulled in only when someone opens it. It carries the trigonometry, the
+   photo-scaling maths and an SVG floor plan, none of which a visitor who
+   never taps "Measure without AR" should have to download. */
+const MeasureSurface = lazy(() => import('./MeasureSurface.js'));
 
 /**
  * The planner's three cards.
@@ -18,6 +23,8 @@ function PlannerBody({ products }) {
   const searchParams = useSearchParams();
   const rootRef = useRef(null);
   const [failed, setFailed] = useState(null);
+  const [measuring, setMeasuring] = useState(false);
+  const [adopted, setAdopted] = useState(null);
 
   const selectedId = searchParams.get('product');
   const autoStart = searchParams.get('ar') === '1';
@@ -236,6 +243,25 @@ function PlannerBody({ products }) {
           <p id="ar-status" className="ar-status" aria-live="polite">
             Checking AR support…
           </p>
+
+          {/*
+             The way in for a phone with no ARCore.
+
+             Offered beside the AR button rather than hidden behind a failure,
+             because "your device is not supported" is the wrong first thing to
+             show somebody standing in the room they want measured. The tilt
+             and photo methods need no ARCore at all, and typing in tape
+             figures is more accurate than either.
+          */}
+          <div className="no-ar-cta">
+            <button type="button" className="button" onClick={() => setMeasuring(true)}>
+              Measure without AR
+            </button>
+            <p className="ar-status">
+              Works on any phone: aim at the floor and read the angle, scale from
+              a photo, or type in tape-measure figures.
+            </p>
+          </div>
         </section>
 
         <section className="planner-card product-picker" aria-labelledby="picker-title">
@@ -296,6 +322,37 @@ function PlannerBody({ products }) {
 
       {/* The engine shows messages here, exactly as before. */}
       <div id="toast" className="toast" role="status" aria-live="polite" />
+
+      {measuring && (
+        <Suspense fallback={<p className="ar-status">Opening the measuring tools…</p>}>
+          <MeasureSurface
+            onClose={() => setMeasuring(false)}
+            onUseRoom={room => {
+              /*
+                 Handed to the engine through its own adoptRoom hook rather
+                 than written into the DOM here. The engine owns the clearance
+                 figure, the floor-area field and the fit verdict; setting the
+                 text directly would leave those three disagreeing with the
+                 room on screen.
+              */
+              const taken = window.__furnisharPlanner?.adoptRoom(room);
+              setAdopted(taken ? room : null);
+              setMeasuring(false);
+              if (!taken) return;
+              document.querySelector('.verdict-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
+          />
+        </Suspense>
+      )}
+
+      {adopted && (
+        <p className="ar-status" role="status">
+          Using a room measured without AR:{' '}
+          {Math.max(adopted.length, adopted.width).toFixed(2)} ×{' '}
+          {Math.min(adopted.length, adopted.width).toFixed(2)} m
+          {adopted.height ? ` × ${adopted.height.toFixed(2)} m` : ''}.
+        </p>
+      )}
     </div>
   );
 }

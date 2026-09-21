@@ -3529,3 +3529,123 @@ footer {
   font-family: var(--mono); font-size: var(--micro); color: var(--ink-faint);
   word-break: break-all; margin-top: .5rem;
 }
+
+/* ========================================================================
+   Measuring without AR — the three-mode surface.
+
+   The look follows the measuring apps this was modelled on: gold pills for
+   lengths that were measured directly, violet pills for the values derived
+   from them, a thin gold wireframe with round vertex dots, and a dotted
+   reticle while aiming. The split is not decoration — when you are checking
+   a number it matters whether it came off the sensor or out of arithmetic.
+   ===================================================================== */
+.ms-root {
+  /* Above the site header, the bottom bar and the cookie notice. All three
+     were showing through an overlay that was nominally fullscreen, which is
+     what a z-index below theirs buys you. */
+  position: fixed; inset: 0; z-index: 900;
+  display: flex; flex-direction: column;
+  background: #0d0b08;
+  color: #f6f1e7;
+  overscroll-behavior: contain;
+}
+.ms-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .75rem; padding: max(.6rem, env(safe-area-inset-top)) .75rem .6rem;
+  border-bottom: 1px solid rgba(242, 193, 78, .25);
+}
+.ms-modes { display: flex; gap: .25rem; }
+.ms-mode {
+  appearance: none; border: 1px solid rgba(246, 241, 231, .22);
+  background: transparent; color: inherit;
+  padding: .5rem 1rem; border-radius: 999px;
+  font: inherit; font-size: .875rem; min-height: 44px; cursor: pointer;
+}
+.ms-mode.is-on { background: #f2c14e; color: #1b1206; border-color: #f2c14e; font-weight: 600; }
+.ms-close {
+  appearance: none; background: transparent; border: 0; color: inherit;
+  font-size: 1.75rem; line-height: 1; min-width: 44px; min-height: 44px; cursor: pointer;
+}
+
+/* Flex column, not grid. As a grid the floor plan and the holding-height
+   details ended up sharing a row and drawing on top of each other — the
+   summary text sat across the plan's top edge label. A column cannot
+   overlap, and nothing here wanted two-dimensional placement anyway. */
+.ms-stage {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: .75rem; display: flex; flex-direction: column; gap: .75rem;
+}
+.ms-stage > * { flex: 0 0 auto; }
+
+.ms-video, .ms-photo {
+  width: 100%; aspect-ratio: 4 / 5; object-fit: cover;
+  border-radius: 12px; background: #000; display: block;
+}
+.ms-cam, .ms-photo-wrap { position: relative; }
+.ms-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+/* The live readout. Big enough to read at arm's length while the phone is
+   held up and pointed away from you, which is the only position it is ever
+   read in. */
+/* Sits on the picture, under the reticle, the way the reference app puts the
+   number beside the thing being aimed at. */
+.ms-live {
+  position: absolute; left: 50%; bottom: .75rem; transform: translateX(-50%);
+  display: grid; gap: .05rem; justify-items: center;
+  padding: .5rem 1.1rem; border-radius: 14px;
+  background: rgba(20, 16, 10, .78);
+  border: 1px solid rgba(123, 107, 217, .7);
+  backdrop-filter: blur(6px);
+  min-width: 11rem;
+}
+.ms-live b { font-size: 1.75rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.ms-live span { font-size: .9375rem; color: #d9cfe8; font-variant-numeric: tabular-nums; }
+.ms-live small { font-family: var(--mono); font-size: .6875rem; color: #a99fc4; }
+.ms-live.is-coarse { background: rgba(242, 193, 78, .14); border-color: rgba(242, 193, 78, .55); }
+.ms-live.is-unusable { background: rgba(255, 138, 112, .12); border-color: rgba(255, 138, 112, .5); }
+.ms-live-none { font-size: 1.0625rem !important; color: #a99fc4; }
+
+.ms-hint { font-size: .875rem; color: #cfc6b6; margin: 0; line-height: 1.5; }
+.ms-note {
+  font-size: .875rem; margin: 0; line-height: 1.5;
+  padding: .6rem .8rem; border-radius: 10px;
+  background: rgba(242, 193, 78, .12); border-left: 3px solid #f2c14e;
+}
+
+.ms-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.ms-actions .button { flex: 1 1 auto; min-height: 48px; }
+
+.ms-plan {
+  width: 100%; height: auto; display: block;
+  background: rgba(246, 241, 231, .04);
+  border: 1px solid rgba(242, 193, 78, .22);
+  border-radius: 12px;
+}
+.ms-edge-text { font-family: var(--mono); font-size: 11px; fill: #1b1206; font-weight: 700; }
+.ms-stat-text { font-family: var(--mono); font-size: 11px; fill: #fff; }
+.ms-plan-empty { font-size: 12px; fill: #8d8477; }
+
+.ms-setup { font-size: .875rem; }
+.ms-setup summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; }
+.ms-setup p { color: #cfc6b6; line-height: 1.5; margin: .25rem 0 .5rem; }
+.ms-setup input[type="range"] { width: 100%; }
+
+.ms-photo-controls, .ms-typed { display: grid; gap: .6rem; }
+.ms-photo-controls label, .ms-typed label { display: grid; gap: .25rem; font-size: .875rem; }
+.ms-photo-controls select, .ms-photo-controls input, .ms-typed input {
+  min-height: 48px; border-radius: 10px; padding: 0 .75rem;
+  border: 1px solid rgba(246, 241, 231, .25);
+  background: rgba(246, 241, 231, .06); color: inherit; font: inherit;
+}
+
+.ms-foot {
+  display: flex; align-items: center; gap: .75rem;
+  padding: .7rem .75rem max(.7rem, env(safe-area-inset-bottom));
+  border-top: 1px solid rgba(242, 193, 78, .25);
+  background: #0d0b08;
+}
+.ms-summary { flex: 1; font-size: .875rem; font-variant-numeric: tabular-nums; color: #cfc6b6; }
+.ms-foot .button { min-height: 48px; }
+
+/* The entry point on the planner card. */
+.no-ar-cta { display: grid; gap: .5rem; margin-top: 1rem; }

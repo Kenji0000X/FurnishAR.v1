@@ -3048,6 +3048,28 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
      driven by the test rather than by the app, and nothing in the product
      calls it.
   */
+  /*
+     The way in for a room measured WITHOUT AR.
+
+     MeasureSurface.js measures by tilt trigonometry, by photo scaling, or
+     from typed tape figures, on phones where ARCore does not exist and never
+     will. What comes back is a roomDimensions() result — the same shape the
+     AR path produces, because all three paths go through the same function —
+     so it can be adopted here with no special case downstream.
+
+     Deliberately separate from __furnisharScan, which is a test seam. This is
+     a real integration point between two parts of the app, and naming it as
+     one stops the next person deleting it as test scaffolding.
+  */
+  window.__furnisharPlanner = {
+    adoptRoom(room) {
+      if (!room?.rectangle) return false;
+      state.room = room;
+      useScannedRoom();
+      return true;
+    }
+  };
+
   window.__furnisharScan = {
     // The panel is part of what is under test, and renderScanPanel() skips a
     // hidden one, so a test opens it the way an AR session would.
@@ -3109,6 +3131,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
   return function teardown() {
     window.removeEventListener('popstate', onPopState);
     delete window.__furnisharScan;
+    delete window.__furnisharPlanner;
     listeners.forEach(off => off());
 
     /*
