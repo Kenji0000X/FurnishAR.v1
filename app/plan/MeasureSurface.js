@@ -12,6 +12,9 @@ import {
 import { roomDimensions } from '../../lib/spatial/room.mjs';
 import { HeadingTracker, TiltTracker } from '../../lib/spatial/heading.mjs';
 import { Steadiness } from '../../lib/spatial/smoothing.mjs';
+import {
+  gradeMeasurement, formatMeasurement, METHOD, CONFIDENCE_COPY
+} from '../../lib/spatial/confidence.mjs';
 
 /**
  * Measuring a room on a phone that cannot run AR.
@@ -208,6 +211,16 @@ function FloorPlan({ corners, closed, room, width = 320, height = 240 }) {
 export default function MeasureSurface({ onUseRoom, onClose }) {
   const [mode, setMode] = useState('aim');
   const [eyeHeight, setEyeHeight] = useState(1.4);
+  /*
+     Asked before anything is measured, not buried in a settings sheet.
+
+     Every distance is height x tan(theta), so the height is a direct scale
+     factor on the WHOLE room: hold the phone at 1.10 m while the app assumes
+     1.40 and every wall comes back 27% short, with nothing on screen looking
+     wrong. It is the one input that can be silently, uniformly incorrect,
+     which is exactly why it gets its own step.
+  */
+  const [heightConfirmed, setHeightConfirmed] = useState(false);
   const [corners, setCorners] = useState([]);
   const [closed, setClosed] = useState(false);
   const [ceiling, setCeiling] = useState(null);
@@ -240,6 +253,11 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
   const [settled, setSettled] = useState(false);
 
   const [showPlan, setShowPlan] = useState(false);
+  /* Point-to-point: one loose end waiting for its partner, then a finished
+     segment added to the list. Kept separate from the room outline because
+     these are independent measurements, not a chain. */
+  const [pendingA, setPendingA] = useState(null);
+  const [segments, setSegments] = useState([]);
   /* The camera element's real pixel size. The overlay is drawn in those
      pixels rather than through an SVG viewBox, so endpoint dots stay round
      and strokes stay even whatever shape the viewport is. */
@@ -318,7 +336,7 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
   }, []);
 
   useEffect(() => {
-    if (mode !== 'aim') return undefined;
+    if (mode !== 'aim' && mode !== 'point') return undefined;
     let off = null;
     startSensor().then(fn => { off = fn; });
     return () => { if (off) off(); };
@@ -346,7 +364,11 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
     const ro = new ResizeObserver(sync);
     ro.observe(node);
     return () => ro.disconnect();
-  }, [mode]);
+    /* heightConfirmed belongs here: the camera view mounts when it flips, not
+       when the mode changes, so keying on mode alone left the ref null when
+       this ran and the overlay canvas stayed 0 x 0 — lines and labels were
+       computed and then drawn into nothing. */
+  }, [mode, heightConfirmed]);
 
   /*
      The corners, projected back onto the picture.
@@ -407,6 +429,59 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
   }, [corners, viewMarks, closed, aiming, eyeHeight, reading.tilt, reading.bearing, view.w, view.h]);
 
   /*
+     The same projection, applied to point-to-point measurements.
+
+     Every endpoint is a floor point stored relative to where the person is
+     standing, so it re-projects onto the picture exactly as a room corner
+     does — which is why a segment stays stretched across the sofa while the
+     phone pans instead of sliding with the view.
+  */
+  const pointDots = useMemo(() => {
+    if (!view.w || !view.h) return [];
+    const all = [];
+    segments.forEach((seg, i) => { all.push(['a' + i, seg.a]); all.push(['b' + i, seg.b]); });
+    if (pendingA) all.push(['pending', pendingA]);
+    return all.map(([key, p]) => {
+      const at = projectFloorPoint({
+        point: p, eyeHeight, tiltDegrees: reading.tilt, bearingDegrees: reading.bearing
+      });
+      return { key, visible: at.visible, x: (at.u ?? 0) * view.w, y: (at.v ?? 0) * view.h };
+    });
+  }, [segments, pendingA, eyeHeight, reading.tilt, reading.bearing, view.w, view.h]);
+
+  const pointLines = useMemo(() => {
+    if (!view.w) return [];
+    const byKey = Object.fromEntries(pointDots.map(d => [d.key, d]));
+    const out = [];
+    segments.forEach((seg, i) => {
+      const a = byKey['a' + i], b = byKey['b' + i];
+      if (!a?.visible && !b?.visible) return;
+      out.push({
+        key: String(i), a, b, live: false,
+        label: formatMeasurement(seg.metres, { spread: seg.spread }).text
+      });
+    });
+    /* The rubber band: from the loose end to the crosshair, with the length
+       it would record if you tapped now. */
+    if (pendingA && aiming) {
+      const a = byKey.pending;
+      const here = floorPointFromAim({
+        eyeHeight, tiltDegrees: reading.tilt, bearingDegrees: reading.bearing
+      });
+      if (a?.visible && here.point) {
+        const metres = Math.hypot(here.point.x - pendingA.x, here.point.z - pendingA.z);
+        out.push({
+          key: 'live', a, b: { x: view.w / 2, y: view.h / 2 }, live: true,
+          label: formatMeasurement(metres, {
+            spread: Math.hypot(pendingA.spread || 0, here.spread || 0)
+          }).text
+        });
+      }
+    }
+    return out;
+  }, [segments, pointDots, pendingA, aiming, eyeHeight, reading.tilt, reading.bearing, view.w, view.h]);
+
+  /*
      Drop any label that would land on top of one already drawn.
 
      On the first phone test five pills stacked in the same few pixels —
@@ -455,6 +530,46 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
     if (h.height == null) { setNote(h.reason); return; }
     setCeiling(h.height);
     setNote(`Ceiling ${m2cm(h.height)}, give or take ${Math.round(h.spread * 100)} cm.`);
+  }
+
+  /*
+     Point-to-point, the interaction Apple's Measure is built on.
+
+     First tap drops a loose end; the second closes it into a segment with
+     its length on the line. Independent measurements rather than a chain,
+     because a sofa's width has nothing to do with the doorway measured
+     before it — which is also why they accumulate in a list instead of
+     replacing one another.
+  */
+  function addPoint() {
+    const now = live.current;
+    const placed = floorPointFromAim({
+      eyeHeight, tiltDegrees: now.tilt, bearingDegrees: now.bearing
+    });
+    if (!placed.point) { setNote(placed.reason); return; }
+    if (!pendingA) {
+      setPendingA({ ...placed.point, spread: placed.spread });
+      setNote(null);
+      return;
+    }
+    const metres = Math.hypot(placed.point.x - pendingA.x, placed.point.z - pendingA.z);
+    /* Both ends carry their own doubt, and they add in quadrature — the
+       segment cannot be tighter than the points that define it. */
+    const spread = Math.hypot(pendingA.spread || 0, placed.spread || 0);
+    const { grade } = gradeMeasurement({
+      spread,
+      steadiness: steady.current.spread(),
+      sensorHealth: heading.current.reliability.rejectedFraction,
+      method: METHOD.TILT
+    });
+    setSegments(list => [...list, { a: pendingA, b: placed.point, metres, spread, grade }]);
+    setPendingA(null);
+    setNote(null);
+  }
+
+  function undoPoint() {
+    if (pendingA) { setPendingA(null); return; }
+    setSegments(list => list.slice(0, -1));
   }
 
   function undoCorner() {
@@ -547,7 +662,12 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
       <header className="ms-bar">
         <div className="ms-modes" role="tablist" aria-label="How to measure">
           {[
-            ['aim', 'Aim'],
+            ['aim', 'Room'],
+            /* Point-to-point, the way Apple's Measure works. The room modes
+               only ever produced a floor OUTLINE, so there was no way to
+               measure a sofa, a doorway or the span of one wall — the very
+               thing the reference apps spend most of their time doing. */
+            ['point', 'Measure'],
             ['photo', 'Photo'],
             ['type', 'Type']
           ].map(([id, label]) => (
@@ -562,7 +682,44 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
       </header>
 
       {/* ------------------------------------------------------------ AIM */}
-      {mode === 'aim' && (
+      {(mode === 'aim' || mode === 'point') && !heightConfirmed && (
+        <div className="ms-stage ms-stage-plain">
+          <h2 className="ms-subhead">How high are you holding the phone?</h2>
+          <p className="ms-hint">
+            Every distance is this height multiplied by the tangent of the tilt
+            angle, so it scales the whole room. Getting it roughly right matters
+            more than any other setting here — measure it once with a tape and
+            it never needs touching again.
+          </p>
+          <div className="ms-height-choices">
+            {[
+              ['Chest height', 1.40],
+              ['Waist height', 1.05],
+              ['Eye level', 1.60]
+            ].map(([label, metres]) => (
+              <button key={label} type="button"
+                className={`ms-chip${Math.abs(eyeHeight - metres) < 0.005 ? ' is-on' : ''}`}
+                onClick={() => setEyeHeight(metres)}>
+                {label}<br /><small>{metres.toFixed(2)} m</small>
+              </button>
+            ))}
+          </div>
+          <label className="ms-height-row">
+            Or type it exactly — {eyeHeight.toFixed(2)} m
+            <input type="range" min="0.8" max="2" step="0.01" value={eyeHeight}
+              onChange={e => setEyeHeight(Number(e.target.value))}
+              aria-label="Height you are holding the phone at, in metres" />
+          </label>
+          <div className="ms-actions">
+            <button type="button" className="button button-primary"
+              onClick={() => setHeightConfirmed(true)}>
+              Start measuring
+            </button>
+          </div>
+        </div>
+      )}
+
+      {mode === 'aim' && heightConfirmed && (
         <div className="ms-view" ref={viewRef}>
           <video ref={videoRef} className="ms-view-video" autoPlay playsInline muted />
 
@@ -681,6 +838,98 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
           )}
         </div>
       )}
+      {/* ------------------------------------------------ POINT TO POINT */}
+      {mode === 'point' && heightConfirmed && (
+        <div className="ms-view" ref={viewRef}>
+          <video ref={videoRef} className="ms-view-video" autoPlay playsInline muted />
+
+          <svg className="ms-view-svg" width={view.w} height={view.h} aria-hidden="true">
+            {pointLines.map(seg => (
+              <line key={`pl${seg.key}`} x1={seg.a.x} y1={seg.a.y} x2={seg.b.x} y2={seg.b.y}
+                stroke="#fff" strokeWidth="2.5" strokeLinecap="round"
+                strokeDasharray={seg.live ? '7 7' : undefined} opacity={seg.live ? 0.85 : 1} />
+            ))}
+            {pointDots.filter(d => d.visible).map(d => (
+              <g key={`pd${d.key}`}>
+                <circle cx={d.x} cy={d.y} r="8" fill="#fff" />
+                <circle cx={d.x} cy={d.y} r="3.5" fill="rgba(0,0,0,.55)" />
+              </g>
+            ))}
+            {aiming && (
+              <g>
+                <circle cx={view.w / 2} cy={view.h / 2} r="17" fill="none"
+                  stroke="#fff" strokeWidth="2.5" opacity="0.95" />
+                <circle cx={view.w / 2} cy={view.h / 2} r="3" fill="#fff" />
+              </g>
+            )}
+            {pointLines.map(seg => {
+              if (!seg.label) return null;
+              const w = seg.label.length * 8.2 + 20;
+              const mx = (seg.a.x + seg.b.x) / 2;
+              const my = (seg.a.y + seg.b.y) / 2;
+              if (!Number.isFinite(mx) || !Number.isFinite(my)) return null;
+              return (
+                <g key={`pt${seg.key}`}>
+                  <rect x={mx - w / 2} y={my - 14} width={w} height={28} rx={14}
+                    fill="#fff" opacity={seg.live ? 0.9 : 1} />
+                  <text x={mx} y={my + 5} textAnchor="middle" className="ms-view-label">
+                    {seg.label}
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+
+          <p className={`ms-tip${compass.verdict === 'bad' ? ' is-warn' : ''}`}>
+            {reading.events === 0
+              ? 'Waiting for the tilt sensor…'
+              : compass.verdict === 'bad'
+                ? compass.reason
+                : shot.reason
+                  ? shot.reason
+                  : !settled
+                    ? 'Hold still…'
+                    : pendingA
+                      ? 'Now aim at the other end and tap +'
+                      : 'Aim at one end of what you want measured, then tap +'}
+          </p>
+
+          {note && <p className="ms-toast">{note}</p>}
+          <p className="ms-anchor-warn">Measured along the floor — turn, don&apos;t walk</p>
+
+          <div className="ms-dock">
+            <div className="ms-dock-row">
+              <button type="button" className="ms-chip" onClick={undoPoint}
+                disabled={!segments.length && !pendingA}>Undo</button>
+              <button type="button" className="ms-add" onClick={addPoint}
+                disabled={shot.distance == null || !settled}
+                aria-label={pendingA ? 'Place the far end' : 'Place the first end'}>
+                <span aria-hidden="true">+</span>
+              </button>
+              <button type="button" className="ms-chip" onClick={() => { setSegments([]); setPendingA(null); }}
+                disabled={!segments.length}>Clear</button>
+            </div>
+          </div>
+
+          {/* The list the reference apps keep: every measurement stays put
+              until it is cleared, with how it was taken and how much it can
+              be trusted, rather than one value overwriting the last. */}
+          {segments.length > 0 && (
+            <div className="ms-tape">
+              {segments.map((seg, i) => {
+                const shown = formatMeasurement(seg.metres, { spread: seg.spread });
+                return (
+                  <div className={`ms-tape-row is-${seg.grade}`} key={i}>
+                    <b>{shown.text}</b>
+                    <small>{CONFIDENCE_COPY[seg.grade].label} · tilt + gyroscope</small>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ---------------------------------------------------------- PHOTO */}
       {mode === 'photo' && (
         <div className="ms-stage">

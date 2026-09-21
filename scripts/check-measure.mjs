@@ -87,8 +87,28 @@ check('the planner offers a no-AR way in', await page.locator('.no-ar-cta button
 await page.click('.no-ar-cta button');
 await page.waitForSelector('.ms-root', { timeout: 15000 });
 check('the measuring surface opens', await page.locator('.ms-root').isVisible());
-check('all three methods are offered', await page.locator('.ms-mode').count() === 3,
+check('all four methods are offered', await page.locator('.ms-mode').count() === 4,
   (await page.locator('.ms-mode').allTextContents()).join(', '));
+
+console.log('--- the height step comes first ---');
+/*
+   Every distance is height x tan(theta), so the holding height scales the
+   WHOLE room. Hold the phone at 1.10 m while the app assumes 1.40 and every
+   wall comes back 27% short with nothing on screen looking wrong — which is
+   why it is asked before anything is measured rather than hidden in a sheet.
+*/
+check('the height is asked before the camera opens',
+  await page.locator('.ms-subhead').textContent().then(t => /How high are you holding/.test(t)));
+check('with the common holds offered as one tap',
+  await page.locator('.ms-height-choices .ms-chip').count() === 3,
+  (await page.locator('.ms-height-choices .ms-chip').allTextContents()).join(' | '));
+check('and it explains why it matters',
+  await page.locator('.ms-hint').first().textContent().then(t => /scales the whole room/.test(t)));
+check('the camera does not open until it is answered',
+  await page.locator('.ms-view').count() === 0);
+await page.click('.ms-actions button:has-text("Start measuring")');
+await page.waitForSelector('.ms-view', { timeout: 10000 });
+check('answering it opens the camera', await page.locator('.ms-view').isVisible());
 
 console.log('--- aim mode: the live readout ---');
 const TILT = Math.atan(2.5 / 1.4) * 180 / Math.PI;   // 60.75 degrees
@@ -215,6 +235,55 @@ check('typed figures produce the same kind of plan', /500 cm/.test(typedPlan) &&
 check('with volume, since a height was given', /V = 52\.00 m³/.test(typedPlan), typedPlan.match(/V = [^ ]* m³/)?.[0]);
 check('and it is not framed as a consolation prize',
   await page.locator('.ms-hint').first().textContent().then(t => /most reliable/.test(t)));
+
+console.log('--- point to point: measuring a thing, not a room ---');
+/*
+   The interaction the reference apps are built on, and the one FurnishAR
+   could not do at all: tap one end, tap the other, get the length. It is
+   what measures a sofa, a doorway or the span of a single wall.
+
+   Geometry: two floor points 2.5 m from the stander, 90 degrees apart, are
+   2.5*sqrt(2) = 3.54 m from each other.
+*/
+await page.click('.ms-mode:has-text("Measure")');
+await page.waitForTimeout(400);
+// Type mode has no height step; switching back to a camera mode re-asks.
+if (await page.locator('.ms-actions button:has-text("Start measuring")').count()) {
+  await page.click('.ms-actions button:has-text("Start measuring")');
+  await page.waitForSelector('.ms-view', { timeout: 10000 });
+}
+await page.evaluate(t => window.__hold(t, 0, 200), TILT);
+await page.waitForTimeout(250);
+check('it asks for the first end', await page.locator('.ms-tip').textContent()
+  .then(t => /Aim at one end/.test(t)));
+await page.click('.ms-add');
+await page.waitForTimeout(150);
+check('and then asks for the other end', await page.locator('.ms-tip').textContent()
+  .then(t => /other end/.test(t)));
+
+await page.evaluate(t => window.__turnTo(t, 0, 90), TILT);
+await page.evaluate(t => window.__hold(t, 90, 200), TILT);
+await page.waitForTimeout(250);
+await page.click('.ms-add');
+await page.waitForTimeout(250);
+
+const tape = await page.locator('.ms-tape-row b').allTextContents();
+check('the segment is recorded with its length', tape.length === 1, tape.join(', '));
+/* 2.5 m apart at 90 degrees: 3.54 m. Shown to whatever precision the doubt
+   supports, so both an exact and an approximate rendering are acceptable —
+   what must not happen is a number that is simply wrong. */
+check('and the length is right', /3\.5/.test(tape[0] || ''), tape[0]);
+check('the measurement carries a confidence grade',
+  await page.locator('.ms-tape-row small').textContent().then(t => /High|Medium|Low/.test(t)),
+  await page.locator('.ms-tape-row small').textContent().catch(() => ''));
+check('and says which method produced it',
+  await page.locator('.ms-tape-row small').textContent().then(t => /tilt \+ gyroscope/.test(t)));
+check('the line is drawn on the picture with its label',
+  await page.locator('.ms-view-svg .ms-view-label').count() >= 1);
+
+await page.click('.ms-chip:has-text("Undo")');
+await page.waitForTimeout(200);
+check('undo removes the measurement', await page.locator('.ms-tape-row').count() === 0);
 
 console.log('--- photo mode ---');
 await page.click('.ms-mode:has-text("Photo")');
