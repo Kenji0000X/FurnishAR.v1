@@ -26,6 +26,26 @@ const COLUMNS = [
       { href: '/portal#apply', label: 'Apply to list' }
     ]
   },
+  /*
+     Its own category, not a line inside Help.
+
+     "Will this work on my phone" is not the same kind of question as "how
+     much does it cost" — it is the one standing between a visitor and the
+     only feature this site exists for, and it is the first thing asked when
+     the scanner does not start. Buried as the middle entry of a Help column
+     it reads as troubleshooting for people who already failed; given its own
+     heading it reads as something to check first.
+
+     Two real destinations, both of which exist. The footer's own rule at the
+     top of this file still holds: no category pages that were never built.
+  */
+  {
+    title: 'Your device',
+    links: [
+      { href: '/diagnose', label: 'Does my phone work?' },
+      { href: '/#faq', label: 'What AR needs' }
+    ]
+  },
   {
     title: 'Help',
     links: [
