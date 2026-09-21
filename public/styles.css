@@ -1885,7 +1885,15 @@ footer {
 .footer-brand .brand-mark i:nth-child(3) { background: var(--on-ink-accent); }
 .footer-about p { font-size: .75rem; opacity: .6; }
 
-.footer-columns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; }
+/* auto-fit, not repeat(3): the column count is hard-coded in CSS and the
+   COLUMNS array is in JS, so a fourth category added to one silently wrapped
+   under the other in the other. This tracks whatever the array holds.
+   minmax(0, …) because a bare 1fr will not shrink below its content. */
+.footer-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, minmax(0, 1fr)));
+  gap: 1.5rem;
+}
 .footer-column h2 {
   margin-bottom: .75rem;
   font-family: var(--mono); font-size: var(--micro); font-weight: 500;

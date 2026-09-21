@@ -2873,6 +2873,22 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       };
       await startCameraFallback();
       toast(messageMap[error?.name] || `Live AR could not start (${error?.name}); switched to camera preview.`);
+
+      /* Offer the device check at the one moment it is worth anything.
+
+         A toast that names an error and leaves is a dead end: the person is
+         standing in a room holding a phone that will not scan, and the next
+         thing they can usefully do is find out what their phone actually
+         supports. The status line under the button is not cleared by the
+         fallback, so it is where the offer goes — as a real link, which is
+         why this writes innerHTML rather than textContent. Only the error
+         name is interpolated and it comes from the browser, not from input. */
+      const status = $('#ar-status');
+      if (status) {
+        status.innerHTML = `Live AR could not start on this phone
+          (${escapeHtml(String(error?.name || 'unknown'))}). The camera preview is running instead —
+          <a href="/diagnose">check what your phone supports</a>.`;
+      }
     }
   }
 
