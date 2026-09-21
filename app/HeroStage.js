@@ -303,6 +303,79 @@ export default function HeroStage({ children }) {
       const aspectOfModel = size.y / longest;
 
       /*
+         Ground shadow and backlight, both painted rather than computed.
+
+         A real shadow means renderer.shadowMap, a shadow camera and a second
+         pass over 71k triangles every frame — for one soft blob under a sofa
+         that never moves relative to its own floor. A radial gradient on a
+         plane is the same picture for none of that: it costs one 256px
+         texture, two triangles, and no per-frame work at all.
+
+         Both are generated here rather than shipped as files so they follow
+         the palette. The shadow is the page's ink and the glow is the brand's
+         brown, read out of the live stylesheet, so a theme change moves them
+         with everything else instead of leaving two hard-coded colours
+         behind.
+      */
+      const radialTexture = (rgb, stops) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+        const grad = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+        for (const [at, alpha] of stops) grad.addColorStop(at, `rgba(${rgb}, ${alpha})`);
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 256, 256);
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        return texture;
+      };
+      const cssRGB = (name, fallback) => {
+        const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        const hex = /^#([0-9a-f]{6})$/i.exec(raw);
+        if (!hex) return fallback;
+        const n = parseInt(hex[1], 16);
+        return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
+      };
+
+      // The shadow. Elliptical, because the room is wider than it is deep,
+      // and laid flat on the floor plane rather than billboarded — a contact
+      // shadow that turns to face the camera stops reading as contact.
+      const shadow = new THREE.Mesh(
+        /* Wide and deep, and darker at the core than a shadow this size
+           would normally want. The camera sits almost level with the floor
+           (y 0.35 at z 5.4, with a 0.16rad tilt), so a horizontal plane is
+           seen about 9 degrees off edge-on and compresses to a sliver — at
+           1.55 x 1.05 and 0.38 alpha it was mathematically present and
+           visually absent. These are the numbers that survive the
+           foreshortening. */
+        new THREE.PlaneGeometry(2.1, 1.5),
+        new THREE.MeshBasicMaterial({
+          map: radialTexture(cssRGB('--ink', '36, 31, 26'), [[0, 0.62], [0.4, 0.28], [1, 0]]),
+          transparent: true, depthWrite: false
+        })
+      );
+      shadow.rotation.x = -Math.PI / 2;
+      // Just below the model's own base, so it never z-fights with the floor
+      // of the model itself.
+      shadow.position.y = -aspectOfModel / 2 - 0.004;
+      shadow.renderOrder = -1;
+      pivot.add(shadow);
+
+      // The glow. A soft wash behind the room in the brand's brown, sat back
+      // in Z so the model always occludes its centre — it reads as light
+      // coming from behind the scene rather than as a halo stuck on top.
+      const glow = new THREE.Mesh(
+        new THREE.PlaneGeometry(2.6, 2.0),
+        new THREE.MeshBasicMaterial({
+          map: radialTexture(cssRGB('--accent', '138, 98, 67'), [[0, 0.30], [0.55, 0.09], [1, 0]]),
+          transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+        })
+      );
+      glow.position.set(0, 0.05, -0.85);
+      glow.renderOrder = -2;
+      pivot.add(glow);
+
+      /*
         Where the room actually lands on screen, in CSS pixels.
 
         Called on demand by scripts/check-home-sections.mjs, never per frame.
@@ -517,6 +590,18 @@ export default function HeroStage({ children }) {
          room turns gently in place wherever you are on the page and never
          travels with it. */
       let spin = 0;
+      /* The entrance, and the float.
+
+         `born` is the clock the arrival runs on: the room rises the last few
+         centimetres into place and fades up over 900ms instead of appearing
+         fully formed the instant the GLB finishes decoding, which on a fast
+         connection looks like a glitch and on a slow one looks like a jump.
+
+         The float is a 4.5s sine, ±1.2% of the model's height. Small on
+         purpose: this is a sofa, not a balloon, and anything bigger stops
+         reading as "lit from above" and starts reading as an animation
+         playing. Both are transform-only, so neither costs a layout. */
+      const born = performance.now();
 
       const draw = () => {
         frame = 0;
@@ -525,11 +610,27 @@ export default function HeroStage({ children }) {
         const target = progress();
         current += (target - current) * 0.12;
         spin += 0.0012;
+        const age = performance.now() - born;
+        const entrance = Math.min(1, age / 900);
+        const eased = 1 - Math.pow(1 - entrance, 3);
+        const float = Math.sin(age / 4500 * Math.PI * 2) * 0.012;
 
         const k = forPhone(sample(current));
         const at = place(k);
-        pivot.position.set(at.x, at.y, 0);
-        pivot.scale.setScalar(at.scale);
+        // Rises into place on arrival, then breathes. The lift is in model
+        // units and applied through the scale, so it is the same visual
+        // distance whatever size the layout asks the room to be.
+        pivot.position.set(at.x, at.y + (float + (1 - eased) * -0.06) * at.scale, 0);
+        pivot.scale.setScalar(at.scale * (0.96 + 0.04 * eased));
+
+        /* The shadow answers the float: as the room lifts it shrinks and
+           fades a little, which is what sells the lift as a lift rather than
+           as the whole picture sliding up the screen. Tied to the same sine,
+           so the two can never drift apart. */
+        const lift = float / 0.012;
+        shadow.material.opacity = eased * (1 - lift * 0.18);
+        shadow.scale.setScalar(1 - lift * 0.05);
+        glow.material.opacity = eased;
         pivot.rotation.y = k.rotY + spin;
         pivot.rotation.x = k.rotX;
 
