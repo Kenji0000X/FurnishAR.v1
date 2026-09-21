@@ -18,11 +18,16 @@ import { usePathname } from 'next/navigation';
  * The reference design has five slots: Home, Search, Add, Reels, Profile.
  * Those are a social app's, and three of them have no counterpart here — there
  * is no site-wide search, no posting, and shoppers have no accounts at all
- * (only store owners do). Five icons where two lead nowhere is worse than
- * four that all work, so the slots carry what FurnishAR actually has and the
- * bar is sized for that rather than padded out to five.
+ * (only store owners do). The rule has always been that a slot has to lead
+ * somewhere real.
  *
- * Scan takes the centre slot, raised, because it is the thing this product is
+ * It is five now because a fifth real destination exists: the device check.
+ * "Will the scanner work on my phone" is the question that decides whether
+ * anybody gets to use this product at all, and on a phone it is asked in the
+ * moment — standing in a room, scanner refusing to start. A footer link is
+ * the wrong place for that; the bar is the right one.
+ *
+ * Scan keeps the centre slot, raised, because it is the thing this product is
  * for. That is the one place the reference's shape genuinely fits.
  */
 
@@ -62,6 +67,18 @@ function Icon({ name, filled }) {
       </svg>
     );
   }
+  if (name === 'device') {
+    // A handset with a tick: "this phone, checked". Not a wrench or a gear —
+    // both read as settings, and this changes nothing.
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" {...style}>
+        <rect x="6" y="2.5" width="12" height="19" rx="2.5" />
+        <path d="M9.2 12.4 11.2 14.4 15 10.6"
+          fill="none" stroke={filled ? 'var(--paper)' : 'currentColor'}
+          strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
   if (name === 'stores') {
     return (
       <svg viewBox="0 0 24 24" aria-hidden="true" {...style}>
@@ -77,6 +94,9 @@ const ITEMS = [
   { href: '/', label: 'Discover', icon: 'discover' },
   { href: '/#catalog', label: 'Collection', icon: 'collection' },
   { href: '/plan', label: 'Scan', icon: 'scan', primary: true },
+  /* "Device", not "Diagnostics" or "Device check": five labels have to fit
+     across 320px, which leaves about 64px a slot. */
+  { href: '/diagnose', label: 'Device', icon: 'device' },
   { href: '/portal', label: 'Stores', icon: 'stores' }
 ];
 
