@@ -79,7 +79,7 @@ export default function Diagnostics() {
       hitTest: 'no', planes: 'no', depth: 'no',
       planeCount: 0, planesApi: false,
       frames: 0, hits: 0,
-      config: null, granted: [], error: null, tried: []
+      config: null, granted: [], error: null, tried: [], firstError: null
     };
     let session = null;
 
@@ -129,7 +129,17 @@ export default function Diagnostics() {
         out.config = name;
         break;
       } catch (err) {
-        out.tried.push(`${name} — ${err?.name}`);
+        /* Keep the MESSAGE, not just the name. Every rung of the ladder
+           reports NotSupportedError; only the message says which thing was
+           not supported, and that is the line that tells someone what to
+           actually do about it. Logging the name alone turned five different
+           failures into five identical words. */
+        out.tried.push(`${name} — ${err?.name}: ${err?.message || '(no message)'}`);
+        /* Only the FIRST attempt runs under the button's fresh user
+           activation. Chrome may refuse the later ones because the gesture
+           has been spent rather than because the feature is missing, so the
+           first refusal is the one worth diagnosing from. */
+        if (!out.firstError) out.firstError = { name: err?.name || 'Error', message: err?.message || '' };
       }
     }
 
@@ -250,8 +260,41 @@ export default function Diagnostics() {
      not happen. Reporting that as "your phone cannot do it" is the failure
      this page was guilty of until now, and it is worth never repeating.
   */
+  /*
+     Why every session was refused, and what the person holding the phone can
+     do about it. Without this the page ends on "No" and a stack of identical
+     NotSupportedErrors, which reads as "your phone is not good enough" — and
+     in the most common case that is simply untrue.
+
+     The signature worth naming: isSessionSupported said YES, then every
+     configuration was refused, including the last rung, which requires no
+     features at all. A phone whose hardware genuinely cannot do AR answers
+     no to the first question. A phone that answers yes and then refuses
+     everything is a phone whose AR runtime — Google Play Services for AR,
+     a separate app from Chrome — is missing, out of date, or was declined
+     when Chrome offered to install it. That is a two-minute fix, not a
+     verdict on the device.
+  */
+  const refusal = deep && !deep.config && (() => {
+    const msg = (deep.firstError?.message || '').toLowerCase();
+    const name = deep.firstError?.name || '';
+    if (name === 'NotAllowedError' || /permission|denied/.test(msg)) {
+      return 'Camera access was refused. Tap the padlock next to the address bar, allow the camera, and run this again.';
+    }
+    if (name === 'SecurityError') {
+      return 'The browser blocked the session for security reasons — usually a page that is not fully HTTPS, or a gesture it did not count as a tap.';
+    }
+    if (/install|arcore|play services/.test(msg)) {
+      return 'Chrome says the AR runtime needs installing. Open the Play Store, install or update "Google Play Services for AR", then run this again.';
+    }
+    if (basic.immersiveAR === true) {
+      return 'Chrome says this phone supports AR and then refuses every session, including one that asks for no features at all. That is what happens when "Google Play Services for AR" is missing or out of date — it is a separate app from Chrome and it does the actual tracking. Install or update it from the Play Store and run this check again.';
+    }
+    return 'This browser cannot open an AR session. On Android, use Chrome; on iPhone, Safari does not support WebXR at all.';
+  })();
+
   const verdict = deep && (() => {
-    if (!deep.config) return { tone: 'bad', text: 'No. This phone would not start an AR session at all, so the scanner cannot run here.' };
+    if (!deep.config) return { tone: 'bad', text: `No — not yet. This phone would not start an AR session at all, so the scanner cannot run. ${refusal}` };
     if (deep.frames === 0) return { tone: 'idle', text: 'Unknown — the session opened but produced no frames, so nothing below was actually measured. Close other camera apps and try again.' };
     if (deep.hitTest !== 'yes') return { tone: 'bad', text: 'No. AR starts, but this phone offers no hit-testing, and tapping room corners depends on it.' };
     if (deep.hits === 0) return { tone: 'idle', text: 'Almost — hit-testing works, but no surface was found in six seconds. That is usually the room, not the phone: try again in better light, pointing at a patterned floor and moving slowly.' };
@@ -323,6 +366,9 @@ export default function Diagnostics() {
             {deep.granted.length > 0 && (
               <Row question="Features the session granted" verdict="yes" detail={deep.granted.join(', ')} />
             )}
+            {/* Above the raw error dump, because the dump is for me and this
+                line is for the person who cannot scan their room. */}
+            {refusal && <Row question="What to try next" verdict="unknown" detail={refusal} />}
             {deep.error && <Row question="Error while testing" verdict="no" detail={deep.error} />}
           </div>
         </>

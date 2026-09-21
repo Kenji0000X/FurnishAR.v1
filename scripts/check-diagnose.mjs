@@ -187,6 +187,46 @@ check('the first attempt really did carry a depth dict',
 
 check('no uncaught page errors', pageErrors.length === 0, pageErrors.slice(0, 2).join(' | '));
 
+/*
+   The other device: the one this was actually run on.
+
+   isSessionSupported says yes, and then every configuration is refused with
+   NotSupportedError — including the last rung, which requires no features at
+   all. That is not a phone too old to do AR; a phone too old answers no to
+   the first question. It is a phone whose AR runtime is missing. The page
+   must say so, because "No" plus five identical errors reads as "your phone
+   is not good enough" and sends someone off to buy a new one.
+*/
+console.log('\n--- a device that says yes and then refuses everything ---');
+const refusing = await browser.newPage({ viewport: { width: 390, height: 780 } });
+await refusing.addInitScript(() => {
+  Object.defineProperty(navigator, 'xr', { configurable: true, value: {
+    isSessionSupported: () => Promise.resolve(true),
+    requestSession: () => Promise.reject(new DOMException(
+      'The specified session configuration is not supported.', 'NotSupportedError'))
+  } });
+});
+await refusing.goto(`${BASE}/diagnose`, { waitUntil: 'domcontentloaded' });
+await refusing.waitForSelector('.diag-deep button', { timeout: 10000 });
+await refusing.click('.diag-deep button');
+await refusing.waitForSelector('.diag-verdict', { timeout: 10000 }).catch(() => {});
+
+const refusedText = await refusing.locator('.diag-verdict').textContent().catch(() => '');
+check('it does not blame the phone outright', !/^Can this phone measure a room\? No\.\s*$/.test(refusedText.trim()));
+check('it names the AR runtime as the likely cause',
+  /Google Play Services for AR/.test(refusedText), refusedText.slice(0, 160));
+check('and says where to get it', /Play Store/.test(refusedText));
+
+const advice = await refusing.locator('.diag-row:has-text("What to try next")').count();
+check('the advice gets its own row, above the error dump', advice === 1);
+
+const dump = await refusing.locator('.diag-row:has-text("Error while testing") small').textContent().catch(() => '');
+check('the raw errors keep the message, not just the name',
+  /NotSupportedError: The specified session configuration is not supported/.test(dump),
+  dump.slice(0, 120));
+check('all five rungs are reported', (dump.match(/NotSupportedError/g) || []).length === 5,
+  `${(dump.match(/NotSupportedError/g) || []).length} rungs`);
+
 await browser.close();
 console.log(problems.length ? `\nFAILED: ${problems.join('; ')}` : '\nthe device check actually checks the device');
 process.exit(problems.length ? 1 : 0);
