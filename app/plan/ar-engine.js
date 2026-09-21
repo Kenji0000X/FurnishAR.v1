@@ -3046,7 +3046,37 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     window.removeEventListener('popstate', onPopState);
     delete window.__furnisharScan;
     listeners.forEach(off => off());
+
+    /*
+       The overlay is removed from the screen NOW, synchronously — not after
+       the WebXR session finishes ending.
+
+       This used to be `if (state.session) state.session.end().catch(cleanupAR)`,
+       which only ran cleanupAR (and so unmountARExperience) if ending the
+       session FAILED. On success, removal waited for the session's own 'end'
+       event, which fires only once the browser has actually torn down the
+       camera and the XR frame loop — on real hardware that can take a
+       noticeable moment, not the ~0ms it takes in a headless test. Someone
+       navigating home from the room scanner during that window got the
+       measurement chip and the reticle still sitting on screen, over the
+       page they had just navigated to, because #ar-experience lives on
+       document.body and nothing else was telling it to go.
+
+       unmountARExperience() only removes the DOM and a listener; it does not
+       touch the camera stream, the hit-test source or the renderer, so it is
+       safe to call before the session has actually finished closing. Ending
+       the session still happens in the background via state.session.end()
+       (or cleanupAR() directly, restoring the pre-existing behaviour for
+       everything that WASN'T the visible leak) so the camera and GPU
+       resources are still released the moment the browser is done with them.
+    */
+    unmountARExperience();
+    /* $('#ar-experience') is no use as the "was anything active" check here
+       any more — unmountARExperience() just removed it unconditionally, so it
+       would always read null. state.cameraStream is what actually indicates
+       a camera/renderer was running without a full WebXR session (the
+       camera-preview fallback path). */
     if (state.session) state.session.end().catch(cleanupAR);
-    else if ($('#ar-experience')) cleanupAR();
+    else if (state.cameraStream || state.xrRenderer || state.fallbackRender) cleanupAR();
   };
 }
