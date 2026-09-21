@@ -71,26 +71,74 @@ export default function Diagnostics() {
   */
   async function runDeep() {
     setBusy(true);
-    const out = { hitTest: 'no', planes: 'no', depth: 'no', planeCount: 0, error: null };
+    const out = { hitTest: 'no', planes: 'no', depth: 'no', planeCount: 0, config: null, error: null, tried: [] };
     let session = null;
-    try {
-      session = await navigator.xr.requestSession('immersive-ar', {
-        requiredFeatures: ['hit-test'],
-        optionalFeatures: ['local-floor', 'plane-detection', 'depth-sensing'],
-        depthSensing: { usagePreference: ['cpu-optimized'], dataFormatPreference: ['luminance-alpha'] }
-      });
-      out.hitTest = 'yes';
 
+    /*
+       Try the same ladder of configurations the scanner uses, and report
+       WHICH rung this phone accepts.
+
+       The first version of this asked once, with a depthSensing init dict,
+       and a phone that could not satisfy that dict refused the whole request
+       with "NotSupportedError: The specified session configuration is not
+       supported". Because the throw skipped the line that sets hitTest to
+       'yes', the page then reported "Hit-test: No" — a capability it had
+       never actually tested. It told a user their phone could not measure
+       when the truth was that this page had asked the wrong question.
+
+       That is the same bug the scanner had, and finding it here is the only
+       reason it was found there.
+    */
+    const CONFIGS = [
+      ['full (with depth config)', {
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: ['local-floor', 'dom-overlay', 'plane-detection', 'depth-sensing'],
+        depthSensing: {
+          usagePreference: ['cpu-optimized'],
+          dataFormatPreference: ['luminance-alpha', 'float32']
+        }
+      }],
+      ['no depth config', {
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: ['local-floor', 'dom-overlay', 'plane-detection']
+      }],
+      ['hit-test + overlay', {
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: ['local-floor', 'dom-overlay']
+      }],
+      ['bare hit-test', { requiredFeatures: ['hit-test'] }],
+      ['nothing required', { optionalFeatures: ['hit-test', 'local-floor'] }]
+    ];
+
+    for (const [name, init] of CONFIGS) {
+      try {
+        session = await navigator.xr.requestSession('immersive-ar', init);
+        out.config = name;
+        break;
+      } catch (err) {
+        out.tried.push(`${name} — ${err?.name}`);
+      }
+    }
+
+    if (!session) {
+      out.error = `Every configuration refused. ${out.tried.join('; ')}`;
+      setDeep(out);
+      setBusy(false);
+      return;
+    }
+
+    try {
       const refSpace = await session.requestReferenceSpace('local');
       const viewer = await session.requestReferenceSpace('viewer');
+      // Hit-test is only "yes" once a SOURCE actually comes back, not merely
+      // because the feature was named in the request.
       try {
-        await session.requestHitTestSource({ space: viewer });
-      } catch {
-        out.hitTest = 'no';
+        const source = await session.requestHitTestSource({ space: viewer });
+        if (source) out.hitTest = 'yes';
+      } catch (err) {
+        out.error = `hit-test source: ${err?.name}: ${err?.message}`;
       }
 
-      // Watch real frames for a few seconds. detectedPlanes existing at all is
-      // the first bar; a plane actually arriving is the one that matters.
       await new Promise(resolve => {
         const started = performance.now();
         const onFrame = (time, frame) => {
@@ -151,6 +199,10 @@ export default function Diagnostics() {
 
       {deep && (
         <div className="diag-list">
+          <Row question="Session configuration accepted" verdict={deep.config ? 'yes' : 'no'}
+            detail={deep.config
+              ? `"${deep.config}"${deep.tried.length ? ` — refused first: ${deep.tried.join('; ')}` : ''}`
+              : 'No configuration was accepted.'} />
           <Row question="Hit-test (needed to tap corners)" verdict={deep.hitTest}
             detail={deep.hitTest === 'yes'
               ? 'The room scanner can work on this phone.'

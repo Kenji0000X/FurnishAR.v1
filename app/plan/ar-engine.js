@@ -1842,53 +1842,101 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     let recentHitHeights = []; // Rolling buffer of Y-position samples (last 10 frames)
     const flatnessThreshold = 0.015; // ~1.5 cm variance threshold
     
-    let session;
-    try {
-      // Try with hit-test as required
-      session = await navigator.xr.requestSession('immersive-ar', {
-        requiredFeatures: ['hit-test'],
-        // Both stay OPTIONAL. Requiring plane-detection would deny a session
-        // to every device that can still measure perfectly well by tapping
-        // two points; requiring depth-sensing would deny it to almost all of
-        // them. What the session actually granted is read back below and
-        // reported, rather than assumed from having asked.
-        optionalFeatures: ['local-floor', 'dom-overlay', 'plane-detection', 'depth-sensing'],
-        depthSensing: {
-          usagePreference: ['cpu-optimized'],
-          dataFormatPreference: ['luminance-alpha', 'float32']
-        },
-        domOverlay: { root }
-      });
-      state.hitTestRequired = true;
-    } catch (error) {
-      console.warn('[AR] hit-test required failed:', error?.name, error?.message, '— retrying without hit-test...');
-      try {
-        // Fallback: try without hit-test as required
-        session = await navigator.xr.requestSession('immersive-ar', {
-          optionalFeatures: [
-            'hit-test', 'local-floor', 'dom-overlay', 'plane-detection', 'depth-sensing'
-          ],
+    /*
+       Open a session by trying configurations from richest to barest.
+
+       THE BUG THIS REPLACES, because it is the reason the scanner never
+       worked on a real phone:
+
+       Both the original attempt and its fallback passed the same
+       `depthSensing` init dict. A phone that cannot satisfy that dict
+       rejects the WHOLE request with
+
+           NotSupportedError: The specified session configuration is not
+           supported.
+
+       — and since the fallback carried the identical dict, it failed the
+       same way. Two attempts, one configuration. The session never opened,
+       so there was no camera, no hit-test and no measurement, on a device
+       that reported immersive-ar as supported and could have done all three.
+
+       The fix is to actually degrade. Each rung drops the thing most likely
+       to be refused, so the last rung asks for nothing but the session
+       itself. A device that supports immersive-ar at all now gets one.
+
+       Order matters: depthSensing goes first because it is the most commonly
+       refused, then plane-detection, then dom-overlay, and hit-test moves
+       from required to optional only at the very end — a session without it
+       cannot measure, so it is the last thing given up rather than the
+       first.
+    */
+    const CONFIGS = [
+      {
+        name: 'full',
+        init: {
+          requiredFeatures: ['hit-test'],
+          optionalFeatures: ['local-floor', 'dom-overlay', 'plane-detection', 'depth-sensing'],
           depthSensing: {
             usagePreference: ['cpu-optimized'],
             dataFormatPreference: ['luminance-alpha', 'float32']
           },
           domOverlay: { root }
-        });
-        state.hitTestRequired = false;
-      } catch (finalError) {
-        // Log detailed diagnostics
-        console.error('[AR] XR session request failed:', {
-          errorName: finalError?.name,
-          errorMessage: finalError?.message,
-          errorCode: finalError?.code,
-          isSecureContext: window.isSecureContext,
-          xrAvailable: !!navigator.xr,
-          timestamp: new Date().toISOString()
-        });
-        throw finalError;
+        }
+      },
+      {
+        name: 'no-depth-config',
+        init: {
+          requiredFeatures: ['hit-test'],
+          optionalFeatures: ['local-floor', 'dom-overlay', 'plane-detection'],
+          domOverlay: { root }
+        }
+      },
+      {
+        name: 'overlay-only',
+        init: {
+          requiredFeatures: ['hit-test'],
+          optionalFeatures: ['local-floor', 'dom-overlay'],
+          domOverlay: { root }
+        }
+      },
+      {
+        name: 'bare-hit-test',
+        init: { requiredFeatures: ['hit-test'] }
+      },
+      {
+        name: 'nothing-required',
+        init: { optionalFeatures: ['hit-test', 'local-floor', 'dom-overlay'] }
+      }
+    ];
+
+    let session = null;
+    const attempts = [];
+    for (const config of CONFIGS) {
+      try {
+        session = await navigator.xr.requestSession('immersive-ar', config.init);
+        state.sessionConfig = config.name;
+        state.hitTestRequired = Boolean(config.init.requiredFeatures?.includes('hit-test'));
+        if (attempts.length) {
+          console.warn(`[AR] session opened on "${config.name}" after ${attempts.length} refusal(s):`,
+            attempts.map(a => `${a.name}: ${a.error}`).join(' | '));
+        }
+        break;
+      } catch (error) {
+        attempts.push({ name: config.name, error: `${error?.name}: ${error?.message}` });
       }
     }
-    
+
+    if (!session) {
+      console.error('[AR] every session configuration was refused:', {
+        attempts,
+        isSecureContext: window.isSecureContext,
+        xrAvailable: Boolean(navigator.xr),
+        timestamp: new Date().toISOString()
+      });
+      const last = attempts[attempts.length - 1];
+      throw new Error(last ? `${last.error} (after ${attempts.length} configurations)` : 'No AR session');
+    }
+
     state.session = session;
 
     // Load THREE.js if needed
