@@ -3461,3 +3461,39 @@ footer {
   .review-details > div { grid-template-columns: 1fr; gap: .15rem; }
   .review-head { flex-direction: column; gap: .5rem; }
 }
+
+/* ------------------------------------------------- the device check ------ */
+/*
+   /diagnose. A workshop page, not a shopper page: its job is to be readable
+   at arm's length on a phone in a room, and to be screenshot-able so an
+   answer can be sent to somebody else. Big rows, one question each, and a
+   verdict that does not rely on colour alone — the word "Yes" or "No" carries
+   it, the tint only reinforces.
+*/
+.diagnose { max-width: 42rem; margin: 0 auto; padding: 2.5rem var(--gutter) 4rem; }
+.diagnose h1 { font-size: clamp(1.8rem, 6vw, 2.6rem); letter-spacing: -.03em; margin: .5rem 0 1rem; }
+.diagnose-intro { color: var(--ink-muted); margin-bottom: 1.5rem; font-size: .95rem; }
+
+.diag-list { display: grid; gap: .5rem; margin: 1.5rem 0; }
+.diag-row {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
+  padding: .9rem 1.1rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper-raised);
+}
+.diag-q { font-size: .9375rem; }
+.diag-a { display: grid; justify-items: end; text-align: right; flex: 0 0 auto; max-width: 55%; }
+.diag-a b { font-size: .9375rem; }
+.diag-a small { font-family: var(--mono); font-size: var(--micro); color: var(--ink-faint); margin-top: .2rem; }
+.diag-row.is-ok b { color: var(--ok); }
+.diag-row.is-bad b { color: var(--danger); }
+.diag-row.is-idle b { color: var(--ink-faint); }
+
+.diag-deep { margin: 1.5rem 0; }
+.diag-deep .button { width: 100%; }
+.diag-ua { margin-top: 2rem; }
+.diag-ua p {
+  font-family: var(--mono); font-size: var(--micro); color: var(--ink-faint);
+  word-break: break-all; margin-top: .5rem;
+}
