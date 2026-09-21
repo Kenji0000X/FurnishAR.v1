@@ -66,40 +66,52 @@ const TILT = Math.atan(2.5 / 1.4) * 180 / Math.PI;   // 60.75 degrees
 await page.evaluate(t => window.__aim(t, 53.130102), TILT);
 await page.waitForTimeout(150);
 
-const liveText = await page.locator('.ms-live').textContent();
-/* 1.40 * tan(60.75) = 2.50 m. The readout must say so, live, before any tap. */
-check('aiming shows the distance without tapping anything', /250 cm/.test(liveText), liveText.trim());
-check('and carries the uncertainty rather than a bare number', /±\s*\d+ cm/.test(liveText), liveText.trim());
-check('the trust grading says this one is good',
-  await page.locator('.ms-live.is-good').count() === 1);
+/* The camera fills the view, the way the app this copies does it. */
+const camBox = await page.locator('.ms-view').boundingBox();
+const rootBox = await page.locator('.ms-root').boundingBox();
+check('the camera fills the screen rather than sitting in a card',
+  camBox.height > rootBox.height * 0.6, `${Math.round(camBox.height)} of ${Math.round(rootBox.height)}px`);
+check('the reticle is drawn on the picture',
+  await page.locator('.ms-view-svg circle').count() >= 2);
+check('the prompt tells you what to do next, not what is wrong',
+  await page.locator('.ms-tip').textContent().then(t => /Aim where the wall meets the floor/.test(t)));
+check('and it says the markers are anchored to where you stand',
+  await page.locator('.ms-anchor-warn').textContent()
+    .then(t => /turn, don.t walk/i.test(t)));
 
-// The readout must TRACK, not latch: a different angle must give a different
-// number without any interaction at all.
-await page.evaluate(() => window.__aim(45, 53.130102));
-await page.waitForTimeout(150);
-const at45 = await page.locator('.ms-live b').first().textContent();
-check('the reading is live, not latched', /140 cm/.test(at45), `at 45°: ${at45}`);
-
-// And an impossible aim must refuse rather than invent.
+// An impossible aim must refuse rather than invent.
 await page.evaluate(() => window.__aim(86, 53.130102));
 await page.waitForTimeout(150);
 check('aiming near level refuses instead of printing a number',
-  await page.locator('.ms-hint').first().textContent().then(t => /Aim further down/.test(t)));
-check('and the corner button is disabled while it cannot measure',
-  await page.locator('.ms-actions button:has-text("Tap corner")').isDisabled());
+  await page.locator('.ms-tip').textContent().then(t => /Aim further down/.test(t)));
+check('and the place button is disabled while it cannot measure',
+  await page.locator('.ms-add').isDisabled());
 
 console.log('--- aim mode: walking a 4 x 3 m room ---');
 const bearings = [53.130102, 126.869898, 233.130102, 306.869898];
 for (const bearing of bearings) {
   await page.evaluate(([t, b]) => window.__aim(t, b), [TILT, bearing]);
   await page.waitForTimeout(120);
-  await page.click('.ms-actions button:has-text("Tap corner")');
+  await page.click('.ms-add');
 }
-check('four corners were taken',
-  /Tap corner \(4\)/.test(await page.locator('.ms-actions button:has-text("Tap corner")').textContent()));
 
-await page.click('.ms-actions button:has-text("Close outline")');
+/* The measurement must appear ON the picture, as a white pill on the line
+   between two white endpoint dots — which is the whole look being copied.
+   Turn back to face the first two corners so both are in frame. */
+await page.evaluate(([t, b]) => window.__aim(t, b), [TILT, 90]);
 await page.waitForTimeout(200);
+const onView = await page.locator('.ms-view-svg .ms-view-label').allTextContents();
+check('lengths are drawn on the camera view, not only in a panel',
+  onView.length > 0, onView.join(' · ') || 'no labels on the view');
+check('and they read in centimetres like the reference app',
+  onView.some(t => /^\d+ cm$/.test(t)), onView.join(' · '));
+check('the line has white endpoint dots',
+  await page.locator('.ms-view-svg circle[fill="#fff"]').count() >= 2);
+
+await page.click('.ms-chip:has-text("Close")');
+await page.waitForTimeout(200);
+await page.click('.ms-chip:has-text("Plan")');
+await page.waitForTimeout(250);
 
 const plan = await page.locator('.ms-plan').textContent();
 check('the floor plan reports the long side as 4.00 m', /400 cm/.test(plan), plan.replace(/\s+/g, ' ').slice(0, 160));

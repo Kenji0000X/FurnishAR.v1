@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   distanceFromTilt, heightFromTilt, floorPointFromAim, bearingDelta,
-  surfacesFromCorners, cornerReadiness, MAX_TILT_DEGREES
+  surfacesFromCorners, cornerReadiness, MAX_TILT_DEGREES, projectFloorPoint
 } from '../lib/spatial/clinometer.mjs';
 import { roomDimensions } from '../lib/spatial/room.mjs';
 
@@ -138,4 +138,69 @@ test('readiness names what is still missing', () => {
   assert.deepEqual(cornerReadiness([1, 2], {}).blocking, ['1 more corner', 'close the outline']);
   assert.deepEqual(cornerReadiness([1, 2, 3], { closed: false }).blocking, ['close the outline']);
   assert.equal(cornerReadiness([1, 2, 3], { closed: true }).ready, true);
+});
+
+/* ------------------------------------------- drawing markers on the view -- */
+
+test('the point you are aiming at lands dead centre', () => {
+  // The one case that must be exact regardless of any lens estimate: the
+  // reticle is the middle of the frame by definition, so whatever floor
+  // point the current angles resolve to must project back to (0.5, 0.5).
+  const eyeHeight = 1.4, tiltDegrees = 62, bearingDegrees = 30;
+  const { point } = floorPointFromAim({ eyeHeight, tiltDegrees, bearingDegrees });
+  const { u, v, visible } = projectFloorPoint({ point, eyeHeight, tiltDegrees, bearingDegrees });
+  assert.ok(Math.abs(u - 0.5) < 1e-9, `u ${u}`);
+  assert.ok(Math.abs(v - 0.5) < 1e-9, `v ${v}`);
+  assert.equal(visible, true);
+});
+
+test('turning right sweeps the marker left, and vice versa', () => {
+  const eyeHeight = 1.4, tilt = 60;
+  const { point } = floorPointFromAim({ eyeHeight, tiltDegrees: tilt, bearingDegrees: 0 });
+  // Turn the phone 10 degrees to the right: the fixed marker must move left.
+  const right = projectFloorPoint({ point, eyeHeight, tiltDegrees: tilt, bearingDegrees: 10 });
+  assert.ok(right.u < 0.5, `u ${right.u}`);
+  const left = projectFloorPoint({ point, eyeHeight, tiltDegrees: tilt, bearingDegrees: -10 });
+  assert.ok(left.u > 0.5, `u ${left.u}`);
+  // Symmetric about the centre.
+  assert.ok(Math.abs((0.5 - right.u) - (left.u - 0.5)) < 1e-9);
+});
+
+test('a further point sits higher in the frame', () => {
+  const eyeHeight = 1.4, bearing = 0;
+  const near = { x: 0, y: 0, z: -2 };
+  const far = { x: 0, y: 0, z: -6 };
+  const camera = { eyeHeight, tiltDegrees: 70, bearingDegrees: bearing };
+  const a = projectFloorPoint({ point: near, ...camera });
+  const b = projectFloorPoint({ point: far, ...camera });
+  assert.ok(b.v < a.v, `far ${b.v} should be above near ${a.v}`);
+});
+
+test('a marker behind you is not drawn', () => {
+  const behind = { x: 0, y: 0, z: 3 };   // directly behind the standing spot
+  const { visible } = projectFloorPoint({
+    point: behind, eyeHeight: 1.4, tiltDegrees: 60, bearingDegrees: 0
+  });
+  assert.equal(visible, false);
+});
+
+test('projection refuses rather than guessing when a reading is missing', () => {
+  const p = { x: 1, y: 0, z: -2 };
+  assert.equal(projectFloorPoint({ point: p, eyeHeight: 1.4, tiltDegrees: NaN, bearingDegrees: 0 }).visible, false);
+  assert.equal(projectFloorPoint({ point: null, eyeHeight: 1.4, tiltDegrees: 60, bearingDegrees: 0 }).u, null);
+});
+
+test('the lens estimate never reaches a measurement', () => {
+  /*
+     The honest separation: a wrong field of view moves a marker on the
+     picture and changes no number. Same point, wildly different lens, same
+     distance reported.
+  */
+  const p = { x: 2, y: 0, z: -2 };
+  const camera = { point: p, eyeHeight: 1.4, tiltDegrees: 60, bearingDegrees: 0 };
+  const wide = projectFloorPoint({ ...camera, fov: { x: 90, y: 110 } });
+  const narrow = projectFloorPoint({ ...camera, fov: { x: 40, y: 50 } });
+  assert.notEqual(wide.u, narrow.u, 'the drawing moves');
+  assert.equal(wide.distance, narrow.distance, 'the measurement does not');
+  assert.ok(Math.abs(wide.distance - Math.hypot(2, 2)) < 1e-9);
 });

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   distanceFromTilt, heightFromTilt, floorPointFromAim, bearingDelta,
-  surfacesFromCorners, cornerReadiness, MAX_TILT_DEGREES
+  surfacesFromCorners, cornerReadiness, MAX_TILT_DEGREES, projectFloorPoint
 } from '../../lib/spatial/clinometer.mjs';
 import {
   KNOWN_OBJECTS, scaleFromReference, measure, squareness, wallsToCorners
@@ -218,6 +218,13 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
   const [reading, setReading] = useState({ tilt: null, bearing: null, events: 0 });
   const baseBearing = useRef(null);
 
+  const [showPlan, setShowPlan] = useState(false);
+  /* The camera element's real pixel size. The overlay is drawn in those
+     pixels rather than through an SVG viewBox, so endpoint dots stay round
+     and strokes stay even whatever shape the viewport is. */
+  const viewRef = useRef(null);
+  const [view, setView] = useState({ w: 0, h: 0 });
+
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const [cameraError, setCameraError] = useState(null);
@@ -301,6 +308,75 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
 
   const readiness = cornerReadiness(corners, { closed });
 
+  /* Keep the overlay's pixel canvas the same size as the camera element. */
+  useEffect(() => {
+    const node = viewRef.current;
+    if (!node) return undefined;
+    const sync = () => setView({ w: node.clientWidth, h: node.clientHeight });
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(node);
+    return () => ro.disconnect();
+  }, [mode]);
+
+  /*
+     The corners, projected back onto the picture.
+
+     This is what makes it behave like the app it copies: a placed marker
+     stays on its spot on the floor while the phone pans across the room,
+     instead of sitting in a panel underneath. It is a real projection of the
+     floor plane from the current tilt and bearing — not world tracking, and
+     it holds only while the person turns on the spot, which the interface
+     says out loud.
+  */
+  const aiming = shot.distance != null;
+  const viewMarks = useMemo(() => {
+    if (!view.w || !view.h) return [];
+    return corners.map((c, i) => {
+      const at = projectFloorPoint({
+        point: c, eyeHeight,
+        tiltDegrees: reading.tilt, bearingDegrees: reading.bearing
+      });
+      return {
+        key: i, visible: at.visible,
+        x: (at.u ?? 0) * view.w, y: (at.v ?? 0) * view.h,
+        distance: at.distance
+      };
+    });
+  }, [corners, eyeHeight, reading.tilt, reading.bearing, view.w, view.h]);
+
+  /* One segment per wall already placed, plus a dashed live one running from
+     the last corner to the crosshair — the rubber band that shows what the
+     next tap would add before it is committed. */
+  const viewSegments = useMemo(() => {
+    const out = [];
+    const len = (a, b) => Math.hypot(b.x - a.x, b.z - a.z);
+    for (let i = 0; i < corners.length - 1; i += 1) {
+      const a = viewMarks[i], b = viewMarks[i + 1];
+      if (!a?.visible && !b?.visible) continue;
+      out.push({ key: `${i}`, a, b, label: m2cm(len(corners[i], corners[i + 1])), live: false });
+    }
+    if (closed && corners.length > 2) {
+      const a = viewMarks[corners.length - 1], b = viewMarks[0];
+      if (a?.visible || b?.visible) {
+        out.push({ key: 'close', a, b, label: m2cm(len(corners[corners.length - 1], corners[0])), live: false });
+      }
+    }
+    if (!closed && corners.length && aiming && view.w) {
+      const last = viewMarks[corners.length - 1];
+      const here = floorPointFromAim({
+        eyeHeight, tiltDegrees: reading.tilt, bearingDegrees: reading.bearing
+      });
+      if (last?.visible && here.point) {
+        out.push({
+          key: 'live', a: last, b: { x: view.w / 2, y: view.h / 2 },
+          label: m2cm(len(corners[corners.length - 1], here.point)), live: true
+        });
+      }
+    }
+    return out;
+  }, [corners, viewMarks, closed, aiming, eyeHeight, reading.tilt, reading.bearing, view.w, view.h]);
+
   /* ------------------------------------------------------------- taps -- */
   function addCorner() {
     const now = live.current;
@@ -325,6 +401,12 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
     if (h.height == null) { setNote(h.reason); return; }
     setCeiling(h.height);
     setNote(`Ceiling ${m2cm(h.height)}, give or take ${Math.round(h.spread * 100)} cm.`);
+  }
+
+  function undoCorner() {
+    setCorners(list => list.slice(0, -1));
+    setClosed(false);
+    setNote(null);
   }
 
   function reset() {
@@ -423,74 +505,110 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
 
       {/* ------------------------------------------------------------ AIM */}
       {mode === 'aim' && (
-        <div className="ms-stage">
-          {/* The reticle is absolutely positioned, so it needs a positioned
-              parent. Without one it resolved against the page and smeared
-              gold streaks the length of the document. */}
-          <div className="ms-cam">
-            <video ref={videoRef} className="ms-video" autoPlay playsInline muted />
-            <svg className="ms-overlay" viewBox="0 0 100 100" aria-hidden="true">
-              <circle cx="50" cy="50" r="9" fill="none" stroke={GOLD} strokeWidth="1.2"
-                strokeDasharray="4 4" />
-              <circle cx="50" cy="50" r="1.6" fill={GOLD} />
-            </svg>
+        <div className="ms-view" ref={viewRef}>
+          <video ref={videoRef} className="ms-view-video" autoPlay playsInline muted />
 
-            {/* Over the picture, like the app this copies: the number belongs
-                next to the thing being aimed at, not in a panel below it. */}
-            <div className={`ms-live is-${shot.trust}`}>
-              {shot.distance != null ? (
-                <>
-                  <b>{m2cm(shot.distance)}</b>
-                  <span>± {Math.round(shot.spread * 100)} cm</span>
-                </>
-              ) : (
-                <b className="ms-live-none">{reading.events === 0 ? 'Waiting for the tilt sensor…' : '—'}</b>
-              )}
-              <small>
-                {reading.tilt == null ? 'No tilt reading' : `tilt ${reading.tilt.toFixed(0)}° · max ${MAX_TILT_DEGREES}°`}
-              </small>
+          {/*
+             The overlay, drawn the way the app this copies draws it: a thin
+             white line between white endpoint dots, with the length in a
+             white pill at the middle of the line. No panel, no card — the
+             measurement lives on the picture, over the thing measured.
+
+             Sized in real pixels from the element rather than through a
+             viewBox, so the dots stay round and the strokes stay even
+             whatever shape the viewport is.
+          */}
+          <svg className="ms-view-svg" width={view.w} height={view.h} aria-hidden="true">
+            {viewSegments.map(seg => (
+              <line key={`s${seg.key}`} x1={seg.a.x} y1={seg.a.y} x2={seg.b.x} y2={seg.b.y}
+                stroke="#fff" strokeWidth="2.5" strokeLinecap="round"
+                strokeDasharray={seg.live ? '7 7' : undefined} opacity={seg.live ? 0.85 : 1} />
+            ))}
+            {viewMarks.filter(m => m.visible).map(m => (
+              <g key={`m${m.key}`}>
+                <circle cx={m.x} cy={m.y} r="8" fill="#fff" />
+                <circle cx={m.x} cy={m.y} r="3.5" fill="rgba(0,0,0,.55)" />
+              </g>
+            ))}
+            {aiming && (
+              <g>
+                <circle cx={view.w / 2} cy={view.h / 2} r="17" fill="none"
+                  stroke="#fff" strokeWidth="2.5" opacity="0.95" />
+                <circle cx={view.w / 2} cy={view.h / 2} r="3" fill="#fff" />
+              </g>
+            )}
+            {viewSegments.map(seg => {
+              const w = seg.label.length * 8.2 + 20;
+              const mx = (seg.a.x + seg.b.x) / 2;
+              const my = (seg.a.y + seg.b.y) / 2;
+              return (
+                <g key={`t${seg.key}`}>
+                  <rect x={mx - w / 2} y={my - 14} width={w} height={28} rx={14}
+                    fill="#fff" opacity={seg.live ? 0.9 : 1} />
+                  <text x={mx} y={my + 5} textAnchor="middle" className="ms-view-label">
+                    {seg.label}
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+
+          <p className="ms-tip">
+            {reading.events === 0
+              ? 'Waiting for the tilt sensor…'
+              : shot.reason
+                ? shot.reason
+                : corners.length === 0
+                  ? 'Stand still. Aim where the wall meets the floor, then tap +'
+                  : closed
+                    ? 'Outline closed. Aim up at the ceiling for the height.'
+                    : `Corner ${corners.length} placed — turn to the next one`}
+          </p>
+
+          {note && <p className="ms-toast">{note}</p>}
+
+          {/* Stay-put warning. The markers are anchored to where you are
+              standing, not to the world, so walking invalidates them. Said
+              plainly instead of letting the outline quietly go wrong. */}
+          {!showPlan && (
+            <p className="ms-anchor-warn">Measured from where you stand — turn, don&apos;t walk</p>
+          )}
+
+          <div className="ms-dock">
+            <div className="ms-dock-row">
+              <button type="button" className="ms-chip" onClick={undoCorner}
+                disabled={!corners.length}>Undo</button>
+              <button type="button" className="ms-add" onClick={addCorner}
+                disabled={shot.distance == null} aria-label="Place a corner here">
+                <span aria-hidden="true">+</span>
+              </button>
+              <button type="button" className="ms-chip" onClick={() => setClosed(true)}
+                disabled={corners.length < 3 || closed}>Close</button>
+            </div>
+            <div className="ms-dock-row ms-dock-second">
+              <button type="button" className="ms-chip" onClick={setCeilingFromAim}>
+                {ceiling ? `Ceiling ${m2cm(ceiling)}` : 'Ceiling'}
+              </button>
+              <button type="button" className="ms-chip" onClick={() => setShowPlan(s => !s)}>
+                {showPlan ? 'Hide plan' : 'Plan'}
+              </button>
+              <button type="button" className="ms-chip" onClick={reset}>Reset</button>
             </div>
           </div>
 
-
-          {shot.reason && <p className="ms-hint">{shot.reason}</p>}
-          {note && <p className="ms-note">{note}</p>}
-
-          <div className="ms-actions">
-            <button type="button" className="button button-primary" onClick={addCorner}
-              disabled={shot.distance == null}>
-              Tap corner ({corners.length})
-            </button>
-            <button type="button" className="button" onClick={() => setClosed(true)}
-              disabled={corners.length < 3 || closed}>
-              Close outline
-            </button>
-            <button type="button" className="button" onClick={setCeilingFromAim}>
-              {ceiling ? `Ceiling ${m2cm(ceiling)}` : 'Aim up: ceiling'}
-            </button>
-            <button type="button" className="button" onClick={reset}>Start over</button>
-          </div>
-
-          <FloorPlan corners={corners} closed={closed} room={room} />
-
-          {!readiness.ready && (
-            <p className="ms-hint">Still needed: {readiness.blocking.join(', ')}.</p>
+          {showPlan && (
+            <div className="ms-plan-sheet">
+              <FloorPlan corners={corners} closed={closed} room={room} />
+              <label className="ms-height-row">
+                Holding height {eyeHeight.toFixed(2)} m
+                <input type="range" min="0.8" max="2" step="0.01" value={eyeHeight}
+                  onChange={e => setEyeHeight(Number(e.target.value))}
+                  aria-label="Height you are holding the phone at, in metres" />
+              </label>
+            </div>
           )}
-
-          <details className="ms-setup">
-            <summary>Holding height — {eyeHeight.toFixed(2)} m</summary>
-            <p>
-              Every distance is this height times the tangent of the tilt angle,
-              so a wrong height scales the whole room by the same proportion.
-              Measure it once with a tape and it never needs touching again.
-            </p>
-            <input type="range" min="0.8" max="2" step="0.01" value={eyeHeight}
-              onChange={e => setEyeHeight(Number(e.target.value))}
-              aria-label="Height you are holding the phone at, in metres" />
-          </details>
         </div>
       )}
-
       {/* ---------------------------------------------------------- PHOTO */}
       {mode === 'photo' && (
         <div className="ms-stage">

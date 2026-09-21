@@ -3649,3 +3649,73 @@ footer {
 
 /* The entry point on the planner card. */
 .no-ar-cta { display: grid; gap: .5rem; margin-top: 1rem; }
+
+/* ------------------------------------------------------------------------
+   Aim mode, styled after Apple's Measure.
+
+   That app puts nothing between you and the picture: the camera fills the
+   screen, the measurement sits on the line in the world as a white pill,
+   and the only permanent chrome is one round button. Everything that was a
+   card or a panel here is now either on the picture or in a sheet you open
+   deliberately.
+   --------------------------------------------------------------------- */
+.ms-view { position: relative; flex: 1; min-height: 0; overflow: hidden; background: #000; }
+.ms-view-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ms-view-svg { position: absolute; inset: 0; pointer-events: none; }
+.ms-view-label {
+  font-family: var(--mono); font-size: 13px; font-weight: 700; fill: #111;
+}
+
+/* Hint line at the top, the way Measure prompts you. Dark, translucent,
+   one line, and it says what to do next rather than what went wrong. */
+.ms-tip, .ms-toast, .ms-anchor-warn {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  margin: 0; max-width: calc(100% - 2rem); text-align: center;
+  padding: .45rem .9rem; border-radius: 999px;
+  background: rgba(12, 10, 8, .72); backdrop-filter: blur(8px);
+  color: #f6f1e7; font-size: .8125rem; line-height: 1.35;
+}
+.ms-tip { top: .75rem; }
+.ms-toast { top: 3.4rem; background: rgba(242, 193, 78, .92); color: #1b1206; font-weight: 600; }
+.ms-anchor-warn {
+  bottom: 10.5rem; font-size: .6875rem; letter-spacing: .02em;
+  background: rgba(12, 10, 8, .55); color: #cfc6b6;
+}
+
+/* The dock. One big round button, the way Measure has one, with the
+   secondary actions as small chips either side rather than a button grid. */
+.ms-dock {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: grid; gap: .5rem; justify-items: center;
+  padding: .75rem .75rem max(.75rem, env(safe-area-inset-bottom));
+  background: linear-gradient(to top, rgba(12, 10, 8, .88), rgba(12, 10, 8, 0));
+}
+.ms-dock-row { display: flex; align-items: center; justify-content: center; gap: 1rem; }
+.ms-add {
+  width: 68px; height: 68px; border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, .9);
+  background: rgba(255, 255, 255, .16); backdrop-filter: blur(6px);
+  color: #fff; font-size: 2rem; line-height: 1; cursor: pointer;
+  display: grid; place-items: center;
+}
+.ms-add:disabled { opacity: .35; }
+.ms-add:active:not(:disabled) { transform: scale(.94); }
+.ms-chip {
+  appearance: none; min-height: 44px; padding: 0 1rem;
+  border-radius: 999px; border: 1px solid rgba(255, 255, 255, .3);
+  background: rgba(12, 10, 8, .6); color: #f6f1e7;
+  font: inherit; font-size: .8125rem; cursor: pointer;
+}
+.ms-chip:disabled { opacity: .35; }
+.ms-dock-second .ms-chip { font-size: .75rem; min-height: 38px; }
+
+/* The plan is a sheet you pull up, not the main event — Measure has no plan
+   view at all, but a room scanner needs one somewhere. */
+.ms-plan-sheet {
+  position: absolute; left: .75rem; right: .75rem; bottom: 11.5rem;
+  display: grid; gap: .5rem; padding: .75rem;
+  border-radius: 16px; background: rgba(12, 10, 8, .92);
+  border: 1px solid rgba(242, 193, 78, .3); backdrop-filter: blur(10px);
+}
+.ms-height-row { display: grid; gap: .35rem; font-size: .75rem; color: #cfc6b6; }
+.ms-height-row input { width: 100%; }
