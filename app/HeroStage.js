@@ -510,6 +510,13 @@ export default function HeroStage({ children }) {
       // trackpad fling arrives in coarse jumps and the model should arrive
       // just after the text rather than snapping with it.
       let current = progress();
+      /* The model turns on its own. It is a 3D object and it should read as
+         one — a still render of a sofa is just a photograph with a WebGL bill
+         attached. This is the ONLY motion it has: it is not linked to scroll
+         in any way (see KEYFRAMES, which are deliberately identical), so the
+         room turns gently in place wherever you are on the page and never
+         travels with it. */
+      let spin = 0;
 
       const draw = () => {
         frame = 0;
@@ -517,23 +524,13 @@ export default function HeroStage({ children }) {
 
         const target = progress();
         current += (target - current) * 0.12;
+        spin += 0.0012;
 
         const k = forPhone(sample(current));
         const at = place(k);
         pivot.position.set(at.x, at.y, 0);
         pivot.scale.setScalar(at.scale);
-        /* No added spin.
-
-           This used to add an ever-increasing `spin` on top of k.rotY, "so
-           the room is alive even when nobody scrolls" — a slow rotation that
-           NEVER stopped, driven by a 42ms idle timer that kept re-scheduling
-           itself forever. The keyframes were made static so the model would
-           stay put; this was the second, separate source of motion sitting
-           on top of that fix, and it is why the room still visibly turned
-           after the position was pinned. Gone, along with the idle loop that
-           existed only to advance it — see the settled branch below, which
-           now stops rendering entirely instead of ticking at 24fps forever. */
-        pivot.rotation.y = k.rotY;
+        pivot.rotation.y = k.rotY + spin;
         pivot.rotation.x = k.rotX;
 
         renderer.render(scene, camera);
@@ -568,25 +565,27 @@ export default function HeroStage({ children }) {
           calls: renderer.info.render.calls
         };
 
-        /* Keep going while it still has somewhere to get to; otherwise STOP.
-           There used to be an `else idle()` here, ticking the render loop
-           forever at 24fps to advance the spin above. With no spin, a settled
-           frame is the last frame — the scene will not produce a different
-           pixel until progress() changes again, and onScroll/onResize/the
-           IntersectionObserver already call schedule() directly when that can
-           happen. Rendering an unchanging scene forever was pure GPU cost. */
+        /* Full rate while catching up, then the cheaper idle cadence — which
+           still runs, because the spin still needs advancing. The room is
+           never finished turning; it is only finished MOVING, and those are
+           different things. */
         const settled = Math.abs(target - current) < 0.0002;
         if (!settled) schedule();
+        else idle();
       };
 
       const schedule = () => {
         if (!frame && running) frame = requestAnimationFrame(draw);
       };
 
-      // idleTimer is kept only so the clearTimeout() calls below stay valid
-      // no-ops. The idle() function that used to schedule work on it — a
-      // 24fps tick to advance the spin — is gone along with the spin.
+      // When nothing is moving but the room's own turn, 24fps is plenty and
+      // saves a third of the GPU work of a full-rate loop.
       let idleTimer = 0;
+      const idle = () => {
+        clearTimeout(idleTimer);
+        if (!running) return;
+        idleTimer = setTimeout(schedule, 42);
+      };
 
       const onScroll = () => schedule();
       const onResize = () => {

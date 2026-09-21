@@ -265,30 +265,27 @@ const browser = await chromium.launch({
         : 'no pose reported');
 
     /*
-       Stays put over TIME, not just across a scroll event.
+       The room TURNS, and that is deliberate.
 
-       The check above compares k.rotY before and after a scroll — the
-       keyframe's own target, not what Three.js actually draws. That is
-       exactly the gap an idle spin hid behind: `pivot.rotation.y = k.rotY +
-       spin`, where spin grew every frame forever, driven by a 24fps idle
-       timer that kept rescheduling itself even after the scroll settled. The
-       keyframe comparison read "unchanged" the whole time because k.rotY
-       genuinely never changed — the model was visibly turning underneath it.
-
-       So this samples renderedRotY — pivot.rotation.y itself — twice, a full
-       second apart, with the page sitting still. If anything is still
-       incrementing an angle every frame, it shows up here even though the
-       check above would call it fine.
+       An earlier version of this asserted the rendered rotation never
+       changed, which was a misreading: the idle spin is the whole reason the
+       thing is a 3D model rather than a photograph. What must not happen is
+       the room TRAVELLING with the scroll — moving across the page, changing
+       size, or being dragged along as you read. So position and scale are
+       held to account, and the turn is asserted to still be alive.
     */
-    const stillA = await page.evaluate(() => window.__furnisharStagePose?.renderedRotY);
-    await page.waitForTimeout(1000);
-    const stillB = await page.evaluate(() => window.__furnisharStagePose?.renderedRotY);
+    const spinA = await page.evaluate(() => window.__furnisharStagePose?.renderedRotY);
+    await page.waitForTimeout(600);
+    const spinB = await page.evaluate(() => window.__furnisharStagePose?.renderedRotY);
     check(
-      typeof stillA === 'number' && typeof stillB === 'number' && Math.abs(stillB - stillA) < 0.0005,
-      'the rendered rotation does not drift while nobody scrolls',
-      typeof stillA === 'number' && typeof stillB === 'number'
-        ? `${stillA.toFixed(4)} -> ${stillB.toFixed(4)} over 1s`
-        : 'renderedRotY not reported'
+      typeof spinA === 'number' && typeof spinB === 'number' && spinB !== spinA,
+      'the room keeps turning on its own',
+      typeof spinA === 'number' ? `${spinA.toFixed(3)} -> ${spinB.toFixed(3)}` : 'no pose'
+    );
+    check(
+      before && after && Math.abs(after.scale - before.scale) < 0.001,
+      'and does not change size as the page scrolls',
+      before && after ? `scale ${before.scale.toFixed(3)} -> ${after.scale.toFixed(3)}` : 'no pose'
     );
   }
 
