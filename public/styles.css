@@ -559,8 +559,23 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   isolation: isolate;
 }
 
+/*
+   The room belongs to the hero, and it leaves with the hero.
+
+   This was `position: sticky; top: 0`, and .hero-stage wraps THREE sections
+   (hero, story, promises) — so the canvas stuck to the top of the window and
+   rode along for all three. On a recording of the real site the sofa sat on
+   top of "Nothing arrives too big" and "Three things this actually does"
+   while you were trying to read them: the model joined the scroll and would
+   not leave.
+
+   Absolute, not sticky, so it occupies exactly the first screen of the stage
+   and then scrolls away like any other part of the page — which is what the
+   phone layout has always done. The model still turns in place while it is
+   on screen; it simply stops following you down the page.
+*/
 .hero-stage-pin {
-  position: sticky; top: 0; z-index: 0;
+  position: absolute; top: 0; left: 0; right: 0; z-index: 0;
   height: 100svh;
   /* Never eats a click or a swipe: everything here is scenery, and the links
      it sits behind must stay reachable. */
@@ -589,12 +604,13 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .hero-stage[data-mode="idle"] .hero-stage-still,
 .hero-stage[data-mode="loading"] .hero-stage-still { opacity: 1; }
 
-/* The sections ride on top of the pinned layer. Pulled back up by exactly the
-   height of the pin, because the sticky element still occupies a screen of
-   flow and without this every visitor would open the page on a blank one. */
+/* The sections ride on top of the room layer. No negative margin any more:
+   the layer is absolutely positioned, so it takes no space in flow and there
+   is nothing to pull back over. (It used to be sticky, which DID occupy a
+   screen of flow, and -100svh was what stopped the page opening on a blank
+   one.) */
 .hero-stage-flow {
   position: relative; z-index: 1;
-  margin-top: -100svh;
 }
 
 /* --------------------------------------------------------------- hero ---- */
@@ -865,21 +881,28 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
    half and the left stays empty on purpose. That emptiness is the layout.
 */
 
+/*
+   One column, centred.
+
+   These were a two-column grid with the copy in column 2 and column 1 left
+   empty for the room to travel through. The room does not travel any more —
+   it stays in the hero — so column 1 became a half-page of nothing and the
+   text sat hard against the right edge, reading as though the layout had
+   broken. With nothing to make room for, the copy takes the middle.
+*/
 .story, .promise-section {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
   align-items: center;
-  min-height: 100svh;
+  min-height: 70svh;
   max-width: var(--maxw); margin: 0 auto;
   padding: clamp(3rem, 8vh, 6rem) var(--gutter);
 }
 .story-copy, .promise-copy {
-  grid-column: 2;
-  max-width: 34rem;
-  /* A gutter the room can never cross. The keyframes keep it in the left
-     half, but "the left half" and "clear of the text" are not the same
-     thing once perspective is involved. */
-  padding-left: clamp(0rem, 2vw, 2rem);
+  grid-column: 1;
+  max-width: 44rem;
+  text-align: center;
 }
 
 .story h2, .promise-section h2 {
@@ -2801,25 +2824,15 @@ footer {
   .capsule-card { padding-right: 1rem; }
 
   /*
-     One column means the text sits ON the room instead of beside it, and the
-     two sections where that happens need a real ground to stay readable.
+     No panel behind this copy any more.
 
-     A radial wash of the page colour was the first attempt and it looked like
-     fog — a grey haze with a soft edge sitting over the sofa, which reads as a
-     rendering bug rather than as a decision. A flat panel of the page's own
-     paper is honest about what it is: the page, in front of the scene.
-     BRAND.md's rule holds — it is flat, so it is part of the page.
-
-     The hero needs none of this. Its copy is in the top half and the room is
-     moved to the bottom half below it (see HeroStage's narrow-viewport
-     offset), so nothing overlaps in the first place.
+     It used to get a flat paper ground with a hairline, because on one column
+     the text sat ON the room and needed something to stay readable against.
+     The room no longer reaches these sections at all — it stays in the hero
+     and scrolls away — so the panel was framing plain page against plain
+     page: a bordered box around a paragraph, for no reason a reader could
+     see.
   */
-  .story-copy, .promise-copy {
-    padding: 1.5rem;
-    margin: 0 -.5rem;
-    background: var(--paper);
-    border: 1px solid var(--rule);
-  }
 
   .planner-layout, .conditions { grid-template-columns: 1fr 1fr; }
   .verdict-card { grid-column: 1 / -1; }
