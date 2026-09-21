@@ -248,6 +248,13 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     </section>
     <div class="ar-dock">
     <p id="ar-mode-label" class="ar-hint glass"></p>
+    <!-- Finishing a two-point or floor-area measurement had no control of its
+         own: the only way out was "Close" in the top-right corner, which is
+         both the hardest place on the screen to reach one-handed and a word
+         that sounds like discarding the reading rather than keeping it. The
+         number was in fact already saved, so the button confirms what has
+         happened rather than performing it. -->
+    <button id="use-measurement" class="ar-outline-button glass" hidden disabled>Use this measurement</button>
     <button id="close-outline" class="ar-outline-button glass" hidden>Close outline</button>
     <div id="ar-tray" class="ar-tray glass" role="group" aria-label="Model controls">
       <div class="tray-cluster" data-cluster="move">
@@ -797,10 +804,19 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     const pointB = $('#point-b');
     if (!pointB) return;
     const rounded = Math.round(centimeters);
+    armUseMeasurement();
     if (Number(pointB.value) === rounded) return;
     $('#point-a').value = 0;
     pointB.value = rounded;
     updateFitVerdict();
+  }
+
+  /* There is now a reading worth keeping, so the button that says so becomes
+     usable. Disabled until then, because "Use this measurement" with nothing
+     measured is a button that lies about what it will do. */
+  function armUseMeasurement() {
+    const button = $('#use-measurement');
+    if (button && button.disabled) button.disabled = false;
   }
 
   function projectToScreen(vector3, camera) {
@@ -826,11 +842,32 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       experience = $('#ar-experience');
     }
     experience.hidden = false;
+    /* Say something immediately.
+
+       Requesting the camera and negotiating an XR session takes a beat, and
+       until the first frame arrives this layer is an opaque black rectangle.
+       On a recording of a real phone that black screen is the first thing the
+       scanner shows, with no indication that anything is happening — it reads
+       as a crash rather than as a camera warming up. The first hint is set
+       here, before any awaiting starts, and whatever the session negotiates
+       replaces it a moment later. */
+    setHint('Starting the camera…');
     arTransform.reset();
     bindTray();
     syncTrayReadout();
     $('#exit-ar').addEventListener('click', () => state.session ? state.session.end() : cleanupAR(), { once: true });
     $('#close-outline').addEventListener('click', closeAreaOutline);
+    /* The reading is already on the card — applyLiveClearance and the area
+       scan write it as it changes — so this confirms and leaves rather than
+       transferring anything. Saying so beats a silent exit that leaves people
+       wondering whether the number survived. */
+    $('#use-measurement').addEventListener('click', () => {
+      const kept = state.measureMode === 'area'
+        ? $('#measured-area')?.textContent
+        : $('#measured-distance')?.textContent;
+      if (state.session) state.session.end(); else cleanupAR();
+      if (kept) toast(`Kept ${kept}. It is on your card.`);
+    });
     document.addEventListener('keydown', onARKeydown);
     return experience;
   }
@@ -974,7 +1011,19 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
        So the list offers only what can be placed, and a request for something
        that cannot is kept and explained.
     */
-    if (!state.selected) state.selected = options[0] || null;
+    /*
+       Nothing is chosen for you.
+
+       This used to read `state.selected ||= options[0]`, which meant anybody
+       who opened /plan to find out how big their room is arrived already
+       holding an armchair they never asked for. It was invisible on the card
+       — but not in AR, where that piece's chip sat over the camera and its
+       box was drawn into the room being measured. Measuring came second to a
+       shopping decision nobody had made.
+
+       A room is a room. The selection stays null until somebody picks, or
+       until ?product= names one.
+    */
     const product = state.selected;
     const unplaceable = Boolean(product) && !product.modelGlb;
 
@@ -1023,7 +1072,10 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       }
     }
 
-    if (!product) return;
+    /* Nothing chosen is a normal state now, not a broken one. updateFitVerdict
+       owns what card 03 says in that case — including after a scan, when it
+       has a room to report. */
+    if (!product) { updateFitVerdict(); return; }
     $('#check-width').textContent = cm(product.dimensions.width);
     $('#check-depth').textContent = cm(product.dimensions.depth);
     const arProductName = $('#ar-product-name');
@@ -1080,9 +1132,102 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     try { localStorage.setItem('furnishar-measure-mode', current); } catch { /* private mode */ }
     updateFitVerdict();
   }
+  /* What was measured, written down — with no opinion about whether anything
+     fits in it.
+
+     These three fields used to be set only inside the fit calculation, which
+     needs a product. So with nothing selected, measuring a floor updated the
+     verdict and left "12.0 m²" — the default — sitting in the readout the
+     user was actually looking at. The measurement is the deliverable; it gets
+     written whether or not there is a sofa to judge against it. */
+  function renderRawMeasurement() {
+    if (!geo) return;
+    const clearance = measuredDistance();
+    const distance = cm(clearance);
+    const set = (selector, text) => { const el = $(selector); if (el) el.textContent = text; };
+    set('#measured-distance', distance);
+    set('#visual-distance', distance);
+    set('#measured-area', geo.formatArea(measuredArea()));
+  }
+
   function updateFitVerdict() {
     const product = state.selected;
-    if (!product || !geo) return;
+    if (!geo) return;
+    renderRawMeasurement();
+
+    /*
+       No piece chosen is a normal state, not a missing one.
+
+       This used to `return` on a null product, which left card 03 holding
+       whatever it happened to say last. Now that nothing is selected by
+       default, that is the state most people see first, so it says what it
+       is — and, once a room has been measured, it leads with the measurement
+       rather than with the absence of a sofa. Measuring is the deliverable;
+       the piece is optional. */
+    if (!product) {
+      const room = state.scannedRoom;
+      const measured = state.measureMode === 'room' && room?.rectangle;
+      const verdict = $('#fit-verdict');
+      for (const id of ['#check-width', '#check-depth']) {
+        const cell = $(id);
+        if (cell) cell.textContent = '—';
+      }
+      if (measured) {
+        /* The room is the thing that was measured, so it is drawn and named
+           even with nothing to put in it. Withholding the plan view until a
+           sofa is chosen would make the measurement look like a step towards
+           shopping rather than the answer it already is. */
+        $('#verdict-title').textContent = 'Room verdict';
+        $('#check-clearance-label').textContent = 'Room (shortest side)';
+        $('#check-clearance').textContent =
+          metres(Math.min(room.rectangle.length, room.rectangle.width));
+        drawFitPlan(null, {
+          kind: 'room', length: room.rectangle.length, width: room.rectangle.width
+        });
+      } else if (state.measureMode === 'room') {
+        /* Whole-room mode with no scan yet. The two-point field still holds
+           its 120 cm default, and an earlier version of this branch reported
+           that number as though it were a measurement of this room — a
+           reading the user had never taken, on the screen that is supposed to
+           be the honest one. Nothing measured means nothing claimed. */
+        $('#verdict-title').textContent = 'Room verdict';
+        $('#check-clearance-label').textContent = 'Room (shortest side)';
+        const cell = $('#check-clearance');
+        if (cell) cell.textContent = '—';
+        drawFitPlan(null, { kind: 'none' });
+      } else {
+        /* Two-point and floor-area readings stand on their own too. The card
+           reports the span or the area that was actually measured instead of
+           going blank because no furniture has been picked to judge it. */
+        const isArea = state.measureMode === 'area';
+        $('#verdict-title').textContent = isArea ? 'Floor measured' : 'Clearance measured';
+        $('#check-clearance-label').textContent = isArea ? 'Measured floor' : 'Measured clearance';
+        const cell = $('#check-clearance');
+        if (cell) cell.textContent = isArea ? geo.formatArea(measuredArea()) : cm(measuredDistance());
+        drawFitPlan(null, { kind: 'none' });
+      }
+      if (verdict) {
+        const isArea = state.measureMode === 'area';
+        const unscannedRoom = !measured && state.measureMode === 'room';
+        verdict.className = 'fit-verdict is-idle';
+        verdict.innerHTML = measured
+          ? `<div class="verdict-icon" aria-hidden="true">◧</div>
+             <h3>Room measured.</h3>
+             <p>${metres(room.rectangle.length)} × ${metres(room.rectangle.width)}${
+               room.height ? `, ${metres(room.height)} high` : ''}. Pick a piece above
+             to check whether it fits.</p>`
+          : unscannedRoom
+          ? `<div class="verdict-icon" aria-hidden="true">·</div>
+             <h3>No room measured yet.</h3>
+             <p>Scan your room with the camera above. You do not need to choose
+             any furniture first.</p>`
+          : `<div class="verdict-icon" aria-hidden="true">·</div>
+             <h3>${escapeHtml(isArea ? geo.formatArea(measuredArea()) : cm(measuredDistance()))} measured.</h3>
+             <p>That figure is yours without choosing anything. Pick a piece above
+             whenever you want to check whether it fits.</p>`;
+      }
+      return;
+    }
 
     /*
        A scanned room answers a better question than a measured span.
@@ -1206,6 +1351,16 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       spaceWidth = Math.max(measurement.clearance / 100, 0.1);
       spaceDepth = Math.max(product.dimensions.depth / 100 * 1.6, 0.4);
       $('#fit-plan-space-label').textContent = `${cm(measurement.clearance)} clearance`;
+    }
+
+    /* The room on its own, when nothing has been chosen to stand in it.
+       The rectangle is the measurement; an empty one is a complete answer. */
+    if (!product) {
+      space.style.aspectRatio = `${spaceWidth} / ${spaceDepth}`;
+      space.style.width = spaceWidth >= spaceDepth ? '100%' : 'auto';
+      space.style.height = spaceWidth >= spaceDepth ? 'auto' : '100%';
+      piece.hidden = true;
+      return;
     }
 
     // The piece is drawn as a share of the space it sits in, so both rectangles
@@ -1597,6 +1752,14 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     let baseScale = null;
 
     $('#ar-tray').hidden = state.arPurpose !== 'placement';
+    /* The measurement modes get their own bottom-of-screen confirmation, so
+       that finishing is a deliberate tap within thumb reach rather than a
+       reach for the corner. The room scan already has "Use this room". */
+    const useMeasurement = $('#use-measurement');
+    if (useMeasurement) {
+      useMeasurement.hidden = state.arPurpose !== 'measurement';
+      useMeasurement.disabled = true;
+    }
 
     // Tray actions are wired up whether or not a GLB loaded, so the box fallback
     // can still be placed and reset.
@@ -1876,7 +2039,25 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
         return;
       }
 
-      // Fallback cube when the GLB or THREE.js is unavailable.
+      /* Fallback cube when the GLB or THREE.js is unavailable.
+
+         Two rules, both learned from watching a recording of this running on
+         a real phone:
+
+         1. It is only ever drawn while PLACING something. It used to draw in
+            every purpose, so somebody measuring a doorway had a 200 × 100 ×
+            123 cm cabinet — a piece they had not chosen — parked against the
+            lens. Nothing belongs in front of the camera during a measurement
+            except the room.
+
+         2. It is drawn faintly. At alpha .72 a box that size is not an
+            object in the room, it is a coat of paint over it: the floor being
+            measured was a solid terracotta wash with the real world barely
+            legible underneath. .28 keeps the volume readable as a volume and
+            keeps the room visible through it, which is the whole point of
+            holding a box up against a space.
+      */
+      if (state.arPurpose !== 'placement' || !product) return;
       gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -1886,7 +2067,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
         const viewport = layer.getViewport(view);
         gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
         const model = translateScale(anchor, arTransform.x, dimensions.height / 200, arTransform.z, dimensions.width / 200, dimensions.height / 200, dimensions.depth / 200);
-        fallbackRenderer.draw(matrixMultiply(view.projectionMatrix, matrixMultiply(view.transform.inverse.matrix, model)), [red, green, blue, .72]);
+        fallbackRenderer.draw(matrixMultiply(view.projectionMatrix, matrixMultiply(view.transform.inverse.matrix, model)), [red, green, blue, .28]);
       }
     }
 
@@ -2057,6 +2238,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     const field = $('#floor-area');
     if (!field) return;
     field.value = area.toFixed(2);
+    armUseMeasurement();
 
     let longest = 0;
     for (let i = 0; i < points.length; i++) {
@@ -2307,9 +2489,13 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
 
   async function startExperience(purpose) {
     /* Measuring a room is about the room, not about any one piece — you might
-       well scan first and go shopping afterwards. Only placement and the
-       piece-relative measurements need a product chosen. */
-    if (purpose !== 'scan' && !state.selected) return toast('Choose a product first.');
+       well scan first and go shopping afterwards.
+
+       Only PLACEMENT needs a product. This used to read `purpose !== 'scan'`,
+       which caught the two-point and floor-area measurements as well and told
+       anybody trying to measure a doorway to "Choose a product first". A
+       doorway does not care what furniture you own. */
+    if (purpose === 'placement' && !state.selected) return toast('Choose a piece to place first.');
     // A second tap before the first call reaches mountARExperience() would
     // insert nothing new — mountARExperience() reuses #ar-experience if it
     // already exists — but it would re-run addEventListener('click', ...) on
@@ -2335,8 +2521,13 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     /* Quick Look renders a USDZ and hands nothing back to this page — no
        poses, no planes, no measurement. It is the right answer for "show me
        this chair on my floor" and completely the wrong one for "measure my
-       room", so a scan never goes down this path. */
-    if (purpose !== 'scan' && isIOS && product.modelUsdz) {
+       room", so only a PLACEMENT goes down this path.
+
+       This read `purpose !== 'scan'`, which sent the two-point and floor-area
+       measurements to Quick Look on any iPhone — handing the user a 3D model
+       viewer when they asked for a number, and, now that nothing is selected
+       by default, dereferencing a null product on the way. */
+    if (purpose === 'placement' && isIOS && product?.modelUsdz) {
       try {
         const response = await fetch(product.modelUsdz, { method: 'HEAD' });
         if (response.ok) {
@@ -2356,13 +2547,28 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     }
 
     mountARExperience();
-    if (product) {
+    /* The header says what this session is DOING, not what happens to be
+       selected back on the page.
+
+       It used to read `if (product) → product.name`, which is how somebody
+       measuring the gap under a doorway ended up with "Cabint 200 / 200 × 100
+       × 123 cm" pinned over the camera. The piece is only the subject of the
+       session when the session is placing it; the rest of the time the
+       subject is the room. */
+    const TITLES = {
+      scan: ['Room scan', 'Turn slowly through a half-circle'],
+      clearance: ['Measuring clearance', 'Tap point A, then point B'],
+      area: ['Measuring floor area', 'Tap the corners of the free floor'],
+      room: ['Room scan', 'Turn slowly through a half-circle']
+    };
+    if (purpose === 'placement' && product) {
       const { width, depth, height } = product.dimensions;
       $('#ar-product-name').textContent = product.name;
       $('#ar-product-dims').textContent = `${width} × ${depth} × ${height} cm`;
     } else {
-      $('#ar-product-name').textContent = 'Room scan';
-      $('#ar-product-dims').textContent = '';
+      const [title, sub] = TITLES[purpose === 'scan' ? 'scan' : state.measureMode] || TITLES.scan;
+      $('#ar-product-name').textContent = title;
+      $('#ar-product-dims').textContent = sub;
     }
     state.arPurpose = purpose;
     if (purpose === 'scan') sweep.reset();
@@ -2471,13 +2677,14 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
 
   state.products = products;
   /* An explicit ?product= wins outright, model or no model — see renderPlanner.
-     With no request to honour, the default is the first piece that can actually
-     be placed, so arriving at /plan from the nav does not open on a product the
-     planner cannot do anything with. */
+     With no request to honour, NOTHING is selected.
+
+     It used to fall through to `products.find(item => item.modelGlb)`, so
+     opening /plan from the nav silently armed the planner with a piece. That
+     is the wrong default for a tool whose first job is to measure a room:
+     the piece only matters once there is a room to put it in. */
   state.selected =
     products.find(item => item.id === selectedId || item.slug === selectedId)
-    || products.find(item => item.modelGlb)
-    || products[0]
     || null;
 
   await initGeometry();

@@ -124,7 +124,11 @@ if (picker.empty) {
   console.log('       offering a choice that cannot be taken');
 } else {
   check('the choices are a radiogroup', picker.group);
-  check('exactly one is selected', picker.checked === 1, `${picker.checked} of ${picker.count}`);
+  /* Nothing is selected on arrival, on purpose: measuring a room must not
+     start with a shopping decision. The planner used to arm itself with the
+     first piece that had a model, which is how a product nobody chose ended
+     up pinned over the camera during a measurement. */
+  check('nothing is pre-selected for you', picker.checked === 0, `${picker.checked} of ${picker.count} checked`);
   console.log(`       offering: ${picker.names.join(', ')}`);
 
   if (picker.count < 2) {
@@ -233,15 +237,35 @@ check('"Use this room" is only offered once the scan is ready', panel.useRoomDis
 const accepted = await page.evaluate(() => {
   document.querySelector('.mode-option[data-measure-mode="room"]')?.click();
   window.__furnisharScan.accept();
+  /* Snapshot the measure-only state first: room scanned, nothing chosen.
+     That is the whole point of the workflow and nothing was checking it. */
+  window.__furnisharMeasureOnly = {
+    verdict: document.getElementById('fit-verdict')?.textContent?.replace(/\s+/g, ' ').trim(),
+    planLabel: document.getElementById('fit-plan-space-label')?.textContent
+  };
+  /* Choose the piece HERE, after the room is measured — which is the order
+     the product now works in. Nothing is selected on arrival, so asserting a
+     fit verdict without picking something was passing against the "no piece
+     chosen" message rather than against any fit calculation. */
+  document.querySelector('.planner-choice')?.click();
   return {
     cardLength: document.getElementById('room-result-length')?.textContent,
     cardHeight: document.getElementById('room-result-height')?.textContent,
     verdictTitle: document.getElementById('verdict-title')?.textContent,
     verdict: document.getElementById('fit-verdict')?.textContent?.replace(/\s+/g, ' ').trim(),
     failed: document.getElementById('fit-verdict')?.className.includes('fail'),
-    planLabel: document.getElementById('fit-plan-space-label')?.textContent
+    planLabel: document.getElementById('fit-plan-space-label')?.textContent,
+    // Captured BEFORE the piece is chosen, above: this is what somebody who
+    // only wanted the measurements actually sees.
+    beforePicking: window.__furnisharMeasureOnly
   };
 });
+check('a room measures fully with nothing selected',
+  /Room measured/.test(accepted.beforePicking?.verdict || ''),
+  (accepted.beforePicking?.verdict || '(nothing)').slice(0, 70));
+check('and its plan view is drawn without a piece in it',
+  /4\.81 m . 3\.42 m/.test(accepted.beforePicking?.planLabel || ''),
+  accepted.beforePicking?.planLabel);
 check('the measurement survives the scan and lands on the card',
   accepted.cardLength === '4.81 m' && accepted.cardHeight === '2.70 m',
   `${accepted.cardLength} / ${accepted.cardHeight}`);

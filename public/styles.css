@@ -333,7 +333,35 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   height: var(--header-h);
   padding: 0 var(--gutter);
   border-bottom: 1px solid var(--rule);
-  background: var(--glass);
+}
+
+/*
+   Chrome that carries text you have to read.
+
+   The header, the cookie notice and the bottom bar all used `--glass`, which
+   is rgba(…, .68) leaning on backdrop-filter for legibility. Where the blur
+   is unsupported or switched off — and on a real handset in the recording it
+   plainly was not doing enough — .68 alpha means the page runs straight
+   through: product names read through the header, the plan view read through
+   the cookie text, headings read through the nav labels.
+
+   These three get a solid floor first, and treat the blur as the enhancement
+   it is. --glass stays as it was for chips floating over the camera, where
+   see-through is the point.
+*/
+.site-header, .cookie-notice, .bottom-nav {
+  background: var(--paper);
+  background: color-mix(in srgb, var(--paper) 97%, transparent);
+  /* The blur stays, but nothing depends on it.
+
+     An earlier version of this kept these at 88% behind an
+     @supports (backdrop-filter: …) query, on the assumption that a browser
+     reporting support would actually blur. Chromium reports support and then
+     renders nothing under a software rasteriser — and the screenshot showed
+     product names reading through the header exactly as before. @supports
+     answers "is this property understood", not "does it do anything here",
+     so legibility cannot be built on it. 97% is legible with no blur at all;
+     the blur is decoration on top. */
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
 }
@@ -2502,9 +2530,9 @@ footer {
   max-width: 34rem;
   padding: 1rem 1.15rem;
   border: 1px solid var(--rule-strong);
-  background: var(--glass);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
+  /* Background and blur come from the shared chrome rule: this panel is a
+     block of text somebody has to read before deciding, so the page must not
+     show through it. */
   box-shadow: var(--hard-sm);
 }
 .cookie-notice p { flex: 1 1 16rem; font-size: .8125rem; color: var(--ink-muted); }
@@ -2766,10 +2794,10 @@ footer {
   .bottom-nav {
     display: block;
     position: fixed; z-index: 40; left: 0; right: 0; bottom: 0;
+    /* Background and blur come from the shared chrome rule above, so the bar
+       carrying the app's four destinations is legible whether or not
+       backdrop-filter is doing anything. */
     border-top: 1px solid var(--rule-strong);
-    background: var(--glass);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
     /* The home indicator on a modern phone sits over the bottom of the
        screen; without this the labels are underneath it. */
     padding-bottom: env(safe-area-inset-bottom);
@@ -3125,6 +3153,30 @@ footer {
   color: var(--glass-dark-text);
 }
 .ar-outline-button:hover { background: rgba(255, 255, 255, .18); }
+.ar-outline-button[hidden] { display: none; }
+
+/*
+   The measurement modes' confirmation.
+
+   Full width and a full tap target, sat at the bottom of the screen with the
+   rest of the dock: finishing a measurement is the one thing somebody holding
+   a phone at arm's length in a doorway needs to be able to do without
+   shifting their grip. Disabled until there is a reading, and visibly so —
+   an enabled-looking button over a scanner that has not measured anything
+   promises a number it does not have.
+*/
+#use-measurement {
+  min-height: var(--tap); width: 100%;
+  font-size: .68rem;
+}
+#use-measurement:disabled { opacity: .45; }
+
+/* No piece chosen, or a measurement standing on its own. Neither is a
+   failure, so it does not borrow the failure colour — it reads as a quiet
+   statement of what is known so far. */
+.fit-verdict.is-idle { background: var(--paper-raised); color: var(--ink); }
+.fit-verdict.is-idle .verdict-icon { color: var(--accent-ink); }
+.fit-verdict.is-idle p { opacity: .74; }
 
 /* Build stamp: quiet, but present, so a maintainer can identify a deployment. */
 .build-stamp {
