@@ -14,8 +14,21 @@ Three ideas, one rule each, so they never fight:
 | Idea | Its one rule |
 | --- | --- |
 | **Minimalism** — carries the page | One paper, one ink, one accent. Two typefaces, few sizes. Space separates things, not boxes or colour. |
-| **Brutalism** — the structure, in small doses | Anything sitting *on* the page is square-cornered and drawn with a 1px ink rule. Emphasis is a hard offset block, never a blur. **One exception, stated in §5: the capsule.** |
+| **Warmth** — the material | The page is cream, not white; the ink and the accent are warm. A card is told apart from the page by its own surface and a soft shadow, not by an outline. Corners are rounded (`--radius` family). |
 | **Glassmorphism** — the z-axis | Only surfaces that float *above* content are frosted. **If it is frosted, it is floating. If it is flat, it is part of the page.** |
+
+> **This replaced a brutalist thesis, on request.** Until 2026-09-21 the second
+> row read *Brutalism*: square corners, a 1px ink rule on everything that sat
+> on the page, and emphasis as a hard offset block (`5px 5px 0`) with no blur.
+> The product was redesigned to a warm, photographic reference, and the two
+> systems cannot be half-applied — so the tokens changed rather than being
+> overridden case by case. `--hard` and `--hard-sm` kept their names (a couple
+> of hundred rules reference them) but now carry a diffuse shadow. The corner
+> radii are applied in one block near the top of `public/styles.css`, by what
+> a surface *is*, rather than declared on each rule.
+>
+> The AR layer is the exception and stays square: its overlays borrow the
+> language of a viewfinder, and a rounded reticle is a sticker, not a sight.
 
 That last line is the load-bearing rule. It is what stops the glass reading as
 decoration: frosting is not a style here, it is a statement about depth. The
