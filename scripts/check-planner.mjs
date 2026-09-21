@@ -43,6 +43,19 @@ console.log('--- planner after the engine mounted ---');
 for (const [k, v] of Object.entries(result)) console.log(`  ${k}: ${JSON.stringify(v)}`);
 
 // The scan, not the shopping decision, is what the planner opens on.
+/*
+   Until now this file only printed; it had no exit code at all, so `npm run
+   check:planner` was green whatever it found. A line reading FAIL that still
+   exits 0 is worse than no check — it is a check nobody will ever see fail in
+   CI. Assertions are recorded and the process exits non-zero if any of them,
+   or any page error, landed.
+*/
+const problems = [];
+const check = (label, ok, detail = '') => {
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${label}${detail ? ` — ${detail}` : ''}`);
+  if (!ok) problems.push(label);
+};
+
 console.log('--- what the planner opens on ---');
 console.log(`  ${result.modeActive === 'Whole room' ? 'ok  ' : 'FAIL'} whole-room is the default mode — ${JSON.stringify(result.modeActive)}`);
 const opensOnScan = await page.evaluate(() => ({
@@ -54,10 +67,24 @@ const opensOnScan = await page.evaluate(() => ({
 }));
 console.log(' ', JSON.stringify(opensOnScan));
 
-// Interaction: changing a measurement must re-run the fit verdict. Clearance
-// mode has to be asked for now — it is no longer where the card starts.
-await page.click('.mode-option[data-measure-mode="clearance"]');
-await page.waitForTimeout(300);
+/*
+   Interaction: changing a measurement must re-run the fit verdict.
+
+   The Clearance MODE is gone — it measured the gap across an opening, a
+   different question from "how big is this room", and being first it made
+   the scanner open on the narrowest thing it could do. The two-point FIELDS
+   remain and are always available, because typing a figure you measured with
+   a tape is still the most accurate input there is. So this no longer
+   switches mode; it just uses the fields.
+*/
+check('the clearance tab is gone',
+  await page.locator('.mode-option[data-measure-mode="clearance"]').count() === 0);
+check('and only the two room modes are offered',
+  await page.locator('.mode-option').count() === 2,
+  (await page.locator('.mode-option').allTextContents()).join(', '));
+check('the two-point fields are still reachable without it',
+  await page.locator('#point-b').isVisible());
+
 await page.fill('#point-b', '60');
 await page.dispatchEvent('#point-b', 'input');
 await page.waitForTimeout(400);
@@ -104,19 +131,6 @@ const picker = await page.evaluate(() => {
     empty: Boolean(document.querySelector('.planner-empty'))
   };
 });
-
-/*
-   Until now this file only printed; it had no exit code at all, so `npm run
-   check:planner` was green whatever it found. A line reading FAIL that still
-   exits 0 is worse than no check — it is a check nobody will ever see fail in
-   CI. Assertions are recorded and the process exits non-zero if any of them,
-   or any page error, landed.
-*/
-const problems = [];
-const check = (label, ok, detail = '') => {
-  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${label}${detail ? ` — ${detail}` : ''}`);
-  if (!ok) problems.push(label);
-};
 
 console.log('--- the product picker ---');
 if (picker.empty) {

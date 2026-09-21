@@ -49,6 +49,35 @@ await page.addInitScript(() => {
       alpha, beta, gamma: 0, absolute: true
     }));
   };
+  /*
+     A phone does not send one reading per corner; it sends about sixty a
+     second, and the person holds still for a moment before tapping. Firing
+     a single event and tapping immediately is a test artefact that no
+     handset can produce, and it hid behind the unsmoothed build: once the
+     One Euro filter went in, one sample moved the heading barely at all and
+     corners landed at 81, 52, 28 and 160 cm.
+
+     So the fake phone streams, the way a real one does. The filter settles,
+     the steadiness gate opens, and the geometry gets the angle it was aimed
+     at rather than one frame of a turn.
+  */
+  window.__hold = (beta, alpha, samples = 40) => {
+    for (let i = 0; i < samples; i += 1) window.__aim(beta, alpha);
+  };
+  /*
+     Turning, not teleporting.
+
+     A phone sweeps through every heading on the way to the next corner. The
+     first version of this jumped straight from one bearing to the next,
+     which is a step no sensor produces and which the glitch rejector
+     correctly threw away — every corner then landed on the same spot and
+     every wall measured 0 cm. Sweeping in small increments is both what a
+     handset does and what the rejector is built to let through.
+  */
+  window.__turnTo = (beta, from, to, steps = 30) => {
+    const delta = ((((to - from) % 360) + 540) % 360) - 180;
+    for (let i = 1; i <= steps; i += 1) window.__aim(beta, from + (delta * i) / steps);
+  };
 });
 
 console.log('--- getting to the measuring surface ---');
@@ -63,8 +92,8 @@ check('all three methods are offered', await page.locator('.ms-mode').count() ==
 
 console.log('--- aim mode: the live readout ---');
 const TILT = Math.atan(2.5 / 1.4) * 180 / Math.PI;   // 60.75 degrees
-await page.evaluate(t => window.__aim(t, 53.130102), TILT);
-await page.waitForTimeout(150);
+await page.evaluate(t => window.__hold(t, 53.130102), TILT);
+await page.waitForTimeout(250);
 
 /* The camera fills the view, the way the app this copies does it. */
 const camBox = await page.locator('.ms-view').boundingBox();
@@ -80,26 +109,54 @@ check('and it says the markers are anchored to where you stand',
     .then(t => /turn, don.t walk/i.test(t)));
 
 // An impossible aim must refuse rather than invent.
-await page.evaluate(() => window.__aim(86, 53.130102));
-await page.waitForTimeout(150);
+await page.evaluate(() => window.__hold(86, 53.130102, 200));
+await page.waitForTimeout(250);
 check('aiming near level refuses instead of printing a number',
   await page.locator('.ms-tip').textContent().then(t => /Aim further down/.test(t)));
 check('and the place button is disabled while it cannot measure',
   await page.locator('.ms-add').isDisabled());
 
+/* The steadiness gate. Smoothing trails a fast turn by about four degrees,
+   which at 2.5 m is 17 cm of error if a corner is placed mid-turn. The
+   button must refuse until the reading settles, so the lag shows up as
+   "hold still" rather than as a wrong wall.
+
+   Tested at a tilt that CAN measure. At an unusable tilt the prompt rightly
+   shows "aim further down" instead, because that is the more useful thing to
+   say — so asserting "Hold still" there was asserting the wrong scenario. */
+await page.evaluate(t => window.__hold(t, 0, 200), TILT);
+await page.waitForTimeout(200);
+check('a settled reading unlocks the button', !(await page.locator('.ms-add').isDisabled()));
+await page.evaluate(t => window.__turnTo(t, 0, 40, 4), TILT);   // mid-turn
+await page.waitForTimeout(60);
+check('placing is blocked while the reading is still moving',
+  await page.locator('.ms-add').isDisabled());
+check('and it says to hold still rather than failing silently',
+  await page.locator('.ms-tip').textContent().then(t => /Hold still/.test(t)));
+// Then settle again so the room walk below starts from a clean state.
+await page.evaluate(t => window.__hold(t, 53.130102, 200), TILT);
+await page.waitForTimeout(200);
+
 console.log('--- aim mode: walking a 4 x 3 m room ---');
 const bearings = [53.130102, 126.869898, 233.130102, 306.869898];
+let facing = 53.130102;
 for (const bearing of bearings) {
-  await page.evaluate(([t, b]) => window.__aim(t, b), [TILT, bearing]);
-  await page.waitForTimeout(120);
+  /* Turn, then hold. Sweeping is how a phone gets from one bearing to the
+     next; the hold afterwards is the pause a person makes before tapping,
+     and it is what lets the filter settle and the steadiness gate open. */
+  await page.evaluate(([t, f, b]) => window.__turnTo(t, f, b), [TILT, facing, bearing]);
+  await page.evaluate(([t, b]) => window.__hold(t, b, 200), [TILT, bearing]);
+  await page.waitForTimeout(250);
   await page.click('.ms-add');
+  facing = bearing;
 }
 
 /* The measurement must appear ON the picture, as a white pill on the line
    between two white endpoint dots — which is the whole look being copied.
    Turn back to face the first two corners so both are in frame. */
-await page.evaluate(([t, b]) => window.__aim(t, b), [TILT, 90]);
-await page.waitForTimeout(200);
+await page.evaluate(([t, f]) => window.__turnTo(t, f, 90), [TILT, facing]);
+await page.evaluate(([t, b]) => window.__hold(t, b, 200), [TILT, 90]);
+await page.waitForTimeout(250);
 const onView = await page.locator('.ms-view-svg .ms-view-label').allTextContents();
 check('lengths are drawn on the camera view, not only in a panel',
   onView.length > 0, onView.join(' · ') || 'no labels on the view');

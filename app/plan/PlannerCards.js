@@ -91,15 +91,14 @@ function PlannerBody({ products }) {
           </div>
 
           <div className="mode-switch" role="radiogroup" aria-label="What to measure">
-            <button
-              type="button"
-              className="mode-option"
-              data-measure-mode="clearance"
-              role="radio"
-              aria-checked="false"
-            >
-              Clearance
-            </button>
+            {/*
+                Clearance is gone.
+
+                It measured the gap across an opening, which is a different
+                question from "how big is this room" — and being first, it
+                made the scanner open on the narrowest thing it could do.
+                The two modes left both answer what the planner is for.
+            */}
             <button
               type="button"
               className="mode-option"
@@ -124,9 +123,13 @@ function PlannerBody({ products }) {
              Settings, rather than only the two-point mode.
 
              Both of these change a real calculation: the unit changes every
-             figure the scan reports, and the clearance is fed to the fit
-             verdict as walking space that must be left around a piece. There
-             is deliberately nothing here that only looks like a setting.
+             figure the scan reports, and the walking space is fed to the fit
+             verdict as room that must be left around a piece. There is
+             deliberately nothing here that only looks like a setting.
+
+             Note this survived the removal of the Clearance SCAN MODE: the
+             figure is still used, as walking space. Only the two-point scan
+             that measured a doorway is gone.
           */}
           <details className="scan-settings">
             <summary>
@@ -158,9 +161,12 @@ function PlannerBody({ products }) {
             </div>
           </details>
 
+          {/* The engine rewrites this per mode; the server-rendered text is
+              the default mode's, so the page does not flash the wrong one. */}
           <p className="card-copy" id="measure-copy">
-            Aim at a textured, non-reflective floor in bright light. On Android Chrome, tap two
-            points across the opening. Otherwise use the fields below.
+            Stand near the middle of the room and turn slowly through a half-circle.
+            Floor and walls are detected as you go, and the room’s length, width and
+            height are measured from them.
           </p>
 
           <div id="clearance-fields">

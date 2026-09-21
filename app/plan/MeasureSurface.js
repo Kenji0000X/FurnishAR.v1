@@ -10,6 +10,8 @@ import {
   KNOWN_OBJECTS, scaleFromReference, measure, squareness, wallsToCorners
 } from '../../lib/spatial/photo-scale.mjs';
 import { roomDimensions } from '../../lib/spatial/room.mjs';
+import { HeadingTracker, TiltTracker } from '../../lib/spatial/heading.mjs';
+import { Steadiness } from '../../lib/spatial/smoothing.mjs';
 
 /**
  * Measuring a room on a phone that cannot run AR.
@@ -216,7 +218,26 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
      the tap rather than from whatever React last rendered. */
   const live = useRef({ tilt: null, bearing: null, events: 0 });
   const [reading, setReading] = useState({ tilt: null, bearing: null, events: 0 });
-  const baseBearing = useRef(null);
+  /*
+     Raw sensor samples are not usable as they arrive: they jitter about a
+     degree at 60 Hz, which redraws every marker sixty times a second from a
+     slightly different angle — the shaking dots — and the compass throws the
+     occasional wild step near anything steel. Both are handled in
+     lib/spatial/heading.mjs, and only the cleaned values reach the geometry.
+  */
+  const heading = useRef(new HeadingTracker());
+  const tiltTrack = useRef(new TiltTracker());
+  const [compass, setCompass] = useState({ verdict: 'unknown' });
+  /*
+     Smoothing buys steady markers at the cost of lag: the filter trails a
+     fast turn by about four degrees, which at 2.5 m is 17 cm of error if a
+     corner is placed mid-turn. Rather than hide that, the button waits.
+     Steadiness watches the last half-second of readings and the + is only
+     live once they have settled — so the lag becomes a visible "hold still"
+     instead of a silent mistake in the room.
+  */
+  const steady = useRef(new Steadiness(30));
+  const [settled, setSettled] = useState(false);
 
   const [showPlan, setShowPlan] = useState(false);
   /* The camera element's real pixel size. The overlay is drawn in those
@@ -268,21 +289,29 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
 
     const onOrient = e => {
       if (typeof e.beta !== 'number' || e.beta === null) return;
+      const now = performance.now();
       /*
          beta is the tilt from flat-and-face-up, which is already the angle
          from straight DOWN that the trigonometry wants: 0 is the rear camera
          pointing at the floor beneath you, 90 is pointing at the horizon.
       */
-      const tilt = e.beta;
+      const tilt = tiltTrack.current.push(e.beta, now);
       const alpha = typeof e.alpha === 'number' ? e.alpha : null;
-      if (baseBearing.current === null && alpha !== null) baseBearing.current = alpha;
       /* Only the bearing RELATIVE to the first reading is used. An indoor
          magnetometer drifts, but a drift common to every corner rotates the
          whole room, which changes no dimension of it. */
-      const bearing = alpha === null ? null
-        : bearingDelta(baseBearing.current, alpha);
+      const { bearing } = heading.current.push(alpha, now);
       live.current = { tilt, bearing, events: live.current.events + 1 };
       setReading(live.current);
+
+      /* Both angles folded into one number, so a wobble in either keeps the
+         button disabled. Half a degree of combined spread is roughly 2 cm at
+         2.5 m — tight enough to place a corner on. */
+      steady.current.push(tilt + bearing);
+      const spread = steady.current.spread();
+      setSettled(steady.current.ready && spread !== null && spread < 0.5);
+
+      if (live.current.events % 20 === 0) setCompass(heading.current.reliability);
     };
     window.addEventListener('deviceorientation', onOrient);
     return () => window.removeEventListener('deviceorientation', onOrient);
@@ -377,6 +406,31 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
     return out;
   }, [corners, viewMarks, closed, aiming, eyeHeight, reading.tilt, reading.bearing, view.w, view.h]);
 
+  /*
+     Drop any label that would land on top of one already drawn.
+
+     On the first phone test five pills stacked in the same few pixels —
+     "124 · 27 · 57 · 20 · 21 cm" — and not one of them could be read. A
+     measurement you cannot read is worth no more than one that was never
+     taken, so a colliding label is skipped rather than layered. The segment
+     itself still draws; only its number is withheld, and turning the phone
+     a little separates them.
+  */
+  const placedLabels = useMemo(() => {
+    const kept = [];
+    for (const seg of viewSegments) {
+      const mx = (seg.a.x + seg.b.x) / 2;
+      const my = (seg.a.y + seg.b.y) / 2;
+      if (!Number.isFinite(mx) || !Number.isFinite(my)) continue;
+      // Off the picture entirely: nothing to collide with, nothing to show.
+      if (mx < 0 || my < 0 || mx > view.w || my > view.h) continue;
+      const clashes = kept.some(k => Math.abs(k.mx - mx) < 76 && Math.abs(k.my - my) < 32);
+      if (clashes) continue;
+      kept.push({ ...seg, mx, my });
+    }
+    return kept;
+  }, [viewSegments, view.w, view.h]);
+
   /* ------------------------------------------------------------- taps -- */
   function addCorner() {
     const now = live.current;
@@ -411,7 +465,11 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
 
   function reset() {
     setCorners([]); setClosed(false); setCeiling(null); setNote(null);
-    baseBearing.current = null;
+    heading.current.reset();
+    tiltTrack.current.reset();
+    steady.current.reset();
+    setSettled(false);
+    setCompass({ verdict: 'unknown' });
   }
 
   /* ------------------------------------------------------------ photo -- */
@@ -537,10 +595,10 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
                 <circle cx={view.w / 2} cy={view.h / 2} r="3" fill="#fff" />
               </g>
             )}
-            {viewSegments.map(seg => {
+            {placedLabels.map(seg => {
               const w = seg.label.length * 8.2 + 20;
-              const mx = (seg.a.x + seg.b.x) / 2;
-              const my = (seg.a.y + seg.b.y) / 2;
+              const mx = seg.mx;
+              const my = seg.my;
               return (
                 <g key={`t${seg.key}`}>
                   <rect x={mx - w / 2} y={my - 14} width={w} height={28} rx={14}
@@ -553,19 +611,32 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
             })}
           </svg>
 
-          <p className="ms-tip">
+          {/*
+              One message, not two. The first phone test stacked the dark
+              prompt and a gold warning on top of each other so neither could
+              be read; they are now the same slot, and the most urgent thing
+              wins it.
+          */}
+          <p className={`ms-tip${compass.verdict === 'bad' ? ' is-warn' : ''}`}>
             {reading.events === 0
               ? 'Waiting for the tilt sensor…'
-              : shot.reason
-                ? shot.reason
-                : corners.length === 0
-                  ? 'Stand still. Aim where the wall meets the floor, then tap +'
-                  : closed
-                    ? 'Outline closed. Aim up at the ceiling for the height.'
-                    : `Corner ${corners.length} placed — turn to the next one`}
+              : compass.verdict === 'bad'
+                ? compass.reason
+                : shot.reason
+                  ? shot.reason
+                  : !settled
+                    /* Ahead of the first-run instruction on purpose. While
+                       this is showing the + is disabled, and "why is the
+                       button dead" beats "here is how to start" — the
+                       instruction is readable again a fraction of a second
+                       later, once the hand stops. */
+                    ? 'Hold still…'
+                    : corners.length === 0
+                      ? 'Stand still. Aim where the wall meets the floor, then tap +'
+                      : closed
+                        ? 'Outline closed. Aim up at the ceiling for the height.'
+                        : `Corner ${corners.length} placed — turn to the next one`}
           </p>
-
-          {note && <p className="ms-toast">{note}</p>}
 
           {/* Stay-put warning. The markers are anchored to where you are
               standing, not to the world, so walking invalidates them. Said
@@ -579,7 +650,8 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
               <button type="button" className="ms-chip" onClick={undoCorner}
                 disabled={!corners.length}>Undo</button>
               <button type="button" className="ms-add" onClick={addCorner}
-                disabled={shot.distance == null} aria-label="Place a corner here">
+                disabled={shot.distance == null || !settled}
+                aria-label="Place a corner here">
                 <span aria-hidden="true">+</span>
               </button>
               <button type="button" className="ms-chip" onClick={() => setClosed(true)}
@@ -743,7 +815,12 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
         <div className="ms-summary">
           {activeRoom?.floorArea
             ? <>{fmt(Math.max(activeRoom.length, activeRoom.width), 'm')} × {fmt(Math.min(activeRoom.length, activeRoom.width), 'm')} · {fmt(activeRoom.floorArea, 'm²')}</>
-            : <>Nothing measured yet</>}
+            : corners.length
+              /* It said "Nothing measured yet" with eleven corners on screen,
+                 which is both untrue and unhelpful — the room is not FINISHED
+                 until the outline closes, and that is what it should say. */
+              ? <>{corners.length} corner{corners.length === 1 ? '' : 's'} — close the outline to finish</>
+              : <>Nothing measured yet</>}
         </div>
         <button type="button" className="button button-primary"
           disabled={!activeRoom?.floorArea}

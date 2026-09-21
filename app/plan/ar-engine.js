@@ -1300,12 +1300,17 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
   /* Clearance measures a span; floor area measures a polygon. The switch changes
      what the AR scan captures, what the fields ask for, and how the verdict is
      decided. */
+  /*
+     Clearance was removed.
+
+     It measured the gap across an opening — a doorway, a hallway — which is
+     a different question from "how big is this room", and it was the first
+     of the three tabs, so the scanner opened on the narrowest thing it can
+     do. Floor area and whole room both answer the question the planner
+     actually exists for. The clearance FIGURE is still used internally as
+     walking space around a piece; only the scan mode is gone.
+  */
   const MEASURE_MODES = {
-    clearance: {
-      title: 'Two-point room scan',
-      copy: 'Aim at a textured, non-reflective floor in bright light. On Android Chrome, tap two points across the opening. Otherwise use the fields below.',
-      button: 'Scan with your camera'
-    },
     area: {
       title: 'Floor area scan',
       copy: 'Tap around the free floor — three points or more, in order, then close the outline. Two scans are compared before a reading is accepted.',
@@ -1319,7 +1324,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
   };
 
   function setMeasureMode(mode) {
-    state.measureMode = MEASURE_MODES[mode] ? mode : 'clearance';
+    state.measureMode = MEASURE_MODES[mode] ? mode : 'room';
     const current = state.measureMode;
     $$('.mode-option').forEach(button => {
       const active = button.dataset.measureMode === current;
@@ -1329,7 +1334,12 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
 
     // Each mode shows only the fields that belong to it, so there is never a
     // stale number visible from a mode you are no longer in.
-    $('#clearance-fields').hidden = current !== 'clearance';
+    /* The manual width/height fields belonged to the clearance tab. They
+         are kept available, because typing a known figure is still the most
+         accurate input there is, but they are no longer tied to a mode that
+         no longer exists. */
+    const clearanceFields = $('#clearance-fields');
+    if (clearanceFields) clearanceFields.hidden = false;
     $('#area-fields').hidden = current !== 'area';
     const roomFields = $('#room-fields');
     if (roomFields) roomFields.hidden = current !== 'room';
@@ -1971,13 +1981,12 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     const HINTS = {
       scan: 'Point at the floor where it meets a wall, and tap that corner.',
       placement: 'Find the floor, then place. Use the tray to move, turn, and resize.',
-      area: 'Tap the corners of the free floor in order. Three or more, then close the outline.',
-      clearance: 'Tap point A, then point B. The reading updates as you move.'
+      area: 'Tap the corners of the free floor in order. Three or more, then close the outline.'
     };
     setHint(
       state.arPurpose === 'scan' ? HINTS.scan
         : state.arPurpose !== 'measurement' ? HINTS.placement
-        : HINTS[state.measureMode] || HINTS.clearance
+        : HINTS[state.measureMode] || HINTS.scan
     );
 
     // The scan panel and its button only exist during a scan.
