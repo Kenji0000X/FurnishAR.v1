@@ -1660,6 +1660,43 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   letter-spacing: normal; text-transform: none; color: var(--ink);
 }
 .login-form textarea { resize: vertical; min-height: 4.5rem; }
+
+/* A form's submit is a button, not a banner.
+   .login-form is a grid, so every child stretches to the full column — which
+   is right for the inputs and wrong for the button under them: "Sign in" was
+   575px wide and "Save changes" 498px. Sized to its own label above phone
+   width, stretched below it, where a full-width submit is the correct
+   pattern because the thumb is the pointer. */
+.login-form button[type="submit"], .login-form .button-primary {
+  justify-self: start; min-width: 11rem;
+}
+@media (max-width: 30rem) {
+  .login-form button[type="submit"], .login-form .button-primary {
+    justify-self: stretch; min-width: 0;
+  }
+}
+
+/* A group of choices, not a form.
+   The account page, the planner's sign-in gate and the "not an administrator"
+   panel all offered two or three places to go next, and all three borrowed
+   .login-form to lay them out — so each became a stack of full-width pills
+   the width of the panel. They are links side by side; this says so. */
+.panel-actions {
+  display: flex; flex-wrap: wrap; align-items: center; align-content: start;
+  gap: .6rem;
+}
+/* Inside the two-column sign-in panel it IS the panel's right half, so it
+   keeps the surface and padding .login-form was providing there. */
+.login-panel .panel-actions { padding: 2rem; background: var(--paper-raised); }
+/* .login-form's grid gap used to space whatever followed the buttons; a flex
+   row has no such effect on its siblings, so the note under the account
+   page's actions sat right against them. */
+.panel-actions + p, .panel-actions + .card-copy { margin-top: 1rem; }
+@media (max-width: 30rem) {
+  /* One per line on a phone, where side by side would make two half-width
+     targets rather than two comfortable ones. */
+  .panel-actions { flex-direction: column; align-items: stretch; }
+}
 .login-form input, .login-form textarea, .login-form select,
 .product-form input, .product-form select, .product-form textarea {
   transition: border-color var(--dur-fast) var(--ease-out);

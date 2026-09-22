@@ -287,7 +287,7 @@ export default function AdminGate({ children }) {
             Signed in to manage a shop? That is the <a href="/portal">store portal</a>.
           </p>
         </div>
-        <div className="login-form">
+        <div className="panel-actions">
           <button className="button button-primary" type="button" onClick={handleSignOut}>
             Sign in as someone else
           </button>

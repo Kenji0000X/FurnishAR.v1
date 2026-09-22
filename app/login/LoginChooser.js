@@ -205,7 +205,7 @@ export default function LoginChooser() {
             from Supabase rather than from FurnishAR.
           </p>
         </div>
-        <div className="login-form">
+        <div className="panel-actions">
           <button className="button button-primary" type="button"
             onClick={() => { setSent(''); setMode('signin'); }}>
             Back to sign in

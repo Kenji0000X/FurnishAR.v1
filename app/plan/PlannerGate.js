@@ -67,7 +67,7 @@ export default function PlannerGate({ children }) {
             <Link href="/collection">catalogue</Link> is there without an account.
           </p>
         </div>
-        <div className="login-form">
+        <div className="panel-actions">
           <Link className="button button-primary" href="/login?as=buyer&next=/plan">
             Sign in or create an account <span aria-hidden="true">→</span>
           </Link>

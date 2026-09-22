@@ -208,8 +208,8 @@ console.log('--- the planner asks who you are ---');
   check('and the planner itself is not rendered behind the panel',
     await page.locator('.planner-view .product-grid, .measure-surface').count() === 0);
   check('the way in carries where you were going',
-    (await page.getAttribute('.login-form a.button-primary', 'href')) === '/login?as=buyer&next=/plan',
-    await page.getAttribute('.login-form a.button-primary', 'href'));
+    (await page.getAttribute('.panel-actions a.button-primary', 'href')) === '/login?as=buyer&next=/plan',
+    await page.getAttribute('.panel-actions a.button-primary', 'href'));
   await page.close();
 }
 
@@ -294,6 +294,32 @@ console.log('--- creating a shopper account ---');
     layout.selectTransform === 'none', layout.selectTransform);
   check('and the hint under it reads as a sentence, not a label',
     layout.hintTransform === 'none', layout.hintTransform);
+
+  /* Buttons sized to their labels, not to the panel.
+     .login-form is a grid, so anything dropped into it stretches to the full
+     column. That is right for the inputs and wrong for everything else: the
+     account page borrowed it to lay out "Open the planner", "Browse the
+     catalogue" and "Sign out", and got three 498px stacked pills. A control
+     roughly as wide as the panel reads as a banner, and three of them read as
+     a wall. */
+  const sizes = await page.evaluate(() => {
+    const panel = document.querySelector('.account-view');
+    const width = panel.getBoundingClientRect().width;
+    return [...document.querySelectorAll('.panel-actions .button, .login-form button[type=submit]')]
+      .map(el => ({
+        t: (el.textContent || '').trim().slice(0, 24),
+        w: Math.round(el.getBoundingClientRect().width),
+        share: el.getBoundingClientRect().width / width
+      }));
+  });
+  check('no button on the account page spans the panel',
+    sizes.every(s => s.share < 0.45),
+    sizes.map(s => `${s.t} ${s.w}px`).join(' | '));
+  /* Still comfortably tappable — shrinking them must not undo the 44px floor. */
+  const tall = await page.evaluate(() =>
+    [...document.querySelectorAll('.panel-actions .button, .login-form button[type=submit]')]
+      .every(el => el.getBoundingClientRect().height >= 44));
+  check('and they are all still at least 44px tall', tall);
 
   /* No link on the site should fall through to the browser's default blue —
      FurnishAR has no global anchor colour, and these panels are the first

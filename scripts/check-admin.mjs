@@ -355,7 +355,7 @@ console.log('--- the superadmin, who owns no store ---');
   check('is not told their store is in review', !/store is in review/i.test(body));
   check('is told what they actually are', /platform operator/i.test(body));
   check('is offered the console from where they land',
-    await page.locator('.login-form a[href="/admin"]').count() > 0);
+    await page.locator('.panel-actions a[href="/admin"]').count() > 0);
   await page.close();
 }
 
@@ -377,7 +377,7 @@ console.log('--- the reported bug: an admin whose account also owns a real store
   check('is told what they actually are, not sent to someone else\'s shop',
     /platform operator/i.test(body));
   check('is offered the console from where they land',
-    await page.locator('.login-form a[href="/admin"]').count() > 0);
+    await page.locator('.panel-actions a[href="/admin"]').count() > 0);
   await page.close();
   adminHasStrayMembership = false;
 }

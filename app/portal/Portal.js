@@ -226,7 +226,7 @@ function PendingPanel({ email, onLogout, isAdmin }) {
             Review sign-ups, watch what is being uploaded, and see every decision on record.
           </p>
         </div>
-        <div className="login-form">
+        <div className="panel-actions">
           <Link className="button button-primary" href="/admin">
             Open the platform console <span aria-hidden="true">→</span>
           </Link>
@@ -249,7 +249,7 @@ function PendingPanel({ email, onLogout, isAdmin }) {
           You will be able to add furniture and upload 3D models as soon as it is approved.
         </p>
       </div>
-      <div className="login-form">
+      <div className="panel-actions">
         <p className="card-copy">Nothing to do here for now. Sign out and come back once you hear from us.</p>
         <button className="button button-outline" type="button" onClick={onLogout}>Sign out</button>
       </div>

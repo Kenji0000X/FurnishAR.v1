@@ -117,7 +117,7 @@ export default function BuyerAccount() {
           <h1 id="account-title">You are not signed in.</h1>
           <p>Sign in to see your account, or create one — it takes a name and a town.</p>
         </div>
-        <div className="login-form">
+        <div className="panel-actions">
           <Link className="button button-primary" href="/login?as=buyer">
             Sign in <span aria-hidden="true">→</span>
           </Link>
@@ -141,7 +141,7 @@ export default function BuyerAccount() {
             in it for you. Your shop lives in the store portal.
           </p>
         </div>
-        <div className="login-form">
+        <div className="panel-actions">
           <Link className="button button-primary" href="/portal">
             Go to the store portal <span aria-hidden="true">→</span>
           </Link>
@@ -203,7 +203,7 @@ export default function BuyerAccount() {
             The planner measures a room with your phone camera and stands a real piece
             of furniture in it, at its real size.
           </p>
-          <div className="login-form">
+          <div className="panel-actions">
             <Link className="button button-primary" href="/plan">
               Open the planner <span aria-hidden="true">→</span>
             </Link>
