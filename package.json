@@ -28,7 +28,8 @@
     "check:measure": "node scripts/check-measure.mjs",
     "check:nav": "node scripts/check-nav.mjs",
     "audit": "node scripts/audit-site.mjs",
-    "audit:mobile": "node scripts/audit-mobile.mjs"
+    "audit:mobile": "node scripts/audit-mobile.mjs",
+    "check:dashboard": "node scripts/check-dashboard.mjs"
   },
   "engines": {
     "node": ">=20"
