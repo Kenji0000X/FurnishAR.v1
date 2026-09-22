@@ -26,7 +26,12 @@ export default function NotFound() {
       </p>
 
       <div className="not-found-actions">
-        <Link className="button button-primary" href="/">Browse the catalog</Link>
+        {/* /collection, not /. The most likely way to arrive here is a
+            product a store took down, so the first action is the catalogue
+            itself — and since the grid moved off the home page, "/" would
+            have been a button whose label named something the destination no
+            longer contains. */}
+        <Link className="button button-primary" href="/collection">Browse the catalog</Link>
         <Link className="button" href="/plan">Measure my space</Link>
       </div>
 

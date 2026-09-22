@@ -50,6 +50,13 @@ console.log('--- escape and the scrim both close it ---');
 await page.keyboard.press('Escape');
 await page.waitForTimeout(250);
 check('Escape closes the drawer', await page.locator('.drawer-panel').count() === 0);
+/* And hands focus back. It used to leave document.activeElement on <body>,
+   so the next Tab restarted from the skip link at the top of the page: a
+   keyboard user who opened the menu and changed their mind was sent to the
+   beginning of the document, every time. BRAND.md §9 names this contract. */
+check('and focus goes back to the burger that opened it',
+  await page.evaluate(() => document.activeElement?.classList.contains('nav-burger')),
+  await page.evaluate(() => document.activeElement?.className || document.activeElement?.tagName));
 await page.click('.nav-burger');
 await page.waitForSelector('.drawer-panel');
 await page.click('.drawer-scrim');
@@ -129,6 +136,21 @@ console.log('--- the header search actually searches ---');
 await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
 check('the header carries a real search form',
   await page.locator('.header-search input').isVisible());
+/* And it shows where the keyboard is. The field's own outline is suppressed
+   so it reads as one control, and what replaced it was a 1px border recolour
+   — the weakest focus indicator on the site, on a tab stop that exists on
+   every page. BRAND.md §9 promises "a ring on the wrapper"; this checks for
+   an actual ring. */
+await page.locator('.header-search input').focus();
+check('and it shows a real focus ring, not just a tinted border',
+  await page.evaluate(() => {
+    const s = getComputedStyle(document.querySelector('.header-search'));
+    return s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) >= 2;
+  }),
+  await page.evaluate(() => {
+    const s = getComputedStyle(document.querySelector('.header-search'));
+    return `${s.outlineStyle} ${s.outlineWidth}`;
+  }));
 await page.fill('.header-search input', 'armchair');
 await page.press('.header-search input', 'Enter');
 await page.waitForURL('**/collection?q=armchair', { timeout: 8000 }).catch(() => {});

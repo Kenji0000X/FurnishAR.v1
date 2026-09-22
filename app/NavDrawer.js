@@ -74,12 +74,27 @@ export default function NavDrawer({ open, onClose }) {
     const previous = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     window.addEventListener('keydown', onKey);
+
+    /* Remembered before focus moves, so it can be given back.
+       The drawer moved focus in and never returned it: closing left
+       document.activeElement on <body>, so the next Tab restarted from the
+       skip link at the top of the page. A keyboard user who opened the menu,
+       changed their mind and pressed Escape was sent back to the beginning of
+       the document — every time. BRAND.md §9 states the contract this
+       breaks: "focus returns to the control that opened it". */
+    const opener = document.activeElement;
+
     /* Focus moves into the panel, so the next Tab is inside the drawer rather
        than somewhere behind it. */
     panelRef.current?.focus();
+
     return () => {
       window.removeEventListener('keydown', onKey);
       document.body.style.overflow = previous;
+      /* Only if it is still there to receive it: navigating from a drawer
+         link unmounts the page under it, and focusing a detached node
+         silently sends focus to <body> — the very thing being fixed. */
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
     };
   }, [open, onClose]);
 

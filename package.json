@@ -30,7 +30,8 @@
     "audit": "node scripts/audit-site.mjs",
     "audit:mobile": "node scripts/audit-mobile.mjs",
     "check:dashboard": "node scripts/check-dashboard.mjs",
-    "check:roles": "node scripts/check-roles.mjs"
+    "check:roles": "node scripts/check-roles.mjs",
+    "check:site": "node scripts/audit-site-full.mjs"
   },
   "engines": {
     "node": ">=20"

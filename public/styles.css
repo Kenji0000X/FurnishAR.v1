@@ -1494,6 +1494,13 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   letter-spacing: .1em; color: var(--ink-faint);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* On the narrowest phones the ellipsis was eating the measurements —
+   "70 W x 78 D x 88 H" truncated to nothing useful on a 320px screen. Those
+   centimetres are the entire reason the chooser shows a second line, so at
+   this width it wraps to two lines instead of truncating to one. */
+@media (max-width: 360px) {
+  .planner-choice-text small { white-space: normal; overflow: visible; }
+}
 
 /* Shown when a shopper followed a link for a piece that has no model. It says
    what happened and what they can do, which is why it is a note and not an
@@ -1614,7 +1621,19 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 
 /* -------------------------------------------------------------- admin ---- */
 
-.login-panel { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--rule-strong); }
+/* minmax(0, …), not a bare 1fr — see BRAND.md §5 "Grid tracks". An automatic
+   or `1fr` track refuses to shrink below its content's min-content width, so
+   a long address in the copy ("admin@furnishar.ph", "/portal") pushed the
+   whole panel 22px past a 320px screen even after it had stacked to one
+   column. The overflow was on /admin, /account and /login — every page where
+   somebody signs in. */
+.login-panel {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  border: 1px solid var(--rule-strong);
+}
+/* Long unbroken strings in the copy — an email address, a route — have
+   somewhere to break rather than setting the panel's width. */
+.login-copy, .login-copy p { overflow-wrap: anywhere; }
 .login-copy { padding: 2rem; border-right: 1px solid var(--rule-strong); background: var(--deep); color: var(--on-deep); }
 .secure-mark { margin-bottom: 1.2rem; color: var(--accent-lifted); }
 /* The panel's heading is an h1 where the panel is the whole page (the
@@ -2916,7 +2935,7 @@ footer {
      object still comes before reading about it. */
   .product-detail { grid-template-columns: minmax(0, 1fr); }
   .product-detail-info { max-width: none; }
-  .login-panel { grid-template-columns: 1fr; }
+  .login-panel { grid-template-columns: minmax(0, 1fr); }
   .login-copy { border-right: 0; border-bottom: 1px solid var(--rule-strong); }
 }
 
@@ -3140,6 +3159,21 @@ footer {
   .brand { padding: .75rem 0; }
   .nav-link { padding: .85rem 0; }
   .clear-button, .icon-button { min-height: var(--tap); padding: .5rem .8rem; }
+  /* The filter chips, and the "Clear all" that sits among them.
+     `.clear-button` was already on the line above and still measured 32px on
+     a real phone: `.active-filters button` (0,1,1) out-specifies
+     `.clear-button` (0,1,0), so the chip rule's min-height:32px won inside
+     that list. Naming the same selector here is what actually moves it.
+     These are the controls for undoing a filter — the thing a shopper reaches
+     for when the grid is showing them the wrong furniture. */
+  .active-filters button { min-height: var(--tap); padding: .5rem .7rem; }
+  /* The header CTA is hidden below 48rem, so this is the tablet case: on an
+     iPad it was a 37px-tall primary action. */
+  .header-action { min-height: var(--tap); }
+  /* The breadcrumb's category link measured 43x44 on a tablet — one pixel
+     short of the target the accessibility contract promises, which is the
+     kind of miss that only a measurement finds. */
+  .breadcrumb a { display: inline-flex; align-items: center; min-height: var(--tap); min-width: var(--tap); justify-content: center; }
   .color-option { width: var(--tap); height: var(--tap); }
   .range-group input { height: var(--tap); }
   .search-input input { min-height: var(--tap); }
@@ -3999,7 +4033,19 @@ footer {
   flex-grow: 1; min-width: 0; border: 0; outline: none;
   background: transparent; font: inherit; font-size: .875rem; color: var(--ink);
 }
-.header-search:focus-within { border-color: var(--accent); }
+/* A ring, not a tint.
+   BRAND.md §9 promises "a ring on the wrapper so the whole field reads as
+   focused", but what shipped was a 1px border recolour — the weakest focus
+   indicator on the site, on a control that is a tab stop on every single
+   page. A 1px border changing hue is not a 3:1 perimeter indicator, and it
+   was invisible next to the 2px --accent-ink outline every other control
+   gets. Drawn on the wrapper because the input's own outline is suppressed
+   so the field reads as one control. */
+.header-search:focus-within {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 2px;
+}
 @media (max-width: 60rem) { .header-search { display: none; } }
 
 .sr-only {
