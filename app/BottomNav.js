@@ -92,7 +92,7 @@ function Icon({ name, filled }) {
 
 const ITEMS = [
   { href: '/', label: 'Discover', icon: 'discover' },
-  { href: '/#catalog', label: 'Collection', icon: 'collection' },
+  { href: '/collection', label: 'Collection', icon: 'collection' },
   { href: '/plan', label: 'Scan', icon: 'scan', primary: true },
   /* "Device", not "Diagnostics" or "Device check": five labels have to fit
      across 320px, which leaves about 64px a slot. */

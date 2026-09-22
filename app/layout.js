@@ -6,6 +6,7 @@
 import '../public/styles.css';
 import SiteHeader from './SiteHeader.js';
 import SiteFooter from './SiteFooter.js';
+import ChromeGate from './ChromeGate.js';
 import BottomNav from './BottomNav.js';
 import ScrollProgress from './ScrollProgress.js';
 import PageTools from './PageTools.js';
@@ -86,7 +87,7 @@ export default function RootLayout({ children }) {
         {/* tabIndex -1 so the jump actually moves focus, not just the
             scroll position; without it the next Tab returns to the header. */}
         <main id="main" tabIndex={-1}>{children}</main>
-        <SiteFooter />
+        <ChromeGate><SiteFooter /></ChromeGate>
         {/* Phones only — the desktop header carries the same destinations
             inline. Rendered after the footer so it is last in the tab order,
             where a bar pinned to the bottom of the screen belongs. */}

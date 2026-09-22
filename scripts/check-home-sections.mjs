@@ -34,7 +34,9 @@ const browser = await chromium.launch({
 {
   console.log('--- FAQ ---');
   const page = await browser.newPage();
-  await page.goto(`${BASE}/`);
+  // The questions are their own route now; they used to be the tail of the
+  // home page, reachable only by scrolling past the entire catalogue.
+  await page.goto(`${BASE}/faq`);
 
   const items = page.locator('.faq-item');
   check(await items.count() === 6, 'six questions render', `${await items.count()}`);
@@ -163,11 +165,20 @@ const browser = await chromium.launch({
     getComputedStyle(el).gridTemplateColumns.split(' ').length);
   check(columns === 1, 'the story stacks to one column', `${columns} column(s)`);
 
-  // The tap targets people will actually aim at with a thumb.
-  for (const selector of ['.faq-item summary', '.capsule', '.footer-column a']) {
+  /* The tap targets people will actually aim at with a thumb.
+
+     Two of these moved when the home page was cut back: the questions are
+     their own route now, and the footer's four columns became one band of
+     groups. Checked where they actually live rather than deleted. */
+  for (const selector of ['.capsule', '.footer-group a']) {
     const box = await page.locator(selector).first().boundingBox();
     check(box.height >= 44, `${selector} is at least 44px tall`, `${Math.round(box.height)}px`);
   }
+
+  await page.goto(`${BASE}/faq`);
+  const summary = await page.locator('.faq-item summary').first().boundingBox();
+  check(summary.height >= 44, '.faq-item summary is at least 44px tall',
+    `${Math.round(summary.height)}px`);
   await context.close();
 }
 
@@ -409,7 +420,8 @@ const browser = await chromium.launch({
   */
   console.log('--- the catalogue does not invent pictures ---');
   const page = await browser.newPage();
-  await page.goto(`${BASE}/`);
+  // The grid is on its own route now, not the tail of the home page.
+  await page.goto(`${BASE}/collection`);
   await page.waitForTimeout(600);
 
   const cards = await page.locator('.product-card').evaluateAll(nodes => nodes.map(card => ({
@@ -477,6 +489,15 @@ const browser = await chromium.launch({
       says: Number((n.querySelector('.capsule-label small')?.textContent || '').match(/\d+/)?.[0])
     })));
 
+    /*
+      The rail still lives on the home page, but the grid it points at does
+      not any more — it moved to /collection with the rest of the catalogue.
+      Counting `.product-card` on `/` after that split found zero cards and
+      called it a failure of the rail. Read the baseline where the grid
+      actually is.
+    */
+    await page.goto(`${BASE}/collection`);
+    await page.waitForTimeout(600);
     const truth = await page.evaluate(() => {
       const counts = {};
       for (const card of document.querySelectorAll('.product-grid .product-card')) {
@@ -509,7 +530,9 @@ const browser = await chromium.launch({
 {
   console.log('--- the marquee ---');
   const page = await browser.newPage();
-  await page.goto(`${BASE}/`);
+  // The marquee travelled with the catalogue when the home page was cut
+  // back; both live on /collection now.
+  await page.goto(`${BASE}/collection`);
   await page.locator('.marquee').scrollIntoViewIfNeeded();
   await page.waitForTimeout(900);
 
@@ -587,6 +610,9 @@ const browser = await chromium.launch({
   // duration to 1ms rather than to zero, so a measurement taken in the same
   // tick as the click catches the icon at t=0 — still a plus — and reports a
   // failure that only exists inside the test.
+  // The questions are on their own route now, so the icon-state check
+  // follows them there. Reduced motion still applies: it is a context flag.
+  await page.goto(`${BASE}/faq`);
   const item = page.locator('.faq-item').first();
   await item.locator('summary').click();
 

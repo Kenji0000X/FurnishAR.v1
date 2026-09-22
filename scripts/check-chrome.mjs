@@ -54,7 +54,7 @@ if (!styleOk) {
 
 console.log('--- the skip link, on every route ---');
 // The bug: it pointed at #catalog, which exists only on the home page.
-for (const route of ['/', '/plan', '/portal']) {
+for (const route of ['/', '/collection', '/faq', '/plan', '/portal']) {
   await page.goto(`${BASE}${route}`, { waitUntil: 'domcontentloaded' });
   const target = await page.getAttribute('.skip-link', 'href');
   const exists = await page.locator(target).count();
@@ -146,7 +146,11 @@ check('and the check actually ran on arrival',
   `${await phone.locator('.diag-row').count()} rows reported`);
 
 console.log('--- catalogue search ---');
-await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
+/* The catalogue is its own route now. It used to be a section of the home
+   page reached by an anchor, which is why "Collection" in the navigation was
+   a scroll rather than a destination and the front page never ended. */
+await page.goto(`${BASE}/collection`, { waitUntil: 'domcontentloaded' });
+await page.waitForSelector('.search-input input', { timeout: 10000 });
 const total = await page.locator('.product-card').count();
 await page.fill('.search-input input', 'zzzznomatch');
 await page.waitForTimeout(200);
