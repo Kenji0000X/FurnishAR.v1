@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 /**
  * A one-time notice about local storage.
@@ -29,6 +29,7 @@ const STORAGE_KEY = 'furnishar-storage-notice';
 
 export default function CookieNotice() {
   const [visible, setVisible] = useState(false);
+  const panel = useRef(null);
 
   useEffect(() => {
     try {
@@ -38,6 +39,38 @@ export default function CookieNotice() {
       // dismissed would nag on every page view, so stay quiet.
     }
   }, []);
+
+  /**
+   * Reserve the notice's height at the end of the page.
+   *
+   * It is `position: fixed`, so it floats over whatever the last thing on
+   * screen happens to be. On a 390px phone it wraps to about 180px tall, and
+   * anything scrolled to the bottom of the viewport lands underneath it — on
+   * /portal that was the "New store? Sign up" button, unclickable until the
+   * notice was dismissed. The bottom nav had exactly this bug and was fixed
+   * by reserving its height; this is the same fix for the other fixed panel.
+   *
+   * Measured rather than hard-coded, because the height depends on how the
+   * copy wraps, which depends on the width and the reader's font size.
+   */
+  useEffect(() => {
+    const node = panel.current;
+    const root = document.documentElement;
+    if (!visible || !node) {
+      root.style.removeProperty('--notice-space');
+      return undefined;
+    }
+    const measure = () => {
+      root.style.setProperty('--notice-space', `${Math.ceil(node.offsetHeight) + 16}px`);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty('--notice-space');
+    };
+  }, [visible]);
 
   function dismiss() {
     setVisible(false);
@@ -49,7 +82,7 @@ export default function CookieNotice() {
   if (!visible) return null;
 
   return (
-    <div className="cookie-notice" role="region" aria-label="Storage notice">
+    <div className="cookie-notice" role="region" aria-label="Storage notice" ref={panel}>
       <p>
         FurnishAR keeps your theme and planner settings on this device, and your
         sign-in until you close the tab. No advertising or analytics cookies,

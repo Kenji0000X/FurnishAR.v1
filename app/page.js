@@ -1,10 +1,7 @@
 import Link from 'next/link';
 import { getCatalog, getStores } from '../lib/catalog.mjs';
-import CatalogSection from './CatalogSection.js';
-import Faq from './Faq.js';
 import HeroStage from './HeroStage.js';
 import Promises from './Promises.js';
-import Marquee from './Marquee.js';
 import ProductThumb from './ProductThumb.js';
 
 // The catalogue is a file the owner portal can write to, so pages are allowed
@@ -91,9 +88,9 @@ function Hero({ facts, capsules }) {
           <Link className="capsule capsule-solid" href="/plan">
             Measure my space <span aria-hidden="true">→</span>
           </Link>
-          <a className="capsule capsule-quiet" href="#catalog">
+          <Link className="capsule capsule-quiet" href="/collection">
             Browse the collection
-          </a>
+          </Link>
         </div>
         <dl className="hero-facts">
           <div><dt>{facts.stores}</dt><dd>{facts.stores === 1 ? 'Local store' : 'Local stores'}</dd></div>
@@ -110,7 +107,7 @@ function Hero({ facts, capsules }) {
             <Link
               className="capsule capsule-card"
               key={category}
-              href={`/?category=${encodeURIComponent(category)}#catalog`}
+              href={`/collection?category=${encodeURIComponent(category)}`}
             >
               <span className="capsule-thumb" aria-hidden="true">
                 <ProductThumb product={sample} sizes="56px" />
@@ -163,29 +160,6 @@ function PromiseSection() {
   );
 }
 
-function ClosingCta() {
-  return (
-    <section className="band band-deep band-cta" aria-labelledby="cta-title">
-      <div className="band-inner">
-        <p className="eyebrow">For the shops</p>
-        <h2 id="cta-title">Sell the piece, not the guesswork.</h2>
-        <p className="band-text">
-          List your furniture with its real dimensions and a 3D model, and every shopper
-          who finds it can check it against their own room first.
-        </p>
-        <div className="band-actions">
-          <Link className="capsule capsule-solid" href="/portal">
-            Open the store portal <span aria-hidden="true">→</span>
-          </Link>
-          <Link className="capsule capsule-outline" href="/plan">
-            Try the planner
-          </Link>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 export default async function HomePage() {
   // Rendered on the server, so the full catalogue is in the HTML a crawler or a
   // shared link receives — the filters below hydrate on top of it rather than
@@ -206,10 +180,16 @@ export default async function HomePage() {
         <PromiseSection />
       </HeroStage>
 
-      <Marquee products={products} />
-      <CatalogSection products={products} />
-      <Faq />
-      <ClosingCta />
+      {/*
+          The page ends here.
+
+          It used to keep going — a sliding band of pieces, the whole
+          catalogue grid, the FAQ and a pitch to shop owners — so the front
+          page was four pages wearing one URL. Nothing below the three claims
+          was ever the reason somebody arrived, and each of those sections is
+          now a route of its own: /collection, /faq, and the store pitch at
+          the top of /portal.
+      */}
     </section>
   );
 }

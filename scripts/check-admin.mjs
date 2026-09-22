@@ -300,8 +300,17 @@ console.log('--- signing in AT /admin, which is what the portal link promises --
   await page.fill('input[name="password"]', 'whatever');
   await page.click('form.login-form button[type="submit"]');
   await page.waitForTimeout(3000);
+  check('signing in here reaches the console',
+    /Overview/i.test(await page.locator('body').innerText()), page.url());
+
+  /* The console is six routes now, and the queue is one of them. Following
+     the nav is the check: a sub-nav whose links do not reach their sections
+     is the same bug as a burger that does not open. */
+  await page.click('.admin-nav-link:has-text("Applications")');
+  await page.waitForURL('**/admin/applications', { timeout: 10000 }).catch(() => {});
+  await page.waitForSelector('.review-card', { timeout: 20000 }).catch(() => {});
   const body = await page.locator('body').innerText();
-  check('signing in here reaches the console', /Store applications/i.test(body),
+  check('the console nav reaches the review queue', /Store applications/i.test(body),
     page.url());
   check('and it is the real queue', body.includes('Mindoro Rattan'));
 
@@ -377,7 +386,8 @@ console.log('--- the superadmin ---');
 {
   const page = await browser.newPage();
   await signIn(page, 'admin@furnishar.ph');
-  await page.goto(`http://127.0.0.1:${APP_PORT}/admin`, { waitUntil: 'domcontentloaded' });
+  // The queue is its own route now, so it has its own URL to link to.
+  await page.goto(`http://127.0.0.1:${APP_PORT}/admin/applications`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('.review-card', { timeout: 20000 }).catch(() => {});
   const body = await page.locator('body').innerText();
   check('sees the queue', /Mindoro Rattan Works/.test(body));
@@ -403,16 +413,30 @@ console.log('--- the superadmin ---');
   }
 
   console.log('--- the 3D files across every store ---');
+  // Their own section, reached the way an operator reaches it.
+  await page.click('.admin-nav-link:has-text("3D files")');
+  await page.waitForURL('**/admin/models', { timeout: 10000 }).catch(() => {});
+  await page.waitForTimeout(600);
+  const files = await page.locator('body').innerText();
   check('lists an uploaded model with its store and product',
-    /Cane Back Armchair/.test(body) && /S&C Variety Store/.test(body));
-  check('shows the file size in something readable', /30 MB/.test(body),
-    (body.match(/\d+(\.\d+)? [KMG]B/) || ['none'])[0]);
+    /Cane Back Armchair/.test(files) && /S&C Variety Store/.test(files));
+  check('shows the file size in something readable', /30 MB/.test(files),
+    (files.match(/\d+(\.\d+)? [KMG]B/) || ['none'])[0]);
   check('flags a listing with no model attached',
-    /Unmodelled Side Table/.test(body) && /no 3D model/i.test(body));
+    /Unmodelled Side Table/.test(files) && /no 3D model/i.test(files));
 
   console.log('--- storage usage, now that a single file can be 100 MB ---');
+  await page.click('.admin-nav-link:has-text("Usage")');
+  await page.waitForURL('**/admin/usage', { timeout: 10000 }).catch(() => {});
+  await page.waitForTimeout(600);
+  const spend = await page.locator('body').innerText();
   check('shows how much each store has uploaded',
-    /S&C Variety Store/.test(body) && /Usage by store/i.test(body));
+    /S&C Variety Store/.test(spend) && /Usage by store/i.test(spend));
+
+  // Back to the queue to approve one.
+  await page.click('.admin-nav-link:has-text("Applications")');
+  await page.waitForURL('**/admin/applications', { timeout: 10000 }).catch(() => {});
+  await page.waitForSelector('.review-card', { timeout: 20000 }).catch(() => {});
 
   console.log('--- approving ---');
   // Scoped to this one card: a second pending application (the stuck-signup
@@ -429,7 +453,15 @@ console.log('--- the superadmin ---');
   await page.waitForTimeout(2500);
   const after = await page.locator('body').innerText();
   check('reports the approval', /approved/i.test(after));
-  check('records who did it in the activity log', /admin@furnishar\.ph/.test(after));
+
+  /* The log is its own section now, so the proof moves with it. The decision
+     and the record of it are written in one database transaction, so if the
+     approval reported above is real this entry must exist. */
+  await page.click('.admin-nav-link:has-text("Activity")');
+  await page.waitForURL('**/admin/activity', { timeout: 10000 }).catch(() => {});
+  await page.waitForTimeout(800);
+  check('records who did it in the activity log',
+    /admin@furnishar\.ph/.test(await page.locator('body').innerText()));
   await page.close();
 }
 
@@ -440,10 +472,15 @@ console.log('--- signing out, then pressing Back onto the console ---');
   // or borrowed phone must not hand them to whoever picks it up next.
   const page = await browser.newPage();
   await signIn(page, 'admin@furnishar.ph');
-  await page.goto(`http://127.0.0.1:${APP_PORT}/admin`, { waitUntil: 'domcontentloaded' });
+  // The queue is its own route now, so it has its own URL to link to.
+  await page.goto(`http://127.0.0.1:${APP_PORT}/admin/applications`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('.review-card', { timeout: 20000 }).catch(() => {});
+  /* Not rattan@shop.ph: an earlier block approved that application, and the
+     queue opens on "Awaiting review", so it is legitimately no longer there.
+     The stuck applicant is still pending and proves the same point — an
+     admin could read an applicant's contact details. */
   check('the admin could read the queue to begin with',
-    (await page.locator('body').innerText()).includes('rattan@shop.ph'));
+    (await page.locator('body').innerText()).includes('stuck@shop.ph'));
 
   await page.goto(`http://127.0.0.1:${APP_PORT}/portal`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1500);
@@ -453,8 +490,8 @@ console.log('--- signing out, then pressing Back onto the console ---');
   await page.goBack({ waitUntil: 'domcontentloaded' }).catch(() => {});
   await page.waitForTimeout(3000);
   const afterBack = await page.locator('body').innerText();
-  check('Back after signing out shows no applicant email', !afterBack.includes('rattan@shop.ph'));
-  check('Back after signing out shows no applicant phone', !afterBack.includes('+63431234567'));
+  check('Back after signing out shows no applicant email', !afterBack.includes('stuck@shop.ph'));
+  check('Back after signing out shows no applicant phone', !afterBack.includes('+63439998888'));
   check('Back after signing out shows no console headings', !/Store applications/i.test(afterBack));
   await page.close();
 }

@@ -29,10 +29,22 @@ export default function CatalogSection({ products }) {
   // catalogue actually has is honoured, so a stale or hand-edited link shows
   // everything instead of an empty grid.
   useEffect(() => {
-    const wanted = new URLSearchParams(window.location.search).get('category');
-    if (!wanted) return;
-    const known = products.some(product => product.category === wanted);
-    if (known) setFilters(current => ({ ...current, category: wanted }));
+    const params = new URLSearchParams(window.location.search);
+
+    const wanted = params.get('category');
+    if (wanted) {
+      const known = products.some(product => product.category === wanted);
+      if (known) setFilters(current => ({ ...current, category: wanted }));
+    }
+
+    /* ?q= is what the header's search box submits.
+       Without this the field would be decoration: a search that navigates
+       here and then shows the unfiltered grid is worse than no search at
+       all, because it looks like it worked. Unlike ?category= this is not
+       validated against the catalogue — an unmatched term should land on the
+       honest "nothing matched" state, not be silently dropped. */
+    const query = params.get('q');
+    if (query) setFilters(current => ({ ...current, search: query }));
   }, [products]);
 
   const colors = useMemo(
