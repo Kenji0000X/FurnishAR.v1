@@ -672,6 +672,130 @@ export async function resendConfirmation(email) {
   return true;
 }
 
+/**
+ * Signs up a shopper.
+ *
+ * One write, not two. The name and municipality travel as account metadata
+ * and 0006's trigger turns them into the buyers row inside the same
+ * transaction that creates the account — so there is no window where the
+ * account exists and the profile does not, and no second call that could fail
+ * after the password has already been accepted. Store sign-up above has that
+ * second write and has the scar tissue to prove it.
+ */
+export async function signUpBuyer({ email, password, fullName, municipality }) {
+  if (mode === 'direct') {
+    const supabase = await getDirectClient();
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { role: 'buyer', full_name: fullName, municipality } }
+    });
+    if (error) throw new Error(friendlyError(error));
+    return { user: data.user, needsEmailConfirmation: Boolean(data.user && !data.session) };
+  }
+
+  const result = await authCall('signup', {
+    role: 'buyer', email, password, fullName, municipality
+  });
+  if (result.access_token) storeSession(result);
+  return {
+    user: result.user,
+    needsEmailConfirmation: Boolean(result.user && !result.access_token)
+  };
+}
+
+/**
+ * What kind of account is signed in: guest | buyer | owner | admin | pending.
+ *
+ * The server answers this, from the tables. Nothing here is decided by what
+ * the browser remembers about how someone signed up — an account is a buyer
+ * because it has a buyers row, not because a form said so an hour ago.
+ */
+export async function myRole() {
+  if (!session && mode !== 'direct') return 'guest';
+  try {
+    if (mode === 'direct') {
+      const supabase = await getDirectClient();
+      const { data, error } = await supabase.rpc('my_role');
+      if (error) throw error;
+      return String(data || 'guest');
+    }
+    return String(await restCall('rpc/my_role', { method: 'POST', body: '{}' }) || 'guest');
+  } catch {
+    // A failure must read as "not signed in", never as "assume allowed".
+    return 'guest';
+  }
+}
+
+/** The signed-in shopper's own row, or null. RLS returns nobody else's. */
+export async function buyerProfile() {
+  if (!session && mode !== 'direct') return null;
+  try {
+    if (mode === 'direct') {
+      const supabase = await getDirectClient();
+      const { data } = await supabase.from('buyers')
+        .select('full_name,municipality,created_at').maybeSingle();
+      return data || null;
+    }
+    const rows = await restCall('buyers?select=full_name,municipality,created_at&limit=1');
+    return Array.isArray(rows) && rows.length ? rows[0] : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Edits the signed-in shopper's own row.
+ *
+ * There is no `user_id` in what this sends, and that is the point: the update
+ * policy is `user_id = auth.uid()`, so the row this reaches is decided by the
+ * token, never by anything the browser names. Passing an id would not let a
+ * caller edit somebody else's row — it would simply match nothing.
+ */
+export async function updateBuyerProfile({ fullName, municipality }) {
+  const patch = { full_name: fullName, municipality };
+  if (mode === 'direct') {
+    const supabase = await getDirectClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase.from('buyers').update(patch).eq('user_id', user.id);
+    if (error) throw new Error(friendlyError(error));
+    return true;
+  }
+  /* Filtered explicitly, even though RLS already scopes an unfiltered PATCH
+     to the caller's own row. An unfiltered update is the kind of statement
+     that is correct only as long as a policy stays correct, and this one is
+     one dropped policy away from rewriting every shopper's town. */
+  const id = session?.user?.id;
+  if (!id) throw new Error('Sign in before changing your details.');
+  await restCall(`buyers?user_id=eq.${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify(patch)
+  });
+  return true;
+}
+
+/**
+ * The municipalities the sign-up form offers.
+ *
+ * Read from the table rather than hard-coded here, so the form and the check
+ * constraint behind it cannot drift into disagreeing about what a valid town
+ * is — which would show a shopper a choice the database then refuses.
+ */
+export async function listMunicipalities() {
+  try {
+    if (mode === 'direct') {
+      const supabase = await getDirectClient();
+      const { data } = await supabase.from('municipalities').select('name').order('name');
+      return (data || []).map(row => row.name);
+    }
+    const rows = await restCall('municipalities?select=name&order=name.asc');
+    return Array.isArray(rows) ? rows.map(row => row.name) : [];
+  } catch {
+    return [];
+  }
+}
+
 export async function signIn({ email, password }) {
   if (mode === 'direct') {
     const supabase = await getDirectClient();

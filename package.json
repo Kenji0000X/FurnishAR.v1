@@ -29,7 +29,8 @@
     "check:nav": "node scripts/check-nav.mjs",
     "audit": "node scripts/audit-site.mjs",
     "audit:mobile": "node scripts/audit-mobile.mjs",
-    "check:dashboard": "node scripts/check-dashboard.mjs"
+    "check:dashboard": "node scripts/check-dashboard.mjs",
+    "check:roles": "node scripts/check-roles.mjs"
   },
   "engines": {
     "node": ">=20"
