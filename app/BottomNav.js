@@ -87,6 +87,15 @@ function Icon({ name, filled }) {
       </svg>
     );
   }
+  if (name === 'account') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" {...style}>
+        <circle cx="12" cy="8.2" r="3.6" />
+        <path d="M4.8 20.2a7.2 7.2 0 0 1 14.4 0"
+          {...(filled ? { fill: 'currentColor' } : {})} />
+      </svg>
+    );
+  }
   return null;
 }
 
@@ -97,7 +106,13 @@ const ITEMS = [
   /* "Device", not "Diagnostics" or "Device check": five labels have to fit
      across 320px, which leaves about 64px a slot. */
   { href: '/diagnose', label: 'Device', icon: 'device' },
-  { href: '/portal', label: 'Stores', icon: 'stores' }
+  /* Was "Stores", pointing at /portal. This bar is the shopper's menu — it
+     is why it is hidden on the workspace routes — and /portal is the store
+     owner's door, not a shopper's destination. It is still one tap away in
+     the drawer, under "For stores", where a shop owner would look for it.
+     /account sends a signed-out visitor to sign in, so one slot covers both
+     states without the bar having to ask the server who is looking. */
+  { href: '/account', label: 'Account', icon: 'account' }
 ];
 
 export default function BottomNav() {

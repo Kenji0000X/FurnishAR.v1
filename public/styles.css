@@ -1429,7 +1429,12 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 
 /* ------------------------------------------------- planner and admin ---- */
 
-.planner-view, .admin-view {
+/* .account-view belongs here: without it the shopper's page had no gutter
+   and no maximum width, so the heading started hard against the left edge of
+   the screen and the panels bled off both sides. (/login is not in the list
+   — .login-panel and .role-choice carry their own container, and adding it
+   would double the padding.) */
+.planner-view, .admin-view, .account-view {
   max-width: var(--maxw); margin: 0 auto;
   padding: clamp(2.5rem, 6vw, 4.5rem) var(--gutter) clamp(3rem, 8vw, 6rem);
 }
@@ -1628,7 +1633,7 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 /* .login-form textarea belongs here too: without it the sign-up form's "What
    will you list?" box inherited the label's uppercase mono styling and rendered
    at 10px. */
-.login-form input, .login-form textarea,
+.login-form input, .login-form textarea, .login-form select,
 .product-form input, .product-form select, .product-form textarea {
   width: 100%; padding: .6rem .7rem;
   border: 1px solid var(--rule); background: transparent;
@@ -1636,11 +1641,12 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   letter-spacing: normal; text-transform: none; color: var(--ink);
 }
 .login-form textarea { resize: vertical; min-height: 4.5rem; }
-.login-form input, .login-form textarea,
+.login-form input, .login-form textarea, .login-form select,
 .product-form input, .product-form select, .product-form textarea {
   transition: border-color var(--dur-fast) var(--ease-out);
 }
 .login-form input:focus-visible, .login-form textarea:focus-visible,
+.login-form select:focus-visible,
 .product-form input:focus-visible,
 .product-form select:focus-visible, .product-form textarea:focus-visible { border-color: var(--rule-strong); }
 .form-error { color: var(--danger); font-size: .75rem; }
@@ -4010,6 +4016,14 @@ footer {
    one that goes: the bottom bar already carries Scan as its primary action,
    so the button is a duplicate on exactly the screens with no room for it.
    --------------------------------------------------------------------- */
+@media (max-width: 760px) {
+  /* The bottom bar takes over exactly here (see .bottom-nav above), and it
+     carries Account. Two account buttons on one phone screen is one too
+     many, and keeping both pushed the header 31px past the edge at 320px —
+     which check-home caught as sideways scroll on every public page. */
+  .site-header .account-link { display: none; }
+}
+
 @media (max-width: 48rem) {
   .site-header .header-action { display: none; }
   .header-tools { gap: .35rem; }
@@ -4199,4 +4213,86 @@ footer {
 .activity-dot {
   flex: 0 0 auto; width: 8px; height: 8px; margin-top: .45rem;
   border-radius: 999px; background: var(--accent);
+}
+
+/* ===================================================================
+   Signing in: the role question, and the shopper's own page.
+   =================================================================== */
+.role-choice {
+  max-width: 46rem; margin-inline: auto;
+  padding: clamp(1.5rem, 5vw, 3rem) var(--gutter, 1.25rem);
+}
+.role-choice .login-copy { margin-bottom: clamp(1.5rem, 4vw, 2.25rem); }
+
+.role-cards {
+  display: grid; gap: .9rem;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+}
+/* Both are one target each, so both are the same shape whether the markup
+   under them is a button (stay here, show the shopper form) or a link (go to
+   the portal). The difference is a routing detail, not something a person
+   choosing between two doors should be able to see. */
+.role-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: .5rem;
+  padding: clamp(1.1rem, 3vw, 1.5rem);
+  border: 1px solid var(--rule); border-radius: 16px;
+  background: var(--paper-raised); color: inherit;
+  font: inherit; text-align: left; text-decoration: none; cursor: pointer;
+  transition: border-color var(--dur-fast, .15s) ease, transform var(--dur-fast, .15s) ease;
+}
+.role-card:hover, .role-card:focus-visible {
+  border-color: var(--accent); transform: translateY(-2px);
+}
+.role-card-mark {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 2.25rem; height: 2.25rem; border-radius: 10px;
+  background: var(--accent-soft, var(--rule)); color: var(--accent);
+  font-size: 1.1rem;
+}
+.role-card b { font-size: 1.0625rem; }
+.role-card > span:not(.role-card-mark):not(.role-card-go) {
+  font-size: .875rem; line-height: 1.55; color: var(--ink-muted);
+}
+.role-card-go {
+  margin-top: auto; padding-top: .35rem;
+  font-family: var(--mono); font-size: var(--micro); font-weight: 600;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--accent);
+}
+.role-foot {
+  margin: 1.5rem 0 0; font-size: .875rem; color: var(--ink-muted);
+}
+
+/* Links inside prose panels.
+   FurnishAR has no global anchor colour — everywhere else a link is a button,
+   a nav item or a card, each styled where it lives. The sign-in panels are
+   the first place on the site with links inside a SENTENCE, and without this
+   they fell through to the browser's default blue, underlined, in the middle
+   of a page that has no other blue on it.
+   --accent-ink is the token for small accent text on paper; check-contrast
+   already holds it to 4.5:1 in both themes, so this inherits that guarantee
+   rather than introducing a colour nobody is checking. */
+.role-foot a, .login-copy a, .login-panel .card-copy a, .demo-note a {
+  color: var(--accent-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+.role-foot a:hover, .login-copy a:hover,
+.login-panel .card-copy a:hover, .demo-note a:hover {
+  text-decoration-thickness: 2px;
+}
+
+/* The shopper's page: two panels, not a dashboard. */
+.account-grid {
+  display: grid; gap: clamp(1rem, 3vw, 1.75rem);
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+}
+/* A sentence under a field, so it wears prose type. Inside .login-form
+   label it would otherwise inherit that label's mono, uppercase, letter-
+   spaced styling and read as a second label rather than an explanation —
+   the same inheritance the textarea comment above documents. */
+.field-hint {
+  display: block; margin-top: .3rem;
+  font-family: var(--sans); font-size: .75rem; line-height: 1.45;
+  letter-spacing: normal; text-transform: none; color: var(--ink-muted);
 }

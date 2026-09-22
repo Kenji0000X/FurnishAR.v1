@@ -28,6 +28,18 @@ const GROUPS = [
     ]
   },
   {
+    /* The shopper's own half of the site. Its own group rather than a line in
+       "Browse", because signing in is a different kind of act from looking at
+       furniture, and burying it under the catalogue is how people conclude a
+       site has no accounts. */
+    title: 'Your account',
+    small: true,
+    items: [
+      { href: '/login', label: 'Sign in', path: '/login' },
+      { href: '/account', label: 'Your account', path: '/account' }
+    ]
+  },
+  {
     title: 'For stores',
     small: true,
     items: [

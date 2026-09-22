@@ -76,6 +76,24 @@ export default function SiteHeader() {
             label={pathname.startsWith('/admin') ? 'Platform activity' : 'Notifications'}
           />
 
+          {/*
+              A plain link, not a component that asks the server who is
+              looking. /account answers that itself — a signed-out visitor
+              gets the sign-in panel, a shopper gets their details, a store
+              owner is told plainly that their shop lives in the portal. One
+              destination for every state means the header needs no round
+              trip on every page load to decide what to draw.
+          */}
+          {!isWorkspace && (
+            <Link className="icon-button account-link" href="/account" aria-label="Your account">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="8.2" r="3.6" />
+                <path d="M4.8 20.2a7.2 7.2 0 0 1 14.4 0" />
+              </svg>
+            </Link>
+          )}
+
           <ThemeToggle />
 
           {/*
