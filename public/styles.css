@@ -1668,7 +1668,11 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
    width, stretched below it, where a full-width submit is the correct
    pattern because the thumb is the pointer. */
 .login-form button[type="submit"], .login-form .button-primary {
-  justify-self: start; min-width: 11rem;
+  justify-self: start;
+  min-width: 9rem;
+  min-height: 36px;
+  padding: .55rem .95rem;
+  font-size: .75rem;
 }
 @media (max-width: 30rem) {
   .login-form button[type="submit"], .login-form .button-primary {
