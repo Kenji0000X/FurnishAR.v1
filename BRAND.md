@@ -14,21 +14,8 @@ Three ideas, one rule each, so they never fight:
 | Idea | Its one rule |
 | --- | --- |
 | **Minimalism** — carries the page | One paper, one ink, one accent. Two typefaces, few sizes. Space separates things, not boxes or colour. |
-| **Warmth** — the material | The page is cream, not white; the ink and the accent are warm. A card is told apart from the page by its own surface and a soft shadow, not by an outline. Corners are rounded (`--radius` family). |
+| **Brutalism** — the structure, in small doses | Anything sitting *on* the page is square-cornered and drawn with a 1px ink rule. Emphasis is a hard offset block, never a blur. |
 | **Glassmorphism** — the z-axis | Only surfaces that float *above* content are frosted. **If it is frosted, it is floating. If it is flat, it is part of the page.** |
-
-> **This replaced a brutalist thesis, on request.** Until 2026-09-21 the second
-> row read *Brutalism*: square corners, a 1px ink rule on everything that sat
-> on the page, and emphasis as a hard offset block (`5px 5px 0`) with no blur.
-> The product was redesigned to a warm, photographic reference, and the two
-> systems cannot be half-applied — so the tokens changed rather than being
-> overridden case by case. `--hard` and `--hard-sm` kept their names (a couple
-> of hundred rules reference them) but now carry a diffuse shadow. The corner
-> radii are applied in one block near the top of `public/styles.css`, by what
-> a surface *is*, rather than declared on each rule.
->
-> The AR layer is the exception and stays square: its overlays borrow the
-> language of a viewfinder, and a rounded reticle is a sticker, not a sight.
 
 That last line is the load-bearing rule. It is what stops the glass reading as
 decoration: frosting is not a style here, it is a statement about depth. The
@@ -55,7 +42,7 @@ ground (use the lifted accent instead).
 
 ## 3. Colour
 
-Every one has a job; none are decorative alternates. `scripts/check-contrast.mjs` measures each pair below out of the live stylesheet, in both themes, and the numbers in these tables are its output.
+Eleven tokens. Every one has a job; none are decorative alternates.
 
 ### Surface
 | Token | Value | Use |
@@ -79,13 +66,9 @@ the wrong one is the most likely way to break contrast.
 | --- | --- | --- |
 | `--accent` | `#c0502a` | Fills and **large** display type only: the hero emphasis, the nav underline, accent blocks. |
 | `--accent-ink` | `#b44a26` | **Small** accent text on paper: condition icons, link hovers, focus rings. |
-| `--accent-lifted` | `#e08159` | Accent on the deep tone: band eyebrows, step links, portal marks. |
-| `--on-ink-accent` | `#e08159` light / `#b44a26` dark | Accent on an **`--ink` ground**: the footer wordmark, its mark, the footer column headings. Its own token because `--ink` is one of the two tokens that invert between themes, so a block painted `background: var(--ink)` is dark by day and light by night — `--accent-lifted` alone reads 6.54:1 on one and 2.09:1 on the other. |
+| `--accent-lifted` | `#e08159` | Accent on the ink and deep blocks: footer wordmark, portal marks. |
 | `--on-accent` | `#ffffff` | Text sitting on an accent fill. Never `--paper` — it fails at 4.20:1. |
-| `--deep` | `#12332c` | Inverted informational **blocks**: the fit verdict, the portal panel. |
-| `--band` | `#12332c` light / `#1b2b26` dark | The ground under a full-bleed home-page **band**. A block sits *on* the page; a band *is* a stretch of it, and all a band has to do is read as a different stretch. In the light theme `--deep` does that unaided; in the dark theme it is 1.02:1 against the page — two shades of the same black. The dark value lifts instead of sinking. |
-| `--on-deep` | `#eef2ef` | Text on `--deep` and `--band`. |
-| `--on-deep-muted` | `#c6d0cc` | Secondary prose on `--deep` and `--band`. Written as a flat colour, not `rgba(…, .82)`: a composited alpha is not a colour any contrast tool can measure without knowing what it landed on. |
+| `--deep` | `#12332c` | Inverted informational blocks: the fit verdict, the portal panel. |
 
 ### Measured contrast
 
@@ -104,11 +87,8 @@ luminance). Large = ≥24px, or ≥18.66px at 700.
 | `--on-accent` on `--accent` — text on accent fill | 4.75:1 | PASS (needs 4.5) |
 | `--paper` on `--ink` — text on ink blocks | 16.30:1 | PASS (needs 4.5) |
 | `--paper` on `--deep` — text on deep blocks | 12.09:1 | PASS (needs 4.5) |
-| `--on-ink-accent` on `--ink` — accent on ink | 6.54:1 | PASS (needs 4.5) |
-| `--on-deep` on `--deep` — text on deep panels | 12.10:1 | PASS (needs 4.5) |
-| `--on-deep` on `--band` — text on the bands | 12.10:1 | PASS (needs 4.5) |
-| `--on-deep-muted` on `--band` — secondary text on the bands | 8.66:1 | PASS (needs 4.5) |
-| `--accent-lifted` on `--band` — band eyebrows and step links | 4.85:1 | PASS (needs 4.5) |
+| `--accent-lifted` on `--ink` — accent on ink | 6.54:1 | PASS (needs 4.5) |
+| `--accent-lifted` on `--deep` — accent on deep | 4.85:1 | PASS (needs 4.5) |
 | `--danger` on `--paper-raised` — form errors | 6.07:1 | PASS (needs 4.5) |
 
 `--ink-faint` is the tightest constraint in the system: it carries every
@@ -145,11 +125,6 @@ to light, because an ink shadow on a dark page is invisible.
 | `--accent-ink` on `--paper` — small accent text | 7.71:1 | PASS (needs 4.5) |
 | `--accent` on `--paper` — display accent | 4.74:1 | PASS (needs 3, large only) |
 | `--on-accent` on `--accent` — text on accent fill | 4.91:1 | PASS (needs 4.5) |
-| `--on-ink-accent` on `--ink` — accent on ink | 4.71:1 | PASS (needs 4.5) |
-| `--on-deep` on `--deep` — text on deep panels | 15.82:1 | PASS (needs 4.5) |
-| `--on-deep` on `--band` — text on the bands | 13.09:1 | PASS (needs 4.5) |
-| `--on-deep-muted` on `--band` — secondary text on the bands | 9.36:1 | PASS (needs 4.5) |
-| `--accent-lifted` on `--band` — band eyebrows and step links | 6.27:1 | PASS (needs 4.5) |
 | `--danger` on `--paper-raised` — form errors | 7.08:1 | PASS (needs 4.5) |
 
 Both tables are generated by `npm run check:contrast`, which parses the token
@@ -201,74 +176,6 @@ assembled by different people.
   container. Grids with a variable item count (catalog, inventory stats) must
   use real gaps and bordered items, or a half-empty row shows the container
   colour as a slab.
-
-### Bands
-
-A **band** is a full-bleed section on `--band`. The home page alternates:
-paper, band, paper, paper, band, footer.
-
-The alternation is structure, not decoration. A band is reserved for the two
-moments the page **says** something rather than **listing** something — here
-is how this works, here is what to do next. Reading and comparing stay on
-paper. A third band would make the rhythm a stripe pattern and cost the other
-two their meaning.
-
-Full-bleed, but the content inside is still held to `--maxw`: a band must
-never widen the measure of its own text.
-
-### The capsule, and the one exception to square
-
-Every surface is square-cornered — §1's rule — with exactly one exception,
-and it is a distinction rather than a lapse:
-
-> **Square acts. Rounded travels.**
-
-A square button *acts on the thing beside it*: save this product, delete this
-row, approve this application. It belongs to its panel and wears its panel's
-geometry. A **capsule** — a fully rounded pill — *takes you somewhere else*:
-the hero's two calls to action, the header's one, the category rail, the
-closing band. Those are the only capsules in the product.
-
-The distinction is what keeps the rounded shape from reading as drift. If a
-capsule ever appears inside the portal's product form or the admin console's
-review card, the rule has been broken and the shape has become decoration.
-
-Capsules carry no hard offset shadow. `--hard` is the square world's depth
-cue and on a pill it reads as a mistake; capsules lift 2px on hover instead.
-
-### The pinned stage
-
-The home page's first three sections share one `position: sticky` WebGL
-canvas — a room that travels and turns as you scroll past. Four rules make it
-affordable, and none of them is optional:
-
-1. **The model is a budget, not a file.** 71k triangles, under 600 KB. It
-   arrived at 2.0M triangles and 5.5 MB. `npm run check:hero` fails if the
-   geometry budget is abandoned, because a heavier re-export looks identical
-   in every screenshot and every build.
-2. **Nothing 3D is on the critical path.** three.js is imported inside an
-   effect, behind an IntersectionObserver. The headline is server-rendered
-   and readable before a byte of renderer is requested.
-3. **It stops.** Off screen, in a background tab, or once the scroll has
-   settled, the loop stops or drops to 24fps. A renderer running behind the
-   FAQ is pure battery.
-4. **It always has a still.** No WebGL, reduced motion, or Save-Data resolve
-   to a real render of the same room at the same angle — never a blank space
-   and never a spinner.
-
-On a phone the composition changes rather than shrinking: copy in the top
-half, room in the bottom half. See the narrow-viewport offset in
-`app/HeroStage.js`.
-
-### Grid tracks
-
-Write `minmax(0, 1fr)`, never a bare `1fr`, on any track whose children can be
-wider than the viewport — fixed-width art, a `<select>` as wide as its longest
-option, a card with a long word in it. A track's default minimum is
-`min-content`, so `1fr` is really `minmax(auto, 1fr)` and one stubborn child
-pushes the whole page sideways. Three separate rules had this, and together
-they scrolled the home page 102px sideways at 320px. `npm run check:home`
-measures every route at five widths so it cannot come back.
 
 ---
 
