@@ -98,7 +98,14 @@ check('it still lists only routes that exist',
 await page.goto(`${BASE}/portal`, { waitUntil: 'domcontentloaded' });
 check('the portal has no footer', await page.locator('.site-footer').count() === 0);
 check('and no public CTA in its header', await page.locator('.header-action').count() === 0);
-check('but it still has the burger', await page.locator('.nav-burger').isVisible());
+/* And no burger either. The drawer is the shopper's map of the site —
+   Collection, Measure my space, the questions. A store owner signing in to
+   upload a model is not browsing the catalogue, and offering them a menu of
+   shopper routes on top of the portal's own navigation is two competing
+   menus on one screen. The wordmark still goes home. */
+check('and no shopper menu', await page.locator('.nav-burger').count() === 0);
+check('the wordmark is still the way back to the public site',
+  await page.getAttribute('.brand', 'href') === '/');
 check('and says which workspace you are in',
   await page.locator('.header-context').textContent().then(t => /Store portal/.test(t)));
 

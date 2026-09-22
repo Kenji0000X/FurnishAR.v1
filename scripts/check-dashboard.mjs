@@ -165,8 +165,8 @@ check('3D files counts uploaded files', await tile('3D files') === '3', await ti
    largest file, or the count, and calls it a total is the exact failure this
    catches. */
 check('Storage adds the file sizes up', await tile('Storage') === '21 MB', await tile('Storage'));
-check('Awaiting review says zero when the queue is empty',
-  await tile('Awaiting review') === '0', await tile('Awaiting review'));
+check('Queue says zero when nothing is waiting',
+  await tile('Queue') === '0', await tile('Queue'));
 
 console.log('--- the charts say the same thing as the tiles ---');
 const plans = await page.locator('.chart-card:has-text("Stores by plan") .chart-bars li')
@@ -254,13 +254,80 @@ check('the second page holds the rest',
 check('and the rest are the rows the first page did not show',
   /Store 12/.test(await page.locator('tbody').innerText()));
 
+console.log('--- signing out ---');
+/* The console had no way out of it at all. An admin who finished reviewing
+   had to navigate to /portal to leave — on a shared machine that is the
+   difference between closing the queue and leaving it open on the screen. */
+await page.goto(`http://127.0.0.1:${APP_PORT}/admin`, { waitUntil: 'domcontentloaded' });
+await page.waitForSelector('.kpi-tile', { timeout: 20000 });
+check('the console says which account is signed in',
+  /admin@furnishar\.ph/.test(await page.locator('.admin-who').innerText()));
+await page.click('.admin-signout');
+await page.waitForSelector('form.login-form', { timeout: 10000 }).catch(() => {});
+check('signing out returns to the sign-in form',
+  await page.locator('form.login-form').isVisible());
+/* Thrown away, not hidden: the queue holds applicants' contact details. */
+check('and takes the console\'s data with it',
+  await page.locator('.kpi-tile').count() === 0 &&
+  !/Store 1\b/.test(await page.locator('body').innerText()));
+
+console.log('--- no shopper menu in the workspace ---');
+/* The drawer is the shopper's map of the site. An operator reviewing
+   applications is not browsing the catalogue, and two menus on one screen
+   is one too many. */
+await page.goto(`http://127.0.0.1:${APP_PORT}/admin`, { waitUntil: 'domcontentloaded' });
+await page.waitForTimeout(600);
+check('no burger on the console', await page.locator('.nav-burger').count() === 0);
+await page.goto(`http://127.0.0.1:${APP_PORT}/portal`, { waitUntil: 'domcontentloaded' });
+await page.waitForTimeout(600);
+check('nor on the store portal', await page.locator('.nav-burger').count() === 0);
+/* Still reachable for a shopper, or the removal went too far. */
+await page.goto(`http://127.0.0.1:${APP_PORT}/`, { waitUntil: 'domcontentloaded' });
+await page.waitForTimeout(400);
+check('but the public site still has one', await page.locator('.nav-burger').isVisible());
+
 console.log('--- the console on a phone ---');
 const phone = await browser.newPage({ viewport: { width: 390, height: 780 } });
 await phone.goto(`http://127.0.0.1:${APP_PORT}/admin`, { waitUntil: 'domcontentloaded' });
-await phone.waitForSelector('.kpi-tile', { timeout: 20000 }).catch(() => {});
+await phone.waitForSelector('form.login-form', { timeout: 20000 });
+await phone.fill('input[name="email"]', 'admin@furnishar.ph');
+await phone.fill('input[name="password"]', 'whatever');
+await phone.click('form.login-form button[type="submit"]');
+await phone.waitForSelector('.kpi-tile', { timeout: 20000 });
+await phone.waitForTimeout(600);
+
+/* The reported bug, and the reason this check signs in on the phone rather
+   than measuring the sign-in screen: .admin-console is a grid, an automatic
+   grid track is sized to its widest item's max-content, and the section bar
+   dragged the whole console out to 819px on a 390px screen. Every heading
+   and every chart inherited that width, so the page scrolled sideways and
+   the text sat off to the right of the screen. */
 const over = await phone.evaluate(() =>
   document.documentElement.scrollWidth - document.documentElement.clientWidth);
 check('the console does not scroll sideways on a phone', over <= 0, `${over}px over`);
+check('the headings start at the left edge of the screen, not off to the right',
+  await phone.evaluate(() => {
+    const box = document.querySelector('.admin-intro h1').getBoundingClientRect();
+    return box.left >= 0 && box.right <= document.documentElement.clientWidth + 1;
+  }));
+check('the shopper bottom bar is gone from the console too',
+  await phone.locator('.bottom-nav').count() === 0);
+check('and Sign out is reachable without scrolling sideways',
+  await phone.locator('.admin-signout').isVisible());
+
+console.log('--- the tiles are flash cards, not banners ---');
+const tiles = await phone.locator('.kpi-tile').evaluateAll(nodes => nodes.map(n => {
+  const r = n.getBoundingClientRect();
+  return { w: Math.round(r.width), h: Math.round(r.height) };
+}));
+/* Square, within a pixel of rounding. A tile that is three times wider than
+   it is tall is the banner these replaced. */
+check('every tile is square', tiles.every(t => Math.abs(t.w - t.h) <= 2),
+  tiles.map(t => `${t.w}x${t.h}`).join(' '));
+/* And sized to their own text: the card saying "5 / registered" must not be
+   as wide as the one saying "22 MB / stored". */
+check('a tile with less to say is smaller than one with more',
+  new Set(tiles.map(t => t.w)).size > 1, tiles.map(t => t.w).join(' '));
 await phone.close();
 
 check('no uncaught page errors', pageErrors.length === 0, pageErrors.slice(0, 2).join(' | '));

@@ -78,22 +78,36 @@ export default function SiteHeader() {
 
           <ThemeToggle />
 
-          <button
-            type="button"
-            className="icon-button nav-burger"
-            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen(open => !open)}
-          >
-            <svg width="20" height="14" viewBox="0 0 20 14" fill="none" stroke="currentColor"
-              strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-              <path d="M1 1h18M1 7h18M1 13h18" />
-            </svg>
-          </button>
+          {/*
+              No burger on the portal or the console.
+
+              The drawer is the shopper's map of the site — Collection, Measure
+              my space, the questions. A store owner signing in to upload a
+              model, or an operator reviewing applications, is not browsing the
+              catalogue, and offering them a menu of shopper routes on top of
+              their own navigation is two competing menus on one screen. Each
+              workspace has its own: the console its sections, the portal its
+              dashboard. The wordmark still goes home for anyone who wants the
+              public site.
+          */}
+          {!isWorkspace && (
+            <button
+              type="button"
+              className="icon-button nav-burger"
+              aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen(open => !open)}
+            >
+              <svg width="20" height="14" viewBox="0 0 20 14" fill="none" stroke="currentColor"
+                strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                <path d="M1 1h18M1 7h18M1 13h18" />
+              </svg>
+            </button>
+          )}
         </div>
       </header>
 
-      <NavDrawer open={menuOpen} onClose={() => setMenuOpen(false)} />
+      {!isWorkspace && <NavDrawer open={menuOpen} onClose={() => setMenuOpen(false)} />}
     </>
   );
 }

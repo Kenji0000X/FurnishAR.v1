@@ -25,12 +25,13 @@ const SECTIONS = [
   ['/admin/activity', 'Activity']
 ];
 
-export default function AdminNav({ pending = 0 }) {
+export default function AdminNav({ pending = 0, email, onSignOut }) {
   const pathname = usePathname();
 
   return (
-    <nav className="admin-nav" aria-label="Console sections">
-      <ul>
+    <div className="admin-bar">
+      <nav className="admin-nav" aria-label="Console sections">
+        <ul>
         {SECTIONS.map(([href, label]) => {
           /* Exact match for the index, prefix for the rest — otherwise
              /admin/stores would light up Overview as well as itself. */
@@ -52,7 +53,24 @@ export default function AdminNav({ pending = 0 }) {
             </li>
           );
         })}
-      </ul>
-    </nav>
+        </ul>
+      </nav>
+
+      {/*
+          Signing out of the console.
+
+          There was no way to do it from here at all. The portal has had a
+          Sign out button since it was built, but an admin who finished
+          reviewing applications had to navigate to /portal to leave — on a
+          shared or borrowed machine that is the difference between closing
+          the queue and leaving every applicant's email address open on it.
+      */}
+      <div className="admin-who">
+        {email && <span className="admin-who-email" title={email}>{email}</span>}
+        <button className="button button-outline admin-signout" type="button" onClick={onSignOut}>
+          Sign out
+        </button>
+      </div>
+    </div>
   );
 }
