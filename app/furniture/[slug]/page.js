@@ -54,9 +54,17 @@ export default async function ProductPage({ params }) {
   return (
     <article className="view active product-page">
       <nav className="breadcrumb" aria-label="Breadcrumb">
-        <Link href="/">Collection</Link>
+        {/*
+            Both of these used to point at the home page, back when the grid
+            lived at the bottom of it. The catalogue is its own route now, and
+            #catalog does not exist anywhere — so "Collection" led to a page
+            with no collection on it, and the category crumb led to an anchor
+            that was never found, leaving the visitor at the top of the home
+            page with their filter silently dropped.
+        */}
+        <Link href="/collection">Collection</Link>
         <span aria-hidden="true"> / </span>
-        <Link href={`/?category=${encodeURIComponent(product.category)}#catalog`}>
+        <Link href={`/collection?category=${encodeURIComponent(product.category)}`}>
           {product.category}
         </Link>
         <span aria-hidden="true"> / </span>
