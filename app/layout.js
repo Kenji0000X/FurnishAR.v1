@@ -88,10 +88,11 @@ export default function RootLayout({ children }) {
             scroll position; without it the next Tab returns to the header. */}
         <main id="main" tabIndex={-1}>{children}</main>
         <ChromeGate><SiteFooter /></ChromeGate>
-        {/* Phones only — the desktop header carries the same destinations
-            inline. Rendered after the footer so it is last in the tab order,
-            where a bar pinned to the bottom of the screen belongs. */}
-        <BottomNav />
+        {/* Phones only, and shoppers only — it is the same shopper menu the
+            burger opens, so it goes where the burger goes. Rendered after the
+            footer so it is last in the tab order, where a bar pinned to the
+            bottom of the screen belongs. */}
+        <ChromeGate><BottomNav /></ChromeGate>
         <PageTools />
         <CookieNotice />
       </body>

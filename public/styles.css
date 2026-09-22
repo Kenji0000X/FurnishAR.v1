@@ -3010,8 +3010,12 @@ footer {
 
   /* The bar floats over the page, so the page needs somewhere to end. The
      notice floats over it too, and adds its own measured height on top —
-     otherwise the last control on the page sits under one or the other. */
-  body { padding-bottom: calc(4.4rem + env(safe-area-inset-bottom) + var(--notice-space, 0px)); }
+     otherwise the last control on the page sits under one or the other.
+     Scoped to pages that actually have a bar: the workspace routes no longer
+     render one, and reserving space for it there is a strip of dead page. */
+  body:has(.bottom-nav) {
+    padding-bottom: calc(4.4rem + env(safe-area-inset-bottom) + var(--notice-space, 0px));
+  }
 
   /* Everything else pinned to the bottom of the screen has to clear the bar.
      The cookie notice sat on top of it — a higher z-index and a 1.2rem offset
@@ -3385,7 +3389,19 @@ footer {
 /* The superadmin's review queue. Built from the same tokens as the owner
    dashboard — this is one system with two doors, not two products. */
 
-.admin-console { display: grid; gap: clamp(1.5rem, 4vw, 2.5rem); }
+/* minmax(0, 1fr), not the implicit `auto`.
+   A grid's automatic track is sized to the MAX-CONTENT of its widest item,
+   and grid items default to min-width:auto, so one wide row sets the width
+   of every other row. The console's section bar is a flex row that prefers
+   its full natural width, and it dragged the whole console out to 799px on
+   a 390px phone: the headings, the copy and the charts all inherited that
+   track, so the page scrolled sideways and the text sat off to the right.
+   Pinning the track to the container makes the children shrink instead.
+   (Same trap as .footer-identity/.footer-groups further down.) */
+.admin-console {
+  display: grid; grid-template-columns: minmax(0, 1fr);
+  gap: clamp(1.5rem, 4vw, 2.5rem);
+}
 
 .review-list { display: grid; gap: .9rem; }
 
@@ -4013,10 +4029,33 @@ footer {
 /* ===================================================================
    The platform console: six sections, five tiles, three charts.
    =================================================================== */
-.admin-nav {
-  margin: 0 0 1.5rem; padding-bottom: .5rem;
+/* The sections on the left, who you are and the way out on the right. */
+.admin-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; margin: 0 0 1.5rem; padding-bottom: .5rem;
   border-bottom: 1px solid var(--rule);
+}
+.admin-nav {
+  /* min-width:0 so the scroller can actually shrink inside the flex row
+     rather than pushing Sign out off the side of the screen. */
+  flex: 1 1 auto; min-width: 0;
   overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+.admin-who { flex: 0 0 auto; display: flex; align-items: center; gap: .6rem; }
+.admin-who-email {
+  max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: .8125rem; color: var(--ink-muted);
+}
+.admin-signout { white-space: nowrap; }
+
+@media (max-width: 40rem) {
+  /* Two lines on a phone. Six sections and an email address will not share
+     one row at 390px, and squeezing them makes the section scroller so
+     narrow that only one tab is ever visible. */
+  .admin-bar { flex-wrap: wrap; }
+  .admin-nav { flex: 1 1 100%; order: 2; }
+  .admin-who { order: 1; width: 100%; justify-content: space-between; }
+  .admin-who-email { max-width: none; flex: 1 1 auto; }
 }
 .admin-nav ul { display: flex; gap: .25rem; margin: 0; padding: 0; list-style: none; }
 .admin-nav-link {
@@ -4036,11 +4075,23 @@ footer {
 }
 
 /* ------------------------------------------------------------- KPIs -- */
+/* Flash cards: square, and only as big as what is written on them.
+   They were full-width strips of a five-column grid, so "5 / registered"
+   was drawn across a third of the screen and read as a banner rather than
+   as a card. A flex row lets each card take its own width from its own
+   text; aspect-ratio then makes that width the height too. A card with
+   little to say stays small, which is the point. */
 .kpi-row {
-  display: grid; gap: .75rem; margin: 0 0 1.75rem; padding: 0; list-style: none;
-  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  display: flex; flex-wrap: wrap; align-items: flex-start;
+  gap: .75rem; margin: 0 0 1.75rem; padding: 0; list-style: none;
 }
 .kpi-tile {
+  flex: 0 1 auto;
+  /* Square. The floor keeps a one-character value from collapsing to a chip;
+     the ceiling stops a long note stretching one card past its neighbours. */
+  aspect-ratio: 1 / 1;
+  min-width: 7.5rem; max-width: 10.5rem;
+  display: flex; flex-direction: column; justify-content: center;
   padding: 1rem 1.1rem; border: 1px solid var(--rule); border-radius: 14px;
   background: var(--paper-raised);
 }

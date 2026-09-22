@@ -57,6 +57,7 @@ export default function AdminGate({ children }) {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [loginError, setLoginError] = useState('');
+  const [email, setEmail] = useState('');
 
   /**
    * Every application, always — not just the pending ones.
@@ -117,10 +118,14 @@ export default function AdminGate({ children }) {
     }
 
     const sb = supabase();
-    if (!(await sb.getSession())) {
+    const current = await sb.getSession();
+    if (!current) {
       setState('signin');
       return;
     }
+    // Shown beside Sign out, so it is obvious WHICH account is about to be
+    // signed out — the one thing a shared machine makes easy to get wrong.
+    setEmail(current.user?.email || '');
 
     if (!(await sb.isPlatformAdmin())) {
       setState('denied');
@@ -168,9 +173,26 @@ export default function AdminGate({ children }) {
     }
   }
 
-  /** Leave the account that is not an admin, so another can be used. */
-  async function handleSwitchAccount() {
+  /**
+   * Leave the console.
+   *
+   * Everything the console loaded is thrown away with the session, not just
+   * hidden: the queue holds applicants' email addresses and phone numbers,
+   * and leaving them in React state would put them back on screen if the
+   * next person signed in, or if the page came back from the bfcache.
+   */
+  async function handleSignOut() {
     try { await supabase().signOut(); } catch { /* already gone */ }
+    setApplications([]);
+    setStores([]);
+    setAccounts({});
+    setAudit([]);
+    setModels([]);
+    setMissingModels([]);
+    setUsage([]);
+    setNotice('');
+    setError('');
+    setEmail('');
     setLoginError('');
     setState('signin');
   }
@@ -266,7 +288,7 @@ export default function AdminGate({ children }) {
           </p>
         </div>
         <div className="login-form">
-          <button className="button button-primary" type="button" onClick={handleSwitchAccount}>
+          <button className="button button-primary" type="button" onClick={handleSignOut}>
             Sign in as someone else
           </button>
           <a className="button" href="/portal">Go to the store portal</a>
@@ -284,7 +306,11 @@ export default function AdminGate({ children }) {
   return (
     <AdminContext.Provider value={value}>
       <div className="admin-console">
-        <AdminNav pending={applications.filter(a => a.status === 'pending').length} />
+        <AdminNav
+          pending={applications.filter(a => a.status === 'pending').length}
+          email={email}
+          onSignOut={handleSignOut}
+        />
         {notice && <p className="form-error is-ok" role="status">{notice}</p>}
         {error && <p className="form-error" role="alert">{error}</p>}
         {children}

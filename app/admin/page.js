@@ -24,12 +24,19 @@ export default function AdminOverview() {
   const totalBytes = models.reduce((sum, asset) => sum + (Number(asset.byte_size) || 0), 0);
   const listings = new Set(models.map(a => a.product?.id).filter(Boolean)).size + missingModels.length;
 
+  /* Short notes on purpose. These are flash cards, sized to what is written
+     on them, so "across every store" and "against your plan" were making two
+     cards half again as wide as the rest to say something the section pages
+     already say at length. One word each. */
   const tiles = [
     ['Stores', stores.length, 'registered'],
-    ['Listings', listings, 'across every store'],
+    ['Listings', listings, 'listed'],
     ['3D files', models.length, 'uploaded'],
-    ['Storage', formatBytes(totalBytes), 'against your plan'],
-    ['Awaiting review', pending, pending ? 'someone is waiting' : 'queue is clear']
+    ['Storage', formatBytes(totalBytes), 'stored'],
+    /* "Queue", not "Awaiting review": a two-word label was the one thing on
+       the row forcing its card wider than the rest, to say what the
+       Applications badge beside it already says. */
+    ['Queue', pending, pending ? 'waiting' : 'clear']
   ];
 
   return (
