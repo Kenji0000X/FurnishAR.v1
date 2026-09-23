@@ -82,13 +82,13 @@ export default function CookieNotice() {
   if (!visible) return null;
 
   return (
-    <div className="cookie-notice" role="region" aria-label="Storage notice" ref={panel}>
+    <div className="cookie-notice" role="status" aria-live="polite" aria-label="Storage notice" ref={panel}>
       <p>
         FurnishAR keeps your theme and planner settings on this device, and your
         sign-in until you close the tab. No advertising or analytics cookies,
         and nothing is shared.
       </p>
-      <button className="button button-primary" type="button" onClick={dismiss}>
+      <button className="button button-primary" type="button" onClick={dismiss} aria-label="Dismiss storage notice">
         Got it
       </button>
     </div>

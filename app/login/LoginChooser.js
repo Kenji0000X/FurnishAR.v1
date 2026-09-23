@@ -241,19 +241,19 @@ export default function LoginChooser() {
         </p>
         <p className="demo-note">
           Run a shop instead? That is the <Link href="/portal">store portal</Link>.{' '}
-          <button type="button" className="text-button" onClick={() => choose('')}>
+          <button type="button" className="text-button" onClick={() => choose('')} aria-label="Return to the shopper role chooser">
             Not a shopper?
           </button>
         </p>
       </div>
 
       <div className="mode-switch" role="tablist" aria-label="Sign in or create an account">
-        <button type="button" role="tab" aria-selected={mode === 'signin'}
+        <button type="button" role="tab" id="signin-tab" aria-controls="login-form" aria-selected={mode === 'signin'}
           className={`mode-option${mode === 'signin' ? ' is-active' : ''}`}
           onClick={() => { setMode('signin'); setError(''); }}>
           Sign in
         </button>
-        <button type="button" role="tab" aria-selected={mode === 'signup'}
+        <button type="button" role="tab" id="signup-tab" aria-controls="login-form" aria-selected={mode === 'signup'}
           className={`mode-option${mode === 'signup' ? ' is-active' : ''}`}
           onClick={() => { setMode('signup'); setError(''); }}>
           Create account
@@ -261,7 +261,7 @@ export default function LoginChooser() {
       </div>
 
       {mode === 'signin' ? (
-        <form className="login-form" onSubmit={handleSignIn}>
+        <form id="login-form" className="login-form" onSubmit={handleSignIn}>
           <label>
             Email
             <input name="email" type="email" required autoComplete="email"
@@ -274,7 +274,7 @@ export default function LoginChooser() {
           <p className="form-error" role="alert" aria-live="assertive">{error}</p>
         </form>
       ) : (
-        <form className="login-form" onSubmit={handleSignUp}>
+        <form id="login-form" className="login-form" onSubmit={handleSignUp}>
           <label>
             Your name
             <input name="fullName" type="text" required minLength={2} maxLength={80}

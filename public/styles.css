@@ -37,8 +37,8 @@
      paper and on the sunken tone — small text never drops below AA.
      Warm near-black rather than neutral, so it belongs to the cream. */
   --ink: #241f1a;
-  --ink-muted: #473f39;
-  --ink-faint: #544d46;
+  --ink-muted: #3d3631;
+  --ink-faint: #4a413d;
 
   /* Accent in three weights, because one hue cannot serve every background:
      --accent fills and large display type, --accent-ink small text on paper
@@ -402,7 +402,16 @@ img, svg, video, canvas { display: block; max-width: 100%; }
   border-radius: 8px;
 }
 
-button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.mode-option:focus-visible,
+.role-card:focus-visible,
+.text-button:focus-visible,
+.button:focus-visible,
+.password-reveal:focus-visible {
   outline: 3px solid var(--focus-ring);
   outline-offset: 3px;
   box-shadow: 0 0 0 5px rgba(35, 75, 61, 0.18);
@@ -1068,8 +1077,10 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   display: inline-flex; align-items: center; gap: .55rem;
   padding: .85rem 0;
   font-size: .8125rem;
+  color: var(--accent-ink);
 }
 .text-button:hover { color: var(--accent-ink); }
+.text-button:focus-visible { text-decoration: underline; }
 .play-icon {
   display: grid; place-items: center;
   width: 26px; height: 26px;
@@ -1674,6 +1685,15 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   display: grid; gap: .4rem;
   font-family: var(--mono); font-size: var(--micro);
   letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint);
+}
+.login-form label,
+.product-form label,
+.login-copy p,
+.demo-note,
+.form-error,
+.form-note,
+.role-foot {
+  color: var(--ink-muted);
 }
 /* .login-form textarea belongs here too: without it the sign-up form's "What
    will you list?" box inherited the label's uppercase mono styling and rendered
@@ -2821,6 +2841,9 @@ footer {
   box-shadow: var(--hard-sm);
 }
 .cookie-notice p { flex: 1 1 16rem; font-size: .8125rem; color: var(--ink-muted); }
+body:has(.cookie-notice):not(:has(.bottom-nav)) {
+  padding-bottom: calc(var(--notice-space, 0px) + 1rem);
+}
 
 /* ---- password reveal ---- */
 
