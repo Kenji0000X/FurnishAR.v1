@@ -4756,3 +4756,131 @@ fieldset.filter-group > legend { padding: 0; margin-bottom: .5rem; }
 /* Inside a compact .button the arrow shrinks so the row keeps one height. */
 .button.capsule-cta { padding-block: .3rem; }
 .button.capsule-cta .cta-arrow { width: 1.6rem; height: 1.6rem; }
+
+/* ---------------------------------------------- the sign-in card ---- */
+/*
+   Every "who are you" panel (buyer sign-in and sign-up, the planner's gate,
+   the store portal, the account page's states, the admin gate) is ONE
+   centred card now, not a two-column split.
+
+   The split put the Sign in / Create account tabs in the right-hand column,
+   where they stretched into two 160px-tall blocks, and left the actions of
+   the gates floating at the top of an empty half-panel, far from the text
+   they answer. Its left half was also a dark panel whose paragraphs had
+   been set to --ink-muted: dark grey on dark green, which nobody could read.
+
+   One column: the heading and copy, then the choice, then the form or the
+   actions, all centred on the page and sized to their content.
+*/
+.login-panel {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.4rem;
+  width: min(100% - 2 * var(--gutter), 32rem);
+  margin: clamp(1.5rem, 6vh, 4rem) auto;
+  padding: clamp(1.5rem, 4vw, 2.25rem);
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--paper-raised);
+  box-shadow: 0 0 0 1px var(--rule), 0 1px 2px rgba(18, 38, 46, .06), var(--hard-sm);
+  text-align: center;
+}
+.login-panel .login-copy {
+  padding: 0; border: 0; background: none; color: var(--ink);
+}
+.login-panel .login-copy p { color: var(--ink-muted); opacity: 1; font-size: .9375rem; line-height: 1.55; text-wrap: pretty; }
+.login-panel .login-copy .demo-note { font-size: .75rem; }
+.login-panel .secure-mark { color: var(--accent); margin-bottom: .6rem; }
+.login-panel .login-copy h1, .login-panel .login-copy h2 { font-size: clamp(1.5rem, 3vw, 1.9rem); letter-spacing: -.035em; text-wrap: balance; }
+.login-panel .login-form { padding: 0; background: none; text-align: left; }
+.login-panel .panel-actions { padding: 0; background: none; justify-content: center; }
+.login-panel .login-form button[type="submit"],
+.login-panel .login-form .button-primary { justify-self: center; min-width: 10rem; }
+
+/* The Sign in / Create account choice: a small segmented pill, not two
+   full-height blocks. Scoped here; the planner's own mode switch is separate. */
+.login-panel .mode-switch {
+  display: inline-flex; justify-self: center;
+  gap: 4px; padding: 4px; margin: 0;
+  border: 0; border-radius: var(--radius-pill);
+  background: var(--paper-sunken);
+}
+.login-panel .mode-option {
+  flex: 0 0 auto;
+  min-height: 36px; padding: .45rem 1.1rem;
+  border: 0; border-radius: var(--radius-pill);
+  font-family: var(--sans); font-size: .8125rem; font-weight: 500;
+  letter-spacing: 0; text-transform: none;
+  color: var(--ink-muted);
+}
+.login-panel .mode-option:hover { color: var(--ink); }
+.login-panel .mode-option.is-active {
+  background: var(--paper-raised); color: var(--ink);
+  box-shadow: 0 0 0 1px var(--rule), 0 1px 2px rgba(18, 38, 46, .08);
+}
+@media (pointer: coarse) { .login-panel .mode-option { min-height: var(--tap); } }
+@media (orientation: landscape) and (max-width: 900px) {
+  .login-panel .login-copy { border-bottom: 0; }
+}
+
+/* Anything linked to by #id lands below the sticky header, not under it. */
+[id] { scroll-margin-top: calc(var(--header-h) + 1rem); }
+
+/* ------------------------------------------------------ the account ---- */
+/* A centred column: who you are, then your settings, then the planner. */
+.account-stack { display: grid; gap: 1.25rem; width: min(100%, 36rem); margin: clamp(1.5rem, 5vh, 3rem) auto; }
+.account-profile { display: grid; justify-items: center; gap: .5rem; text-align: center; margin-bottom: .75rem; }
+/* The shopper's mark: their initials on the forest ground, the same
+   circle-and-core shape as the frames elsewhere. */
+.account-avatar {
+  display: grid; place-items: center;
+  width: 4.5rem; height: 4.5rem; border-radius: 50%;
+  background: var(--band); color: var(--on-deep);
+  font-size: 1.5rem; font-weight: 700; letter-spacing: -.02em;
+  box-shadow: 0 0 0 5px var(--paper-raised), 0 0 0 6px var(--rule), var(--hard-sm);
+}
+.account-profile h1 { font-size: clamp(1.8rem, 4vw, 2.4rem); letter-spacing: -.04em; text-wrap: balance; }
+.account-meta { display: flex; flex-wrap: wrap; justify-content: center; gap: .35rem 1rem; color: var(--ink-muted); font-size: .9375rem; }
+.account-card {
+  display: grid; gap: .9rem;
+  padding: clamp(1.25rem, 4vw, 2rem);
+  border-radius: var(--radius-lg);
+  background: var(--paper-raised);
+  box-shadow: 0 0 0 1px var(--rule), 0 1px 2px rgba(18, 38, 46, .06), var(--hard-sm);
+}
+.account-card h2 { font-size: 1.25rem; letter-spacing: -.03em; }
+.account-card .login-form { padding: 0; background: none; }
+.account-card .login-form input[readonly] { background: var(--paper-sunken); color: var(--ink-muted); }
+.account-card .panel-actions { justify-content: flex-start; }
+/* A loading button keeps its label and gains a spinner beside it. */
+.button .loading-spinner { border-color: color-mix(in srgb, currentColor 35%, transparent); border-top-color: currentColor; }
+
+/* ------------------------------------- web interface guidelines ---- */
+/* Taps: no 300ms double-tap zoom delay on controls, and the tap flash is
+   the design's own pressed state rather than the browser's grey box. */
+a, button, [role="button"], label, summary, select, input[type="checkbox"], input[type="radio"] {
+  touch-action: manipulation;
+}
+html { -webkit-tap-highlight-color: transparent; }
+/* Phones: inputs at 16px or iOS Safari zooms the page on focus. */
+@media (max-width: 47.99rem) {
+  input, select, textarea { font-size: max(16px, 1em) !important; }
+}
+/* Windows paints native <select> popups with its own colours unless told;
+   in dark mode that meant light text on a light list. */
+select { background-color: var(--paper-raised); color: var(--ink); }
+/* Figures line up when they are compared: prices, counts, dimensions. */
+.detail-price, .product-price, .facts-grid dt, .viewer-dims dd, .inventory-stat strong, .kpi-value, .result-count {
+  font-variant-numeric: tabular-nums;
+}
+/* An inline text button ("Not a shopper?") is a 24px target in the line,
+   not a 44px block that pushes the sentence apart. */
+.login-panel .text-button { display: inline-flex; min-height: 24px; padding: 0; vertical-align: baseline; }
+/* The loading spinner sits beside the label it keeps. */
+.button .loading-spinner { margin-right: .1rem; }
+/* The portal's heading, centred like its sign-in card. */
+.admin-view > .admin-intro:first-child { text-align: center; }
+.admin-view > .admin-intro:first-child p { margin-inline: auto; }
+/* Drawers and dialogs keep their scroll to themselves. */
+dialog, .drawer-panel { overscroll-behavior: contain; }
+/* Hover and focus raise contrast rather than only moving things. */
+.capsule-quiet:focus-visible, .button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }

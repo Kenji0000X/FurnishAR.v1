@@ -112,7 +112,7 @@ export default function ApplicationCard({ application, account, onApprove, onRej
             <input
               value={note}
               onChange={event => setNote(event.target.value)}
-              placeholder="e.g. could not verify the business"
+              placeholder="e.g. could not verify the business…"
             />
           </label>
 

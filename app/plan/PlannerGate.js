@@ -128,7 +128,7 @@ export default function PlannerGate({ children }) {
           <h1 id="planner-title">Sign in to measure your space.</h1>
           <p>
             The planner uses your phone&rsquo;s camera to measure a room and stand a real
-            piece of furniture in it, at its real size. It needs an account —
+            piece of furniture in it, at its real size. It needs an account:
             a name, a town and a password.
           </p>
           <p className="demo-note">

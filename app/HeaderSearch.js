@@ -37,7 +37,7 @@ export default function HeaderSearch() {
       <input
         id="site-search"
         type="search"
-        placeholder="Search pieces"
+        placeholder="Search pieces…"
         value={term}
         onChange={event => setTerm(event.target.value)}
       />

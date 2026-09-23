@@ -28,6 +28,7 @@ export default function BuyerAccount() {
   const [state, setState] = useState('loading'); // loading | offline | unreachable | guest | wrong-door | ready
   const [reason, setReason] = useState('');
   const [profile, setProfile] = useState(null);
+  const [email, setEmail] = useState('');
   const [towns, setTowns] = useState([]);
   const [busy, setBusy] = useState(false);
   const alert = useAlert();
@@ -56,6 +57,7 @@ export default function BuyerAccount() {
       sb.listMunicipalities().catch(() => [])
     ]);
     setProfile(row);
+    setEmail((await sb.getSession().catch(() => null))?.user?.email || '');
     setTowns(list);
     setState('ready');
   }, []);
@@ -184,72 +186,71 @@ export default function BuyerAccount() {
     );
   }
 
+  const name = profile?.full_name || 'Shopper';
+  /* Up to two initials, from the name the shopper gave. */
+  const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || 'S';
+
   return (
-    <>
-      <section className="admin-intro">
-        <p className="eyebrow">Your account</p>
-        <h1 id="account-title">{profile?.full_name || 'Shopper'}</h1>
-        <p>
-          Signed in to FurnishAR. Your account unlocks the space planner and holds
-          your name and town — nothing else is kept.
+    <div className="account-stack">
+      <section className="account-profile" aria-labelledby="account-title">
+        <span className="account-avatar" aria-hidden="true">{initials}</span>
+        <h1 id="account-title" translate="no">{name}</h1>
+        <p className="account-meta">
+          {email && <span translate="no">{email}</span>}
+          {profile?.municipality && <span>{profile.municipality}, Occidental Mindoro</span>}
         </p>
       </section>
 
-      <div className="account-grid">
-        <section className="plan-section" aria-labelledby="details-title">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Your details</p>
-              <h2 id="details-title">Name and town</h2>
-            </div>
-          </div>
-          <form className="login-form" onSubmit={handleSave}>
-            <label>
-              Your name
-              <input name="fullName" type="text" required minLength={2} maxLength={80}
-                defaultValue={profile?.full_name || ''} autoComplete="name" />
-            </label>
-            <label>
-              Municipality
-              <select name="municipality" required defaultValue={profile?.municipality || ''}>
-                <option value="" disabled>Where in Occidental Mindoro?</option>
-                {towns.map(town => <option key={town} value={town}>{town}</option>)}
-              </select>
-              <small className="field-hint">{MUNICIPALITY_HINT}</small>
-            </label>
-            <button className="button button-primary" type="submit" disabled={busy}>
-              {busy ? 'Saving…' : 'Save changes'}
-            </button>
-          </form>
-        </section>
+      <section className="account-card" aria-labelledby="settings-title">
+        <h2 id="settings-title">Profile settings</h2>
+        <p className="card-copy">Your name and town. Nothing else is kept.</p>
+        <form className="login-form" onSubmit={handleSave}>
+          <label>
+            Your name
+            <input name="fullName" type="text" required minLength={2} maxLength={80}
+              defaultValue={profile?.full_name || ''} autoComplete="name" placeholder="Ana Reyes…" />
+          </label>
+          <label>
+            Email
+            <input type="email" value={email} readOnly aria-describedby="email-hint"
+              autoComplete="email" spellCheck={false} />
+            <small className="field-hint" id="email-hint">Used to sign in. It cannot be changed here.</small>
+          </label>
+          <label>
+            Municipality
+            <select name="municipality" required defaultValue={profile?.municipality || ''}>
+              <option value="" disabled>Where in Occidental Mindoro?</option>
+              {towns.map(town => <option key={town} value={town}>{town}</option>)}
+            </select>
+            <small className="field-hint">{MUNICIPALITY_HINT}</small>
+          </label>
+          <button className="button button-primary" type="submit" disabled={busy} aria-busy={busy || undefined}>
+            {busy && <span className="loading-spinner" aria-hidden="true" />}
+            {busy ? 'Saving…' : 'Save changes'}
+          </button>
+        </form>
+      </section>
 
-        <section className="plan-section" aria-labelledby="next-title">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">What your account is for</p>
-              <h2 id="next-title">Measure your space</h2>
-            </div>
-          </div>
-          <p className="card-copy">
-            The planner measures a room with your phone camera and stands a real piece
-            of furniture in it, at its real size.
-          </p>
-          <div className="panel-actions">
-            <Link className="button button-primary" href="/plan">
-              Open the planner <span aria-hidden="true">→</span>
-            </Link>
-            <Link className="button" href="/collection">Browse the catalogue</Link>
-            <button className="button button-outline" type="button" onClick={handleSignOut}>
-              Sign out
-            </button>
-          </div>
-          {/* Said rather than implied by an empty panel. */}
-          <p className="card-copy demo-note">
-            FurnishAR does not take orders or payments, and rooms you measure are not
-            saved to your account yet — they live on your device only.
-          </p>
-        </section>
-      </div>
-    </>
+      <section className="account-card" aria-labelledby="next-title">
+        <h2 id="next-title">Measure your space</h2>
+        <p className="card-copy">
+          The planner measures a room with your phone camera and stands a real piece
+          of furniture in it, at its real size.
+        </p>
+        <div className="panel-actions">
+          <Link className="button button-primary" href="/plan">
+            Open the planner <span aria-hidden="true">→</span>
+          </Link>
+          <Link className="button" href="/collection">Browse the catalogue</Link>
+          <button className="button button-outline" type="button" onClick={handleSignOut}>
+            Sign out
+          </button>
+        </div>
+        <p className="card-copy demo-note">
+          FurnishAR does not take orders or payments. Rooms you measure stay on your
+          device; they are not saved to your account yet.
+        </p>
+      </section>
+    </div>
   );
 }

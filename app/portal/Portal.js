@@ -88,7 +88,7 @@ function PlanPanel({ plan, used }) {
 /** Label for a submit button that may be busy or held shut by a rate limit. */
 function submitLabel({ busy, cooldown, busyText, idle }) {
   if (cooldown > 0) return `Try again in ${cooldown}s`;
-  return busy ? busyText : idle;
+  return busy ? <><span className="loading-spinner" aria-hidden="true" />{busyText}</> : idle;
 }
 
 function LoginPanel({ onSubmit, error, busy, cooldown, onShowSignup }) {
@@ -104,7 +104,7 @@ function LoginPanel({ onSubmit, error, busy, cooldown, onShowSignup }) {
           Email
           <input
             name="email"
-            type="email"
+            type="email" spellCheck={false}
             required
             autoComplete="email"
             aria-invalid={error ? 'true' : undefined}
@@ -179,12 +179,12 @@ function SignupPanel({ onSubmit, message, busy, cooldown, onShowLogin }) {
       </div>
       <form className="login-form" onSubmit={onSubmit}>
         <label>Store name<input name="storeName" type="text" required autoComplete="organization" maxLength={120} /></label>
-        <label>Contact email<input name="email" type="email" required autoComplete="email" /></label>
+        <label>Contact email<input name="email" type="email" spellCheck={false} required autoComplete="email" /></label>
         <PasswordField autoComplete="new-password" minLength={8} />
         <label>Contact number<input name="phone" type="tel" required autoComplete="tel" inputMode="tel" /></label>
         <label>
           What will you list?
-          <textarea name="message" rows={2} maxLength={1000} placeholder="e.g. 40 pieces, mostly cabinets and dining sets" />
+          <textarea name="message" rows={2} maxLength={1000} placeholder="e.g. 40 pieces, mostly cabinets and dining sets…" />
         </label>
         <button className="button button-primary" type="submit" disabled={busy || cooldown > 0}>
           {cooldown > 0 || busy

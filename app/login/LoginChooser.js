@@ -309,12 +309,12 @@ export default function LoginChooser() {
         <form id="login-form" className="login-form" onSubmit={handleSignIn}>
           <label>
             Email
-            <input name="email" type="email" required autoComplete="email"
+            <input name="email" type="email" spellCheck={false} required autoComplete="email"
               aria-invalid={error ? 'true' : undefined} />
           </label>
           <PasswordField autoComplete="current-password" />
           <button className="button button-primary" type="submit" disabled={busy}>
-            {busy ? 'Signing in…' : <>Sign in <span aria-hidden="true">→</span></>}
+            {busy ? <><span className="loading-spinner" aria-hidden="true" />Signing in…</> : <>Sign in <span aria-hidden="true">→</span></>}
           </button>
           <p className="form-error" role="alert" aria-live="assertive">{error}</p>
         </form>
@@ -327,7 +327,7 @@ export default function LoginChooser() {
           </label>
           <label>
             Email
-            <input name="email" type="email" required autoComplete="email"
+            <input name="email" type="email" spellCheck={false} required autoComplete="email"
               aria-invalid={error ? 'true' : undefined} />
           </label>
           {/*
@@ -346,7 +346,7 @@ export default function LoginChooser() {
           </label>
           <PasswordField autoComplete="new-password" />
           <button className="button button-primary" type="submit" disabled={busy || !towns.length}>
-            {busy ? 'Creating…' : <>Create account <span aria-hidden="true">→</span></>}
+            {busy ? <><span className="loading-spinner" aria-hidden="true" />Creating account…</> : <>Create account <span aria-hidden="true">→</span></>}
           </button>
           {!towns.length && (
             <p className="form-error" role="status">

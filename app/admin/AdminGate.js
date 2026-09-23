@@ -259,7 +259,7 @@ export default function AdminGate({ children }) {
             Email
             <input
               name="email"
-              type="email"
+              type="email" spellCheck={false}
               required
               autoComplete="email"
               aria-invalid={loginError ? 'true' : undefined}
@@ -267,7 +267,7 @@ export default function AdminGate({ children }) {
           </label>
           <PasswordField autoComplete="current-password" />
           <button className="button button-primary" type="submit" disabled={busy}>
-            {busy ? 'Signing in…' : <>Sign in <span aria-hidden="true">→</span></>}
+            {busy ? <><span className="loading-spinner" aria-hidden="true" />Signing in…</> : <>Sign in <span aria-hidden="true">→</span></>}
           </button>
           <p className="form-error" role="alert" aria-live="assertive">{loginError}</p>
         </form>

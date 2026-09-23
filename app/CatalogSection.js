@@ -176,7 +176,7 @@ export default function CatalogSection({ products }) {
           <span aria-hidden="true">⌕</span>
           <input
             type="search"
-            placeholder="Search furniture"
+            placeholder="Search furniture…"
             aria-label="Search furniture"
             value={filters.search}
             onChange={event => set({ search: event.target.value })}
