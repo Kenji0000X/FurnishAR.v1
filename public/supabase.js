@@ -59,6 +59,8 @@ let unavailableReason = null;
  * permanent until someone fixes it, so "Try again" would be a false promise.
  */
 let outageDetected = false;
+/** Whether the server holds database credentials at all, working or not. */
+let serverHasDatabase = false;
 
 /** Why the backend is unusable, if it is. Null once prepare() has succeeded. */
 export function unavailable() {
@@ -68,6 +70,15 @@ export function unavailable() {
 /** Whether the backend is unusable because it did not answer (see above). */
 export function isOutage() {
   return outageDetected;
+}
+
+/**
+ * Whether this deployment HAS a database, working or not. The bundled demo
+ * model is served only by one that does not (/api/demo-model), so this is
+ * how a page knows not to ask for it.
+ */
+export function databaseConfigured() {
+  return serverHasDatabase;
 }
 
 export async function prepare() {
@@ -82,6 +93,7 @@ export async function prepare() {
     const response = await fetch('/api/sb/status?probe=1', { headers: { Accept: 'application/json' } });
     if (response.ok) {
       const status = await response.json();
+      serverHasDatabase = Boolean(status.configured);
       // A project that answers but rejects the key is as unusable as one that
       // does not answer at all, and failing here gives a readable message
       // instead of an authentication error on the first sign-up.

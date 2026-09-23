@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
-import { initBackend, usingSupabase, supabase, backendOutage } from '../../portal/backend.js';
+import { initBackend, usingSupabase, supabase, backendOutage, backendConfigured } from '../../portal/backend.js';
 import { noticeExpiredSession } from '../../alerts/sessionExpiry.js';
 
 /**
@@ -20,6 +20,9 @@ import { noticeExpiredSession } from '../../alerts/sessionExpiry.js';
  *   refused   signed in, and the server said no — a piece that is no longer
  *             published. Not "failed": trying again will not change it.
  *   offline   the request never reached the server. Says that, with a retry.
+ *   unavailable  the database is configured but not usable, so the catalogue
+ *             is showing its bundled copy, whose demo model only a deployment
+ *             WITHOUT a database serves. Nothing to retry; says so plainly.
  *   failed    the model exists but would not load. Says so, offers a retry,
  *             and never falls back to a picture of something else.
  *   none      no model was ever uploaded. Also says so. This is a different
@@ -29,7 +32,8 @@ import { noticeExpiredSession } from '../../alerts/sessionExpiry.js';
  * product.modelGlb is a reference, not a file. For a signed-in account it is
  * traded for a five-minute signed URL (resolveModelUrl); for a guest there is
  * nothing to trade, so no request is made and three.js is not even loaded.
- * The demo catalogue's bundled model is a plain URL and loads as it is.
+ * The demo catalogue's bundled model is a plain URL; it loads as it is on a
+ * deployment without a database, and is not asked for on one with a database.
  *
  * The one thing it must never do is substitute. A viewer that quietly shows a
  * generic armchair when chair.glb 404s is worse than an error: the shopper
@@ -80,8 +84,15 @@ export default function ProductViewer({ product }) {
     /* Who may see this model, answered before anything heavy is fetched. */
     async function resolveSource() {
       const reference = product.modelGlb;
-      if (!reference.startsWith('/api/sb/model/')) return { url: reference };
       await initBackend();
+      if (!reference.startsWith('/api/sb/model/')) {
+        /* The bundled demo model is served only where there is no database
+           at all. A deployment WITH one — even one that is down — refuses it,
+           so asking would only buy a 404 and a misleading "failed". This is
+           the catalogue's fallback copy showing while the real one cannot. */
+        if (backendConfigured()) return { issue: backendOutage() ? 'offline' : 'unavailable' };
+        return { url: reference };
+      }
       const sb = supabase();
       if (!usingSupabase() || !sb?.resolveModelUrl) return { issue: backendOutage() ? 'offline' : 'failed' };
       const session = await sb.getSession().catch(() => null);
@@ -403,9 +414,27 @@ export default function ProductViewer({ product }) {
             <p className="viewer-note">
               Check your internet connection and try again.
             </p>
-            <button type="button" className="button" onClick={() => setAttempt(n => n + 1)}>
+            <button
+              type="button"
+              className="button"
+              onClick={() => {
+                /* An outage found as the page started is remembered by
+                   initBackend(); only a fresh load asks again. */
+                if (backendOutage()) window.location.reload();
+                else setAttempt(n => n + 1);
+              }}
+            >
               Try again
             </button>
+          </div>
+        )}
+
+        {state === 'unavailable' && (
+          <div className="viewer-overlay viewer-overlay-message">
+            <p><b>3D preview is unavailable right now.</b></p>
+            <p className="viewer-note">
+              The dimensions below are still accurate.
+            </p>
           </div>
         )}
 

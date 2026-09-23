@@ -317,11 +317,16 @@ console.log('--- creating a shopper account ---');
   check('no button on the account page spans the panel',
     sizes.every(s => s.share < 0.45),
     sizes.map(s => `${s.t} ${s.w}px`).join(' | '));
-  /* Still comfortably tappable — shrinking them must not undo the 44px floor. */
-  const tall = await page.evaluate(() =>
-    [...document.querySelectorAll('.panel-actions .button, .login-form button[type=submit]')]
-      .every(el => el.getBoundingClientRect().height >= 44));
-  check('and they are all still at least 44px tall', tall);
+  /* Still comfortably usable. BRAND.md: 44px on a coarse pointer; with a
+     mouse the buttons are deliberately compact, and the floor there is
+     WCAG 2.2 AA's 24px. (The 44px touch floor is measured on a real touch
+     context in check:access.) */
+  const tall = await page.evaluate(() => {
+    const floor = matchMedia('(pointer: coarse)').matches ? 44 : 24;
+    return [...document.querySelectorAll('.panel-actions .button, .login-form button[type=submit]')]
+      .every(el => el.getBoundingClientRect().height >= floor);
+  });
+  check('and they are all still tall enough for the pointer (44px touch, 24px mouse)', tall);
 
   /* No link on the site should fall through to the browser's default blue —
      FurnishAR has no global anchor colour, and these panels are the first

@@ -3298,6 +3298,11 @@ body:has(.cookie-notice):not(:has(.bottom-nav)) {
   /* The header CTA is hidden below 48rem, so this is the tablet case: on an
      iPad it was a 37px-tall primary action. */
   .header-action { min-height: var(--tap); }
+  /* Buttons are compact with a mouse (38px) and a thumb's width on a touch
+     screen. The sign-in submit has its own, more specific compact rule, so
+     it is named here too or it would stay 38px on a phone. */
+  .button,
+  .login-form button[type="submit"], .login-form .button-primary { min-height: var(--tap); }
   /* The breadcrumb's category link measured 43x44 on a tablet — one pixel
      short of the target the accessibility contract promises, which is the
      kind of miss that only a measurement finds. */
