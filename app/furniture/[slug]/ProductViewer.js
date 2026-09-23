@@ -1,20 +1,35 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
+import { initBackend, usingSupabase, supabase, backendOutage } from '../../portal/backend.js';
+import { noticeExpiredSession } from '../../alerts/sessionExpiry.js';
 
 /**
  * The product's own 3D model, turnable.
  *
- * Four states, and the viewer is explicit about which one it is in, because
+ * The states, and the viewer is explicit about which one it is in, because
  * they mean different things to a shopper and to the shop:
  *
  *   loading   the model is on its way — a skeleton, never a spinner over an
  *             empty box that might be the product
  *   ready     the real thing, orbitable
+ *   locked    nobody is signed in. The model is not public (0007): the page,
+ *             the photo and the dimensions are; turning the real piece in 3D
+ *             needs an account. Says so, with a sign-in that comes back here.
+ *   refused   signed in, and the server said no — a piece that is no longer
+ *             published. Not "failed": trying again will not change it.
+ *   offline   the request never reached the server. Says that, with a retry.
  *   failed    the model exists but would not load. Says so, offers a retry,
  *             and never falls back to a picture of something else.
  *   none      no model was ever uploaded. Also says so. This is a different
  *             sentence from "failed", because the shop's next action differs.
+ *
+ * WHERE THE MODEL COMES FROM
+ * product.modelGlb is a reference, not a file. For a signed-in account it is
+ * traded for a five-minute signed URL (resolveModelUrl); for a guest there is
+ * nothing to trade, so no request is made and three.js is not even loaded.
+ * The demo catalogue's bundled model is a plain URL and loads as it is.
  *
  * The one thing it must never do is substitute. A viewer that quietly shows a
  * generic armchair when chair.glb 404s is worse than an error: the shopper
@@ -62,8 +77,44 @@ export default function ProductViewer({ product }) {
     );
     observer.observe(mount);
 
+    /* Who may see this model, answered before anything heavy is fetched. */
+    async function resolveSource() {
+      const reference = product.modelGlb;
+      if (!reference.startsWith('/api/sb/model/')) return { url: reference };
+      await initBackend();
+      const sb = supabase();
+      if (!usingSupabase() || !sb?.resolveModelUrl) return { issue: backendOutage() ? 'offline' : 'failed' };
+      const session = await sb.getSession().catch(() => null);
+      if (!session) {
+        /* Nobody signed in — or a session that just failed to renew, which
+           deserves "expired" rather than a first-visit sign-in. */
+        await noticeExpiredSession(sb, window.location.pathname);
+        return { issue: 'locked' };
+      }
+      try {
+        return { url: await sb.resolveModelUrl(reference) };
+      } catch (error) {
+        if (error?.code === 'session_expired' || error?.code === 'auth_required') {
+          /* Signed in once, not any more: say it expired (an alert that
+             stays until read), drop the dead session, then show the gate. */
+          await noticeExpiredSession(sb, window.location.pathname);
+          return { issue: 'locked' };
+        }
+        if (error?.code === 'unavailable') return { issue: 'refused' };
+        if (error instanceof TypeError) return { issue: 'offline' };
+        return { issue: 'failed' };
+      }
+    }
+
     async function start() {
       setState('loading');
+      const source = await resolveSource();
+      if (cancelled) return null;
+      if (source.issue) {
+        setState(source.issue);
+        return null;
+      }
+
       let THREE;
       let GLTFLoader;
       let MeshoptDecoder;
@@ -115,7 +166,7 @@ export default function ProductViewer({ product }) {
 
       let model;
       try {
-        const gltf = await loader.loadAsync(product.modelGlb);
+        const gltf = await loader.loadAsync(source.url);
         model = gltf.scene;
       } catch {
         renderer.dispose();
@@ -277,6 +328,7 @@ export default function ProductViewer({ product }) {
   }, [product.modelGlb, attempt]);
 
   const dims = product.dimensions;
+  const signIn = `/login?as=buyer&next=${encodeURIComponent(`/furniture/${product.slug || product.id}`)}`;
 
   return (
     <div className="viewer" ref={mountRef} data-state={state}>
@@ -312,6 +364,44 @@ export default function ProductViewer({ product }) {
             <p className="viewer-note">
               This product has a 3D model, but it could not be loaded. The
               dimensions below are still accurate.
+            </p>
+            <button type="button" className="button" onClick={() => setAttempt(n => n + 1)}>
+              Try again
+            </button>
+          </div>
+        )}
+
+        {state === 'locked' && (
+          <div className="viewer-overlay viewer-overlay-message">
+            <p><b>Sign in to view this furniture in 3D.</b></p>
+            <p className="viewer-note">
+              The 3D model needs a free account. The measurements below are
+              open to everyone.
+            </p>
+            <div className="viewer-actions">
+              <Link className="button button-primary" href={signIn}>
+                Log in <span aria-hidden="true">→</span>
+              </Link>
+              <Link className="button" href={`${signIn}&mode=signup`}>Create account</Link>
+            </div>
+          </div>
+        )}
+
+        {state === 'refused' && (
+          <div className="viewer-overlay viewer-overlay-message" role="alert">
+            <p><b>3D preview is unavailable for this account.</b></p>
+            <p className="viewer-note">
+              This piece&rsquo;s model is not open to view right now. The
+              dimensions below are still accurate.
+            </p>
+          </div>
+        )}
+
+        {state === 'offline' && (
+          <div className="viewer-overlay viewer-overlay-message" role="alert">
+            <p><b>Connection failed</b></p>
+            <p className="viewer-note">
+              Check your internet connection and try again.
             </p>
             <button type="button" className="button" onClick={() => setAttempt(n => n + 1)}>
               Try again

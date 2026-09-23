@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { getCatalog } from '../../lib/catalog.mjs';
 import PlannerCards from './PlannerCards.js';
 import PlannerGate from './PlannerGate.js';
@@ -24,9 +25,14 @@ export default async function PlanPage() {
           only decides whether the planner is handed over. Passing it as
           children keeps PlannerCards a server-rendered tree rather than
           making the whole planner wait on a client-side catalogue fetch. */}
-      <PlannerGate>
-        <PlannerCards products={products} />
-      </PlannerGate>
+      {/* The gate reads ?product= so signing in can bring a shopper back to
+          the same piece; reading search params on a static page needs a
+          boundary, or the whole route falls out of static rendering. */}
+      <Suspense fallback={<p className="card-copy">One moment…</p>}>
+        <PlannerGate>
+          <PlannerCards products={products} />
+        </PlannerGate>
+      </Suspense>
     </section>
   );
 }

@@ -16,7 +16,7 @@
 import proxy from '../../../../lib/supabase-proxy.js';
 
 const {
-  isConfigured, serverCredentials, proxyRest, proxyAuth, createSignedUpload, publicObjectUrl
+  isConfigured, serverCredentials, proxyRest, proxyAuth, createSignedUpload, grantModelAccess
 } = proxy;
 
 // These read request-specific credentials and must never be prerendered.
@@ -162,25 +162,25 @@ async function route(request, context) {
     return json(result.status, result.body, headers);
   }
 
-  // Models are fetched through this origin so the project URL is not published
-  // to every visitor. Redirecting keeps the bytes out of the function.
-  if (section === 'model' && ['GET', 'HEAD'].includes(request.method)) {
-    const objectPath = rest.join('/');
-    if (!/^[\w-]+\/[\w-]+\/[\w.-]+$/.test(objectPath)) {
-      return json(400, { error: 'Bad model path.' });
-    }
-    // A redirect with no destination is worse than an error: the browser
-    // follows it to nonsense and the loader reports something unrelated.
-    const target = publicObjectUrl('furniture-models', objectPath);
-    if (!target) {
-      return json(503, { error: 'This deployment cannot resolve model URLs: SUPABASE_URL is not set.' });
-    }
-    // Built by hand rather than with Response.redirect so the cache header
-    // survives — without it every model placement re-hits this function.
-    return new Response(null, {
-      status: 302,
-      headers: { Location: target, 'Cache-Control': 'public, max-age=3600' }
-    });
+  /*
+    A 3D model, for a caller who is allowed to see it.
+
+    This used to answer every GET — signed in or not — with a 302 to the
+    model's PUBLIC storage URL. The planner hid its camera behind a sign-in
+    check, but that check ran in the browser; this endpoint, and the public
+    bucket behind it, handed any shop's file to anyone who asked.
+
+    Now it answers with JSON: a five-minute signed URL when the session is
+    real and the storage policy (0007) allows this user to see this file, or a
+    `code` saying why not. JSON rather than a redirect so the browser can tell
+    "sign in" from "not allowed" from "try again" and say so in words, instead
+    of GLTFLoader reporting "failed to load" for all of them.
+
+    Never cached by anything shared: the answer is per person.
+  */
+  if (section === 'model' && request.method === 'GET') {
+    const result = await grantModelAccess(asNodeRequest(request), rest.join('/'));
+    return json(result.status, result.body, { 'Cache-Control': 'private, no-store' });
   }
 
   if (section === 'storage' && rest[0] === 'sign' && request.method === 'POST') {

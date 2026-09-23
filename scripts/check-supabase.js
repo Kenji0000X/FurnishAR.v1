@@ -155,12 +155,22 @@ function looksLikeSupabase(result) {
     report(PASS, 'Store membership table exists', `HTTP ${members.status}.`);
   }
 
-  // 8. Storage bucket for the 3D models
-  const bucket = await fetch(`${supabaseUrl}/storage/v1/object/public/furniture-models/`, { method: 'HEAD' })
-    .then(r => r.status).catch(() => 0);
-  if (bucket === 0) report(WARN, 'Model storage reachable', 'Could not reach Storage.');
-  else if (bucket === 404 || bucket === 400) report(WARN, 'Model storage bucket', 'The "furniture-models" bucket may not exist. The migration creates it; check Storage in the dashboard.');
-  else report(PASS, 'Model storage reachable', `HTTP ${bucket}`);
+  // 8. Storage bucket for the 3D models. It is PRIVATE once 0007 is applied,
+  //    so a public read of a file in it must fail — if it succeeds, the
+  //    migration has not been run and every model is still a public download.
+  const probe = await request(supabaseUrl, supabaseAnonKey, '/rest/v1/catalog?select=model_glb_path&model_glb_path=not.is.null&limit=1');
+  const samplePath = probe.ok && Array.isArray(probe.body) ? probe.body[0]?.model_glb_path : null;
+  if (!samplePath) {
+    const reachable = await fetch(`${supabaseUrl}/storage/v1/version`).then(r => r.status).catch(() => 0);
+    if (reachable === 0) report(WARN, 'Model storage reachable', 'Could not reach Storage.');
+    else report(PASS, 'Model storage reachable', 'No published model to probe the bucket with yet.');
+  } else {
+    const open = await fetch(`${supabaseUrl}/storage/v1/object/public/furniture-models/${samplePath}`, { method: 'HEAD' })
+      .then(r => r.status).catch(() => 0);
+    if (open === 0) report(WARN, 'Model storage reachable', 'Could not reach Storage.');
+    else if (open >= 200 && open < 300) report(FAIL, '3D models are private', 'A published model downloads without signing in. Run supabase/migrations/0007_protect_models.sql.');
+    else report(PASS, '3D models are private', `A public read is refused (HTTP ${open}); models open only through signed URLs.`);
+  }
 
   // 9. Email sign-in enabled
   const settings = await request(supabaseUrl, supabaseAnonKey, '/auth/v1/settings');

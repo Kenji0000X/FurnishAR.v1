@@ -59,13 +59,20 @@ test('a catalog row becomes the product shape the UI renders', async () => {
   assert.equal(product.arReady, true);
 });
 
-test('an uploaded model resolves to a public storage URL', async () => {
+test('an uploaded model is a reference to the access check, never a public file URL', async () => {
+  /* This test used to assert the opposite — that a model resolved to its
+     PUBLIC storage URL. That URL was in the page source of the catalogue and
+     every product page, and it downloaded any shop's model for anyone,
+     signed in or not. A model is now an address on our own origin that
+     answers only to a session the storage policy allows (0007). */
   const { toProduct, modelUrl } = await modulePromise;
   const product = toProduct(CATALOG_ROW);
   assert.equal(
     product.modelGlb,
-    'https://demo.supabase.co/storage/v1/object/public/furniture-models/2b1c4e4e-0000-4000-8000-000000000002/6f1c4e4e-0000-4000-8000-000000000001/model.glb'
+    '/api/sb/model/2b1c4e4e-0000-4000-8000-000000000002/6f1c4e4e-0000-4000-8000-000000000001/model.glb'
   );
+  assert.doesNotMatch(product.modelGlb, /storage\/v1\/object\/public/,
+    'the public storage URL must never reach a page');
   assert.equal(product.modelUsdz, undefined, 'a missing USDZ stays undefined, not a broken URL');
   assert.equal(modelUrl(null), undefined);
 });

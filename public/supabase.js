@@ -40,6 +40,7 @@ function readStoredSession() {
 
 function storeSession(next) {
   session = next;
+  if (next) lapsed = false;   // signed in again: nothing has lapsed
   try {
     if (next) sessionStorage.setItem(SESSION_KEY, JSON.stringify(next));
     else sessionStorage.removeItem(SESSION_KEY);
@@ -81,7 +82,11 @@ export async function prepare() {
         unavailableReason = 'The catalogue database did not respond.';
       }
     }
-  } catch { /* no server route — fall through */ }
+  } catch (error) {
+    /* No answer at all. Offline is an outage, not "this site has no
+       database" — the two need different screens (backend.js). */
+    if (error instanceof TypeError) unavailableReason = 'The server could not be reached. Check your internet connection.';
+  }
 
   if (CONFIG.supabaseUrl && CONFIG.supabaseAnonKey) {
     await getDirectClient();
@@ -185,6 +190,20 @@ function secondsFromMessage(message) {
 let refreshInFlight = null;
 
 /**
+ * Set when GoTrue REFUSED to renew a session this tab held.
+ *
+ * That is how a session usually ends for real: the access token runs out,
+ * the renewal is refused (signed out on another device, or the project's
+ * session limit), and the session is dropped. Once it is dropped nothing is
+ * held any more — which, without this, looks exactly like a first visit, and
+ * the person is shown a generic "sign in" instead of "your session expired".
+ * Read and cleared by app/alerts/sessionExpiry.js.
+ */
+let lapsed = false;
+export function sessionLapsed() { return lapsed; }
+export function forgetLapsedSession() { lapsed = false; }
+
+/**
  * Renews the access token — at most once at a time, deliberately.
  *
  * GoTrue ROTATES refresh tokens: spending R1 issues R2 and invalidates R1. The
@@ -215,6 +234,11 @@ function refreshSession() {
       // refresh already succeeded and this failure is only GoTrue refusing the
       // duplicate. Keep the good session rather than signing the person out.
       if (session?.refresh_token && session.refresh_token !== spending) return true;
+      // A renewal that never got an answer — offline, or GoTrue having a bad
+      // minute — says nothing about the session. Dropping it here used to
+      // sign people out for a network blip.
+      if (error instanceof TypeError || !(error?.status < 500)) return false;
+      lapsed = true;
       storeSession(null);
       return false;
     } finally {
@@ -227,14 +251,45 @@ function refreshSession() {
 
 /* ------------------------------------------------------------- mapping ----- */
 
-/** Public URL for an uploaded model. The bucket is public, so no signing. */
+/**
+ * A reference to an uploaded model — never the file's own URL.
+ *
+ * The bucket is private (0007); a model is opened by trading this reference
+ * for a short-lived signed URL with resolveModelUrl() below, which only works
+ * for a signed-in account the storage policy allows. Kept identical to
+ * modelUrl() in lib/catalog.mjs.
+ */
 export function modelUrl(objectPath) {
   if (!objectPath) return undefined;
-  const base = CONFIG.supabaseUrl || CONFIG.storageBaseUrl || '';
-  if (base) return `${base}/storage/v1/object/public/${MODEL_BUCKET}/${objectPath}`;
-  // In proxy mode the project URL is not published to the page, so models are
-  // fetched through the app's own origin.
   return `/api/sb/model/${objectPath}`;
+}
+
+/**
+ * Trade a model reference for a URL the loader can fetch.
+ *
+ * A reference that is not one of ours (the demo catalogue's bundled model,
+ * or an absolute URL) is returned as it is — there is nothing to authorise.
+ * For our own references the current access token goes along, and what comes
+ * back is either a five-minute signed URL or an Error carrying `status` and a
+ * `code` — auth_required, session_expired, unavailable, upstream — that the
+ * caller turns into a sentence through lib/alerts/messages.mjs. The raw
+ * server response is never shown to anyone.
+ */
+export async function resolveModelUrl(reference) {
+  if (!reference || !reference.startsWith('/api/sb/model/')) return reference;
+  const current = await getSession().catch(() => null);
+  const token = current?.access_token;
+  const response = await fetch(reference, {
+    headers: token ? { Authorization: `Bearer ${token}`, Accept: 'application/json' } : { Accept: 'application/json' },
+    cache: 'no-store'
+  });
+  let body = null;
+  try { body = await response.json(); } catch { body = null; }
+  if (response.ok && body?.url) return body.url;
+  const error = new Error(body?.code || `HTTP ${response.status}`);
+  error.status = response.status;
+  error.code = body?.code || (response.status === 401 ? 'auth_required' : 'upstream');
+  throw error;
 }
 
 /** A row of public.catalog in the shape the rest of the app already uses. */
@@ -721,9 +776,18 @@ export async function myRole() {
       return String(data || 'guest');
     }
     return String(await restCall('rpc/my_role', { method: 'POST', body: '{}' }) || 'guest');
-  } catch {
-    // A failure must read as "not signed in", never as "assume allowed".
-    return 'guest';
+  } catch (error) {
+    // A REFUSAL reads as "not signed in", never as "assume allowed": the
+    // token is no good, so nobody is.
+    if (error?.status === 401 || error?.status === 403 || /^PGRST30/.test(error?.code || '')) return 'guest';
+    // An UNANSWERED question is not an answer. Offline, or the database
+    // down, says nothing about who this is — and reading it as 'guest' is
+    // how an outage used to be announced as "your session has expired",
+    // followed by signing the person out. Callers say what really happened.
+    const unreachable = new Error('The server could not be reached.');
+    unreachable.code = 'unreachable';
+    unreachable.status = error?.status || 0;
+    throw unreachable;
   }
 }
 

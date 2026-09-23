@@ -894,7 +894,12 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
                       : 'Aim at one end of what you want measured, then tap +'}
           </p>
 
-          {note && <p className="ms-toast">{note}</p>}
+          {/* Coaching that stays until the measurement state changes — not a
+              timed notification, so it is not routed through the alert
+              system (a message that vanished while still true would be
+              worse). It was silent to screen readers: a bare <p> that
+              changed under the camera with nothing announcing it. */}
+          <p className="ms-toast" role="status" aria-live="polite" hidden={!note}>{note}</p>
           <p className="ms-anchor-warn">Measured along the floor — turn, don&apos;t walk</p>
 
           <div className="ms-dock">

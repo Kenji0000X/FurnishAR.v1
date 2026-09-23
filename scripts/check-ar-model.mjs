@@ -23,7 +23,7 @@ const SB_PORT = 4941;
 const APP_PORT = 4942;
 const KEY = 'sb_publishable_armodelcheck0';
 const STORE = '21f61742-6d5d-4239-9592-05b2a79a0453';
-const GLB = readFileSync(new URL('../public/models/cane-back-armchair.glb', import.meta.url));
+const GLB = readFileSync(new URL('../data/models/cane-back-armchair.glb', import.meta.url));
 // Real compressed models, produced with gltf-transform from the same armchair.
 // Compression is how a 60 MB export gets under the upload limit at all, and a
 // plain GLTFLoader refuses these outright — so "it got smaller" has to mean
@@ -42,6 +42,18 @@ const CASES = [
   { id: 'aaaaaaa7-0000-4000-8000-000000000007', slug: 'meshopt-chair', name: 'Meshopt Chair', behaviour: 'meshopt' }
 ];
 
+/* The bucket is private (0007): the planner trades a model reference for a
+   signed URL at /api/sb/model/, as a signed-in account. So this mock is a
+   buyer with a live session, Storage signs every path, and the failure modes
+   below happen where they happen for real — on the signed download. */
+const TOKEN = 'tok-ar-model-check';
+const SESSION = JSON.stringify({
+  access_token: TOKEN, refresh_token: `${TOKEN}-r`,
+  expires_at: Math.floor(Date.now() / 1000) + 3600,
+  user: { id: 'buyer', email: 'buyer@example.ph' }
+});
+const behaviourOf = url => CASES.find(c => url.includes(`/${c.id}/`))?.behaviour;
+
 const catalogRow = ({ id, slug, name, behaviour }) => ({
   id, slug, name,
   store_id: STORE, store_slug: 'sc-variety', store_name: 'S&C Variety Store',
@@ -51,7 +63,7 @@ const catalogRow = ({ id, slug, name, behaviour }) => ({
   bounds_width_cm: 70, bounds_height_cm: 88, bounds_depth_cm: 78,
   preview_shape: 'chair', description: 'Test piece', ar_ready: true, featured: false,
   status: 'published', updated_at: new Date().toISOString(),
-  model_glb_path: behaviour ? `${STORE}/${behaviour}/model.glb` : null,
+  model_glb_path: behaviour ? `${STORE}/${id}/model.glb` : null,
   model_usdz_path: null
 });
 
@@ -64,30 +76,43 @@ const supabase = createServer((req, res) => {
       res.end(JSON.stringify(body));
     };
 
-    if (req.url.startsWith('/storage/v1/object/public/furniture-models/')) {
+    const live = (req.headers.authorization || '') === `Bearer ${TOKEN}`;
+
+    if (req.method === 'POST' && req.url.startsWith('/storage/v1/object/sign/furniture-models/')) {
+      if (!live) return send(400, { statusCode: '403', error: 'Unauthorized' });
+      const path = req.url.split('/storage/v1/object/sign/furniture-models/')[1].split('?')[0];
+      return send(200, { signedURL: `/object/sign/furniture-models/${path}?token=signed` });
+    }
+
+    // GET and HEAD, as Storage answers both: when a load fails, the planner
+    // sends a HEAD to the same signed URL to learn why.
+    if (req.method !== 'POST' && req.url.startsWith('/storage/v1/object/sign/furniture-models/')) {
       const cors = { 'Access-Control-Allow-Origin': '*' };
-      if (req.url.includes('/fail500/')) {
+      const behaviour = behaviourOf(req.url);
+      if (behaviour === 'fail500') {
         res.writeHead(500, { 'Content-Type': 'application/json', ...cors });
         return res.end(JSON.stringify({ error: 'Internal Error' }));
       }
-      if (req.url.includes('/html/')) {
+      if (behaviour === 'html') {
         // A protection interstitial standing in for the file: 200, but HTML.
         res.writeHead(200, { 'Content-Type': 'text/html', ...cors });
         return res.end('<html><body>Authentication Required</body></html>');
       }
-      if (req.url.includes('/corrupt/')) {
+      if (behaviour === 'corrupt') {
         const broken = Buffer.concat([Buffer.from('glTF'), Buffer.alloc(64, 7)]);
         res.writeHead(200, { 'Content-Type': 'model/gltf-binary', ...cors });
         return res.end(broken);
       }
-      const body = req.url.includes('/draco/') ? DRACO_GLB
-        : req.url.includes('/meshopt/') ? MESHOPT_GLB
+      const body = behaviour === 'draco' ? DRACO_GLB
+        : behaviour === 'meshopt' ? MESHOPT_GLB
         : GLB;
       res.writeHead(200, { 'Content-Type': 'model/gltf-binary', 'Content-Length': body.length, ...cors });
       return res.end(body);
     }
 
     if (req.url.startsWith('/auth/v1/health')) return send(200, { name: 'GoTrue' });
+    if (req.url.startsWith('/auth/v1/user')) return live ? send(200, { id: 'buyer', email: 'buyer@example.ph' }) : send(401, {});
+    if (req.url.startsWith('/rest/v1/rpc/my_role')) return send(200, live ? 'buyer' : 'guest');
     if (req.url.startsWith('/rest/v1/catalog')) return send(200, CASES.map(catalogRow));
     send(200, []);
   });
@@ -113,7 +138,7 @@ for (let i = 0; i < 60; i++) {
 
 // /plan is prerendered at build time (revalidate = 60), and the build had no
 // Supabase to read, so the first responses carry the BUNDLED catalogue — the
-// one armchair, whose model loads fine from /models/. Asserting against that
+// one armchair, whose model loads fine from /api/demo-model/. Asserting against that
 // silently tests the wrong products: an earlier version of this check passed
 // and failed at random depending on whether ISR had regenerated yet. So wait
 // for the page to actually be serving this mock's catalogue, and say so
@@ -151,6 +176,8 @@ const check = (label, ok, detail = '') => {
 async function launchAR(productId) {
   pageLog = [];
   const context = await browser.newContext({ permissions: ['camera'] });
+  // Signed in before the first script runs, as a returning buyer would be.
+  await context.addInitScript(session => sessionStorage.setItem('furnishar-sb-session', session), SESSION);
   const page = await context.newPage();
   // Kept, not printed. When a case fails, the reason is almost always in the
   // page's own console — an exception inside the load path gets caught,

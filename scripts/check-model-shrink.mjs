@@ -190,7 +190,7 @@ async function assertShrunk(label, original) {
 console.log('--- a texture-heavy model (4k maps) ---');
 {
   const bytes = await makeOversizedGlb(
-    readFileSync(new URL('../public/models/cane-back-armchair.glb', import.meta.url)),
+    readFileSync(new URL('../data/models/cane-back-armchair.glb', import.meta.url)),
     45 * 1024 * 1024
   );
   console.log(`  built ${(bytes.length / 1048576).toFixed(1)} MB, limit is ${LIMIT / 1048576} MB`);

@@ -57,6 +57,14 @@ const PAIRS = [
   ['--accent', '--paper', 3, 'display accent (large only)'],
   ['--on-accent', '--accent', 4.5, 'text on the accent fill'],
   ['--danger', '--paper-raised', 4.5, 'form errors'],
+  // The notification system (lib/alerts). Each status wears its colour on
+  // the icon, but is held to the TEXT threshold rather than the 3:1 icon one:
+  // a status colour that only passes as an icon gets used for a word sooner
+  // or later, and then it quietly fails.
+  ['--ok', '--paper-raised', 4.5, 'success alerts'],
+  ['--warn', '--paper-raised', 4.5, 'warning alerts'],
+  ['--accent-ink', '--paper-raised', 4.5, 'info alerts'],
+  ['--ink-muted', '--paper-raised', 4.5, 'alert message text'],
 
   // The deep tone stopped being a one-off block the moment the home page got
   // two full-bleed bands on it. Everything that sits on --deep is measured

@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { initBackend, usingSupabase, supabase, backendReason } from '../portal/backend.js';
 import PasswordField from '../PasswordField.js';
+import useAlert from '../alerts/useAlert.js';
 
 /**
  * One door, two kinds of person behind it.
@@ -32,6 +33,10 @@ function safeNext(value) {
      phishing link borrows your domain: ?next=https://evil.example would send
      someone who just typed their password to somebody else's copy of it. */
   if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')) return null;
+  /* A browser reads "\" as "/" and silently drops tabs and newlines, so
+     "/\evil.example" and "/<tab>/evil.example" both become "//evil.example"
+     — another site — while passing the check above. */
+  if (/[\\\u0000-\u001f\u007f]/.test(value)) return null;
   return value;
 }
 
@@ -41,9 +46,12 @@ export default function LoginChooser() {
   const as = params.get('as');
   const next = safeNext(params.get('next'));
 
+  const alert = useAlert();
   const [ready, setReady] = useState(false);
   const [offline, setOffline] = useState('');
-  const [mode, setMode] = useState('signin'); // signin | signup
+  /* "Create account" from the 3D gate arrives with ?mode=signup, so it opens
+     on the right tab instead of making someone find it. */
+  const [mode, setMode] = useState(params.get('mode') === 'signup' ? 'signup' : 'signin');
   const [towns, setTowns] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -76,8 +84,9 @@ export default function LoginChooser() {
     const query = new URLSearchParams();
     query.set('as', value);
     if (next) query.set('next', next);
+    if (params.get('mode') === 'signup') query.set('mode', 'signup');
     router.push(`/login?${query}`);
-  }, [router, next]);
+  }, [router, next, params]);
 
   async function handleSignIn(event) {
     event.preventDefault();
@@ -92,7 +101,13 @@ export default function LoginChooser() {
          button they pressed. Someone who runs a store and clicked "I'm
          shopping" should land in their portal, not in a shopper's account
          page that has nothing in it. */
-      const role = await supabase().myRole();
+      /* Signed in either way; if the role could not be asked, the buyer
+         default below is where most accounts belong. */
+      const role = await supabase().myRole().catch(() => null);
+      /* Confirmed through the one notification system — the page is about to
+         change, so an inline "signed in" would vanish with it. Failures stay
+         inline, beside the form they are about: one event, one message. */
+      alert.raise('auth.signed-in');
       if (role === 'admin') router.push('/admin');
       else if (role === 'owner' || role === 'pending') router.push('/portal');
       else router.push(next || '/account');
@@ -117,6 +132,7 @@ export default function LoginChooser() {
       if (result.needsEmailConfirmation) {
         setSent(String(values.email));
       } else {
+        alert.raise('auth.signed-up');
         router.push(next || '/account');
       }
     } catch (signUpError) {

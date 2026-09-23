@@ -131,9 +131,14 @@ function serve(port) {
       res.writeHead(200, { 'Content-Type': 'text/html' });
       return res.end(PAGE);
     }
+    /* Product models live in data/models, not /public: a model in /public
+       is a download for anyone on the live site. This local server is the
+       renderer's own, so it may read them. */
     const base = url.startsWith('/three/')
       ? path.join(ROOT, 'node_modules')
-      : PUBLIC;
+      : url.startsWith('/models/') && url.endsWith('.glb')
+        ? path.join(ROOT, 'data')
+        : PUBLIC;
     const file = path.join(base, url.replace(/^\/three\//, 'three/'));
     if (!file.startsWith(base) || !existsSync(file)) {
       res.writeHead(404);
@@ -148,7 +153,11 @@ function serve(port) {
 /** Local path for a model the catalogue addresses as "/models/x.glb". */
 function localModelPath(modelGlb) {
   if (!modelGlb || /^https?:/.test(modelGlb)) return null;
-  const file = path.join(PUBLIC, modelGlb.replace(/^\//, ''));
+  const relative = modelGlb.replace(/^\//, '');
+  // Bundled product models moved out of /public to data/models.
+  const file = /^models\/[\w-]+\.glb$/.test(relative)
+    ? path.join(ROOT, 'data', relative)
+    : path.join(PUBLIC, relative);
   return existsSync(file) ? file : null;
 }
 

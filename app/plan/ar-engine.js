@@ -25,6 +25,8 @@ import { roomDimensions, fitInRoom, minimumAreaRectangle } from '../../lib/spati
 import { SweepCoverage, scanReadiness } from '../../lib/spatial/coverage.mjs';
 import { assessPlacement, snapInsideRoom } from '../../lib/spatial/placement.mjs';
 import { createXrayNet } from './xray-net.js';
+import { notify } from '../../lib/alerts/store.mjs';
+import { catalog } from '../../lib/alerts/messages.mjs';
 
 /**
  * Wires the planner up to the DOM the page has already rendered.
@@ -123,6 +125,9 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     products: [],
     stores: {},
     selected: null,
+    /* The selected piece's model access: its signed URL while fresh, or the
+       reason there is none. See checkModelAccess(). */
+    modelAccess: null,
     filters: { search: '', category: '', store: '', width: 240, color: '' },
     session: null,
     hitTestSource: null,
@@ -762,13 +767,13 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
          perimeter, and says the height is unknown instead of guessing one. */
       const floorY = Math.min(...taps.corners.map(corner => corner.y));
       if (point.y - floorY < MIN_CEILING_RISE) {
-        toast('That is not the ceiling — aim higher and tap again.');
+        toast('That is not the ceiling — aim higher and tap again.', 'warning');
         return;
       }
       taps.ceilingY = point.y;
       buildTappedRoom();
       setHint(`Height ${metres(point.y - floorY)}. The room is measured.`);
-      toast(`Height ${metres(point.y - floorY)}.`);
+      toast(`Height ${metres(point.y - floorY)}.`, 'success');
       return;
     }
 
@@ -778,7 +783,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     if (taps.corners.length) {
       const floorY = Math.min(...taps.corners.map(corner => corner.y));
       if (Math.abs(point.y - floorY) > FLOOR_TOLERANCE) {
-        toast('That point is not on the floor. Aim at the base of the wall.');
+        toast('That point is not on the floor. Aim at the base of the wall.', 'warning');
         return;
       }
     }
@@ -794,7 +799,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
 
   function closeTappedFloor() {
     const taps = state.roomTaps;
-    if (!taps || taps.corners.length < 3) { toast('Tap at least three floor corners first.'); return; }
+    if (!taps || taps.corners.length < 3) { toast('Tap at least three floor corners first.', 'warning'); return; }
     taps.closed = true;
     buildTappedRoom();
     syncRoomTapControls();
@@ -897,7 +902,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
 
     renderRoomResult();
     updateFitVerdict();
-    toast(`Room measured: ${metres(room.length)} × ${metres(room.width)}${room.height ? ` × ${metres(room.height)}` : ''}.`);
+    toast(`Room measured: ${metres(room.length)} × ${metres(room.width)}${room.height ? ` × ${metres(room.height)}` : ''}.`, 'success');
     state.session?.end();
   }
 
@@ -1075,7 +1080,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
         ? $('#measured-area')?.textContent
         : $('#measured-distance')?.textContent;
       if (state.session) state.session.end(); else cleanupAR();
-      if (kept) toast(`Kept ${kept}. It is on your card.`);
+      if (kept) toast(`Kept ${kept}. It is on your card.`, 'success');
     });
     document.addEventListener('keydown', onARKeydown);
     return experience;
@@ -1207,6 +1212,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
 
   function renderPlanner() {
     const options = placeable();
+    if (state.selected?.modelGlb) checkModelAccess(state.selected);
     /*
        The piece somebody explicitly asked for is never swapped out.
 
@@ -1603,9 +1609,103 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
   }
 
 
-  function toast(message) {
-    const element = $('#toast'); element.textContent = message; element.classList.add('show');
-    clearTimeout(toast.timer); toast.timer = setTimeout(() => element.classList.remove('show'), 3400);
+  /**
+   * Scanner feedback, through the site's one notification system.
+   *
+   * This was a private toast with its own element and timer — so a message
+   * raised here could collide with nothing and could not be styled, deduped
+   * or announced like any other on the site. It now goes to
+   * lib/alerts/store.mjs. The pace is kept: these are one-line coaching
+   * during a scan ("aim higher", "room measured"), and 3.4s is what the
+   * scanner was tuned to. One event still makes one message; the store's
+   * dedup means tapping the wrong spot five times is one "aim higher", not
+   * five stacked on the camera.
+   */
+  function toast(message, type = 'info') {
+    notify({ type, message, duration: type === 'warning' ? 5000 : 3400 });
+  }
+
+  /* ===== Who may open a model =====
+     A model is a reference (/api/sb/model/…) that the server trades for a
+     five-minute signed URL only for a signed-in account the storage policy
+     allows (0007, lib/supabase-proxy.js grantModelAccess). The trade happens
+     when a piece is SELECTED, not when the camera button is tapped: WebXR
+     needs the tap's user activation, and a network round trip between the
+     tap and requestSession() can spend it. So the answer is ready — or the
+     reason it is not has already been said — before anyone reaches for AR. */
+  const ACCESS_FRESH_MS = 4 * 60 * 1000;   // signed URLs live 5 minutes
+
+  function modelIssueFrom(error) {
+    if (error?.code === 'auth_required') return { kind: 'auth-required' };
+    if (error?.code === 'session_expired') return { kind: 'session-expired' };
+    if (error?.code === 'unavailable') return { kind: 'forbidden' };
+    if (error instanceof TypeError) return { kind: 'network' };
+    return { kind: 'access-failed' };
+  }
+
+  async function resolveReference(reference) {
+    if (!reference || !reference.startsWith('/api/sb/model/')) return reference;
+    const { initBackend, supabase } = await import('../portal/backend.js');
+    await initBackend();
+    const sb = supabase();
+    if (!sb?.resolveModelUrl) {
+      const error = new Error('unconfigured'); error.code = 'upstream'; throw error;
+    }
+    return sb.resolveModelUrl(reference);
+  }
+
+  /** The signed URL for this product's model, from cache while it is fresh. */
+  async function modelUrlFor(product, field = 'modelGlb') {
+    const reference = product?.[field];
+    const cached = state.modelAccess;
+    if (cached && cached.reference === reference && cached.url && Date.now() - cached.at < ACCESS_FRESH_MS) {
+      return cached.url;
+    }
+    const url = await resolveReference(reference);
+    state.modelAccess = { reference, url, at: Date.now(), issue: null };
+    return url;
+  }
+
+  /** Called on selection. Says why a model cannot open, once, before AR. */
+  function checkModelAccess(product, announce = false) {
+    const reference = product?.modelGlb;
+    if (!reference || state.modelAccess?.reference === reference) return;
+    state.modelAccess = { reference, url: null, at: 0, issue: null, pending: true };
+    modelUrlFor(product).then(() => {
+      /* Only after a retry: on an ordinary selection, the model being
+         available is the expected case and says nothing. */
+      if (announce) notify({ type: 'success', message: `${product.name} is ready to place in your room.` });
+    }).catch(error => {
+      state.modelAccess = { reference, url: null, at: 0, issue: modelIssueFrom(error) };
+      raiseModelAlert(state.modelAccess.issue, product);
+    });
+  }
+
+  /**
+   * The words for a model that will not open, and the way out of it.
+   * Every action here does something real: a sign-in that brings you back
+   * to this exact piece, or a retry that runs the load again.
+   */
+  function raiseModelAlert(issue, product) {
+    const here = `${window.location.pathname}${window.location.search}`;
+    const signIn = `/login?as=buyer&next=${encodeURIComponent(here)}`;
+    const retry = { label: 'Try again', onAction: () => { state.modelAccess = null; checkModelAccess(product, true); } };
+    if (issue.kind === 'auth-required') {
+      notify(catalog('auth.required', {
+        actions: [{ label: 'Sign in', href: signIn }, { label: 'Create account', href: `${signIn}&mode=signup` }]
+      }));
+    } else if (issue.kind === 'session-expired') {
+      notify(catalog('auth.expired', { actions: [{ label: 'Sign in again', href: signIn }] }));
+    } else if (issue.kind === 'forbidden') {
+      notify(catalog('model.forbidden', {
+        message: '3D preview is unavailable for this account.',
+        actions: [{ label: 'Back to furniture', href: '/collection' }]
+      }));
+    } else if (issue.kind === 'network') {
+      notify(catalog('net.offline', { actions: [retry] }));
+    } else {
+      notify(catalog('model.load-failed', { actions: [retry] }));
+    }
   }
 
 
@@ -1665,6 +1765,18 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
 
     if (issue.kind === 'no-model') {
       return `This piece has no 3D model uploaded yet, so there is nothing to place.${measure}`;
+    }
+    if (issue.kind === 'auth-required') {
+      return `Sign in to view this furniture in 3D.${measure}`;
+    }
+    if (issue.kind === 'session-expired') {
+      return `Your session has expired. Sign in again to view this piece in 3D.${measure}`;
+    }
+    if (issue.kind === 'forbidden') {
+      return `3D preview is unavailable for this account.${measure}`;
+    }
+    if (issue.kind === 'access-failed') {
+      return `We couldn't open the 3D model just now. Please try again.${measure}`;
     }
     if (issue.kind === 'no-three') {
       return `The 3D engine did not finish loading. Check your connection and reload the page.${measure}`;
@@ -1735,9 +1847,21 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       return null;
     }
 
-    const modelPath = product.modelGlb;
-    if (!modelPath) {
+    if (!product.modelGlb) {
       state.modelIssue = { kind: 'no-model' };
+      return null;
+    }
+
+    /* The file itself only comes from a signed URL. If the server will not
+       sign one — signed out, expired, not this account's to see — there is
+       nothing to load, and the reason is said in words rather than left to
+       GLTFLoader's "failed to load". */
+    let modelPath;
+    try {
+      modelPath = await modelUrlFor(product);
+    } catch (error) {
+      state.modelIssue = modelIssueFrom(error);
+      raiseModelAlert(state.modelIssue, product);
       return null;
     }
 
@@ -2352,15 +2476,15 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
 
   function captureNativePoint(frame) {
     const pose = state.latestHitPose;
-    if (!pose) { toast('Move slowly until the floor target is detected, then tap again.'); return; }
+    if (!pose) { toast('Move slowly until the floor target is detected, then tap again.', 'warning'); return; }
     const point = pose.transform.position;
     if (state.arPurpose === 'placement') {
-      if (state.placementBlocked || state.placementConfirmed) { toast('Uneven surface. Find a flatter spot.'); return; }
+      if (state.placementBlocked || state.placementConfirmed) { toast('Uneven surface. Find a flatter spot.', 'warning'); return; }
       state.placedMatrix = pose.transform.matrix.slice();
       state.placementConfirmed = true;
       setHint('Placed at true scale. Use the tray to adjust it.');
       setPlacementButtonState(false, true);
-      toast(`${state.selected.name} placed at true scale.`);
+      toast(`${state.selected.name} placed at true scale.`, 'success');
       return;
     }
 
@@ -2396,7 +2520,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
 
     if (percentDiff > 5) {
       setHint(`Readings differ by ${Math.round(percentDiff)}% (${cm(state.arMeasurement)} vs ${cm(state.arConfirmationMeasurement)}). Scan again.`);
-      toast('Readings differ by more than 5%. Measure the span again.');
+      toast('Readings differ by more than 5%. Measure the span again.', 'warning');
       state.arPoints = [];
       state.arNeedsConfirmation = false;
       state.arMeasurement = null;
@@ -2406,7 +2530,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
 
     const finalMeasurement = (state.arMeasurement + state.arConfirmationMeasurement) / 2;
     applyLiveClearance(finalMeasurement);
-    toast(`Confirmed within 5%. Clearance ${cm(finalMeasurement)}.`);
+    toast(`Confirmed within 5%. Clearance ${cm(finalMeasurement)}.`, 'success');
     state.session?.end();
 
     state.arPoints = [];
@@ -2465,12 +2589,12 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
   function closeAreaOutline() {
     if (!geo) return;
     const points = state.arPoints;
-    if (points.length < 3) { toast('Tap at least three corners first.'); return; }
+    if (points.length < 3) { toast('Tap at least three corners first.', 'warning'); return; }
 
     const area = geo.polygonArea(points);
     const confidence = geo.areaConfidence({ points, difference: 0 });
     if (confidence.level === 'low') {
-      toast(`Scan again — ${confidence.reasons[0]}.`);
+      toast(`Scan again — ${confidence.reasons[0]}.`, 'warning');
       setHint(`Scan again: ${confidence.reasons[0]}.`);
       state.arPoints = [];
       $('#close-outline').hidden = true;
@@ -2491,7 +2615,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     const reconciled = geo.reconcileReadings(state.arMeasurement, area);
     if (!reconciled.agrees) {
       setHint(`Readings differ by ${reconciled.difference.toFixed(0)}% (${geo.formatArea(state.arMeasurement)} vs ${geo.formatArea(area)}). Scan again.`);
-      toast('The two scans differ by more than 5%. Measuring again.');
+      toast('The two scans differ by more than 5%. Measuring again.', 'warning');
       resetAreaScan();
       return;
     }
@@ -2499,7 +2623,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     const accepted = reconciled.value;
     const finalConfidence = geo.areaConfidence({ points, difference: reconciled.difference });
     applyMeasuredArea(accepted, points, finalConfidence, reconciled.difference);
-    toast(`Confirmed within ${reconciled.difference.toFixed(1)}%. Floor ${geo.formatArea(accepted)}.`);
+    toast(`Confirmed within ${reconciled.difference.toFixed(1)}%. Floor ${geo.formatArea(accepted)}.`, 'success');
     state.session?.end();
     resetAreaScan();
   }
@@ -2776,7 +2900,14 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
        which caught the two-point and floor-area measurements as well and told
        anybody trying to measure a doorway to "Choose a product first". A
        doorway does not care what furniture you own. */
-    if (purpose === 'placement' && !state.selected) return toast('Choose a piece to place first.');
+    if (purpose === 'placement' && !state.selected) return toast('Choose a piece to place first.', 'warning');
+    /* Placing a piece this account may not see would open the camera and
+       then draw nothing. Say why now, with the way forward, instead. */
+    if (purpose === 'placement' && state.modelAccess?.issue
+        && state.modelAccess.reference === state.selected.modelGlb) {
+      raiseModelAlert(state.modelAccess.issue, state.selected);
+      return;
+    }
     // A second tap before the first call reaches mountARExperience() would
     // insert nothing new — mountARExperience() reuses #ar-experience if it
     // already exists — but it would re-run addEventListener('click', ...) on
@@ -2809,12 +2940,22 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
        viewer when they asked for a number, and, now that nothing is selected
        by default, dereferencing a null product on the way. */
     if (purpose === 'placement' && isIOS && product?.modelUsdz) {
+      /* The USDZ is a protected file like the .glb: traded for a signed URL
+         first. Quick Look opens a URL with no way to attach a token, so it
+         must be handed one that already carries its permission. */
+      let usdzUrl;
       try {
-        const response = await fetch(product.modelUsdz, { method: 'HEAD' });
+        usdzUrl = await modelUrlFor(product, 'modelUsdz');
+      } catch (error) {
+        raiseModelAlert(modelIssueFrom(error), product);
+        return;
+      }
+      try {
+        const response = await fetch(usdzUrl, { method: 'HEAD' });
         if (response.ok) {
           const quickLookLink = document.createElement('a');
           quickLookLink.rel = 'ar';
-          quickLookLink.href = product.modelUsdz;
+          quickLookLink.href = usdzUrl;
           quickLookLink.target = '_blank';
           quickLookLink.click();
           toast('Opening the native AR Quick Look viewer on iPhone Safari.');
@@ -2881,7 +3022,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
         TypeError: 'XR session initialization error — check console for details.'
       };
       await startCameraFallback();
-      toast(messageMap[error?.name] || `Live AR could not start (${error?.name}); switched to camera preview.`);
+      toast(messageMap[error?.name] || `Live AR could not start (${error?.name}); switched to camera preview.`, 'warning');
 
       /* Offer the device check at the one moment it is worth anything.
 
