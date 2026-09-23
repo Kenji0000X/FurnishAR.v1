@@ -47,14 +47,17 @@ export default function LoginChooser() {
   const [towns, setTowns] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [sent, setSent] = useState('');
 
   useEffect(() => {
     let alive = true;
     (async () => {
+      setNotice('Checking your account access…');
       await initBackend();
       if (!alive) return;
       if (!usingSupabase()) {
+        setNotice('The database is unavailable. You can still browse the catalogue.');
         setOffline(backendReason() || 'No database is connected.');
         setReady(true);
         return;
@@ -63,11 +66,14 @@ export default function LoginChooser() {
          quietly sign them in again as somebody else. */
       const role = await supabase().myRole().catch(() => 'guest');
       if (!alive) return;
-      if (role === 'buyer') { router.replace(next || '/account'); return; }
-      if (role === 'owner' || role === 'pending') { router.replace('/portal'); return; }
-      if (role === 'admin') { router.replace('/admin'); return; }
+      if (role === 'buyer') { setNotice('Welcome back. Redirecting to your account…'); router.replace(next || '/account'); return; }
+      if (role === 'owner' || role === 'pending') { setNotice('Opening your store portal…'); router.replace('/portal'); return; }
+      if (role === 'admin') { setNotice('Opening the platform console…'); router.replace('/admin'); return; }
       setTowns(await supabase().listMunicipalities().catch(() => []));
-      if (alive) setReady(true);
+      if (alive) {
+        setNotice('');
+        setReady(true);
+      }
     })();
     return () => { alive = false; };
   }, [router, next]);
@@ -83,6 +89,7 @@ export default function LoginChooser() {
     event.preventDefault();
     const values = Object.fromEntries(new FormData(event.currentTarget));
     setError('');
+    setNotice('Signing you in…');
     setBusy(true);
     try {
       await supabase().signIn({
@@ -97,6 +104,7 @@ export default function LoginChooser() {
       else if (role === 'owner' || role === 'pending') router.push('/portal');
       else router.push(next || '/account');
     } catch (signInError) {
+      setNotice('Sign-in failed. Please check your email and password.');
       setError(signInError.message);
       setBusy(false);
     }
@@ -106,6 +114,7 @@ export default function LoginChooser() {
     event.preventDefault();
     const values = Object.fromEntries(new FormData(event.currentTarget));
     setError('');
+    setNotice('Creating your account…');
     setBusy(true);
     try {
       const result = await supabase().signUpBuyer({
@@ -115,11 +124,14 @@ export default function LoginChooser() {
         municipality: String(values.municipality)
       });
       if (result.needsEmailConfirmation) {
+        setNotice('Account created. Check your email to confirm it.');
         setSent(String(values.email));
       } else {
+        setNotice('Account created. Redirecting to your planner…');
         router.push(next || '/account');
       }
     } catch (signUpError) {
+      setNotice('Account creation was interrupted. Please try again.');
       setError(signUpError.message);
     } finally {
       setBusy(false);
@@ -193,6 +205,7 @@ export default function LoginChooser() {
   if (sent) {
     return (
       <div className="login-panel">
+        {notice && <div className="status-banner" role="status" aria-live="polite"><span className="loading-spinner" aria-hidden="true" />{notice}</div>}
         <div className="login-copy">
           <span className="secure-mark" aria-hidden="true">⌑</span>
           <h1>Check your email.</h1>
@@ -217,6 +230,7 @@ export default function LoginChooser() {
 
   return (
     <div className="login-panel">
+      {notice && <div className="status-banner" role="status" aria-live="polite"><span className="loading-spinner" aria-hidden="true" />{notice}</div>}
       <div className="login-copy">
         <span className="secure-mark" aria-hidden="true">⌑</span>
         <h1 id="login-title">{mode === 'signin' ? 'Welcome back' : 'Create your account'}</h1>

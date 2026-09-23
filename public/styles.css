@@ -1031,6 +1031,13 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
    like the button slipped. */
 .button:hover { transform: translateY(-2px); box-shadow: var(--hard); }
 .button:active { transform: translateY(0) scale(.99); box-shadow: none; transition-duration: var(--dur-press); }
+.button:disabled,
+.button[aria-busy='true'],
+.button[disabled] {
+  opacity: .72;
+  cursor: wait;
+  pointer-events: auto;
+}
 
 /* The reference's filled button is the brown, not black. */
 .button-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
@@ -1670,14 +1677,24 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .login-form button[type="submit"], .login-form .button-primary {
   justify-self: start;
   min-width: 9rem;
-  min-height: 36px;
-  padding: .55rem .95rem;
+  min-height: 38px;
+  padding: .6rem .95rem;
   font-size: .75rem;
 }
 @media (max-width: 30rem) {
   .login-form button[type="submit"], .login-form .button-primary {
     justify-self: stretch; min-width: 0;
   }
+}
+@media (orientation: landscape) and (max-width: 900px) {
+  .login-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .login-copy {
+    border-right: 0;
+    border-bottom: 1px solid var(--rule-strong);
+  }
+  .mode-switch { margin-bottom: .8rem; }
 }
 
 /* A group of choices, not a form.
@@ -2296,6 +2313,29 @@ footer {
     transform var(--dur-base) var(--ease-pop),
     opacity var(--dur-fast) var(--ease-out),
     visibility 0s;
+}
+.status-banner {
+  display: flex; align-items: center; gap: .55rem;
+  grid-column: 1 / -1;
+  margin: 0 0 1rem;
+  padding: .7rem .9rem;
+  border: 1px solid var(--rule-strong);
+  background: var(--paper-raised);
+  color: var(--ink);
+  font-size: .75rem;
+  font-family: var(--mono);
+  letter-spacing: .04em;
+}
+.loading-spinner {
+  width: .8rem; height: .8rem;
+  flex: 0 0 auto;
+  border: 2px solid var(--rule-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 /* ===========================================================================
