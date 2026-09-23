@@ -37,8 +37,8 @@
      paper and on the sunken tone — small text never drops below AA.
      Warm near-black rather than neutral, so it belongs to the cream. */
   --ink: #241f1a;
-  --ink-muted: #5a5048;
-  --ink-faint: #665c53;
+  --ink-muted: #473f39;
+  --ink-faint: #544d46;
 
   /* Accent in three weights, because one hue cannot serve every background:
      --accent fills and large display type, --accent-ink small text on paper
@@ -46,9 +46,10 @@
   /* Warm brown, after the reference's buttons — not the old terracotta
      #c0502a, which against a cream page read as an alert rather than as the
      brand. */
-  --accent: #8a6243;
-  --accent-ink: #7a5439;
+  --accent: #7a553d;
+  --accent-ink: #6c4834;
   --accent-lifted: #dcb491;
+  --focus-ring: #234b3d;
   --on-accent: #ffffff;
   /* The accent at low opacity, for a fill that marks a state without
      becoming a button — the bottom bar's active pill. Text on it is --ink,
@@ -205,14 +206,15 @@
   --paper-sunken: #120f0d;
 
   --ink: #f3efe9;
-  --ink-muted: #bdb4a9;
-  --ink-faint: #a79d92;
+  --ink-muted: #d7d0c7;
+  --ink-faint: #b9b0a7;
 
   /* The brown is too dark to read on a dark surface, so small text uses the
      lifted weight and the fill lightens to keep the brand legible. */
-  --accent: #b5825b;
-  --accent-ink: #dcb491;
-  --accent-lifted: #dcb491;
+  --accent: #c48d5f;
+  --accent-ink: #e5c5a1;
+  --accent-lifted: #e5c5a1;
+  --focus-ring: #8fe3c4;
   --on-accent: #191512;
   --accent-soft: rgba(181, 130, 91, .22);
   --deep: #2b332e;
@@ -393,7 +395,18 @@ button { border: 0; background: none; cursor: pointer; -webkit-tap-highlight-col
 a { -webkit-tap-highlight-color: transparent; }
 img, svg, video, canvas { display: block; max-width: 100%; }
 
-:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; border-radius: 1px; }
+:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px rgba(35, 75, 61, 0.18);
+  border-radius: 8px;
+}
+
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px rgba(35, 75, 61, 0.18);
+}
 
 ::selection { background: var(--ink); color: var(--paper); }
 
@@ -498,9 +511,9 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   padding: .3rem 0;
   color: var(--ink-muted);
   font-size: .8125rem;
-  transition: color var(--dur-fast) var(--ease-out);
+  transition: color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
 }
-.nav-link:hover { color: var(--ink); }
+.nav-link:hover, .nav-link:focus-visible { color: var(--ink); }
 .nav-link.active { color: var(--ink); font-weight: 500; }
 .nav-link:after {
   content: ""; position: absolute; left: 0; right: 0; bottom: -2px;
@@ -515,8 +528,14 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   padding: .5rem .9rem;
   border: 1px solid var(--rule-strong);
   background: transparent;
-  color: inherit;
+  color: var(--ink);
   font-size: .75rem;
+  transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.header-action:hover, .header-action:focus-visible {
+  border-color: var(--rule-strong);
+  background: var(--paper-raised);
+  box-shadow: var(--hard-sm);
 }
 .header-action {
   /* The one thing in the header that takes you somewhere, so it wears the
