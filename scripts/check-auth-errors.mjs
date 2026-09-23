@@ -302,7 +302,7 @@ await run('the key goes in apikey, never as a Bearer JWT, and never to the brows
 console.log('--- sign-in error paths ---');
 await run('bad credentials read plainly', {
   which: 'login', setUp: 'bad-credentials',
-  expect: text => noJunk(text) && /do not match/i.test(text)
+  expect: text => noJunk(text) && /invalid email or password/i.test(text)
 });
 await run('sign-in rate limit is handled too', {
   which: 'login', setUp: 'rate-limit-empty',

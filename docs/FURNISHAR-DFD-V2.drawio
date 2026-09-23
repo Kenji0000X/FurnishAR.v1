@@ -55,6 +55,7 @@
 <mxCell id="e34" value="profile event" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="P6" target="P9"><mxGeometry relative="1" as="geometry"/></mxCell>
 <mxCell id="e35" value="store event" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="P7" target="P9"><mxGeometry relative="1" as="geometry"/></mxCell>
 <mxCell id="e36" value="admin event" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="P8" target="P9"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e40" value="device / tracking event" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="P4" target="P9"><mxGeometry relative="1" as="geometry"/></mxCell>
 <mxCell id="e37" value="alerts" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="P9" target="B"><mxGeometry relative="1" as="geometry"/></mxCell>
 <mxCell id="e38" value="alerts" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="P9" target="O"><mxGeometry relative="1" as="geometry"/></mxCell>
 <mxCell id="e39" value="alerts" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="P9" target="A"><mxGeometry relative="1" as="geometry"/></mxCell>

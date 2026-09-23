@@ -1040,7 +1040,7 @@ export function friendlyError(error) {
   if (/row-level security/i.test(message)) {
     return 'That item belongs to another store. If it is yours, your session may have expired — sign in again and retry.';
   }
-  if (/Invalid login credentials/i.test(message)) return 'That email and password do not match an account.';
+  if (/Invalid login credentials/i.test(message)) return 'Invalid email or password.';
   if (/User already registered/i.test(message)) return 'An account already exists for that email. Sign in instead.';
   if (/Password should be at least/i.test(message)) return 'Use a password of at least 6 characters.';
   if (/Email not confirmed/i.test(message)) return 'Confirm your email address first — check your inbox.';

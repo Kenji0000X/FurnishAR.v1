@@ -125,7 +125,7 @@ test('database errors are rewritten into something an owner can act on', async (
   assert.match(friendlyError({ message: 'Freemium plan limited to 8 products. Upgrade to premium to list more.' }),
     /Freemium plan limited to 8 products/);
   assert.match(friendlyError({ message: 'Featured placement is a premium plan feature.' }), /premium plan/);
-  assert.match(friendlyError({ message: 'Invalid login credentials' }), /do not match an account/);
+  assert.match(friendlyError({ message: 'Invalid login credentials' }), /^Invalid email or password\.$/);
   assert.match(friendlyError({ message: 'User already registered' }), /Sign in instead/);
   assert.match(friendlyError({ message: 'Email not confirmed' }), /Confirm your email/);
   // Anything unrecognised is passed through rather than swallowed.
