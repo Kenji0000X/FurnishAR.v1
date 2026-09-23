@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { initBackend, usingSupabase, supabase, backendReason } from '../portal/backend.js';
 import { consumeAuthIntent, peekAuthIntent, saveAuthIntent } from '../../lib/auth-intent.js';
+import { flashSuccess, flashError, consumeFlash } from '../../lib/flash.js';
 import PasswordField from '../PasswordField.js';
 
 /**
@@ -51,7 +52,16 @@ export default function LoginChooser() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [noticeType, setNoticeType] = useState('info');
   const [sent, setSent] = useState('');
+
+  useEffect(() => {
+    const flash = consumeFlash();
+    if (flash) {
+      setNotice(flash.message);
+      setNoticeType(flash.type || 'info');
+    }
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -73,11 +83,22 @@ export default function LoginChooser() {
         const target = next || '/account';
         saveAuthIntent(target);
         setNotice('Welcome back. Redirecting to your account…');
+        setNoticeType('info');
         router.replace(target);
         return;
       }
-      if (role === 'owner' || role === 'pending') { setNotice('Opening your store portal…'); router.replace('/portal'); return; }
-      if (role === 'admin') { setNotice('Opening the platform console…'); router.replace('/admin'); return; }
+      if (role === 'owner' || role === 'pending') {
+        setNotice('Opening your store portal…');
+        setNoticeType('info');
+        router.replace('/portal');
+        return;
+      }
+      if (role === 'admin') {
+        setNotice('Opening the platform console…');
+        setNoticeType('info');
+        router.replace('/admin');
+        return;
+      }
       setTowns(await supabase().listMunicipalities().catch(() => []));
       if (alive) {
         setNotice('');
@@ -99,6 +120,7 @@ export default function LoginChooser() {
     const values = Object.fromEntries(new FormData(event.currentTarget));
     setError('');
     setNotice('Signing you in…');
+    setNoticeType('info');
     setBusy(true);
     try {
       await supabase().signIn({
@@ -118,6 +140,7 @@ export default function LoginChooser() {
       }
     } catch (signInError) {
       setNotice('Sign-in failed. Please check your email and password.');
+      setNoticeType('error');
       setError(signInError.message);
       setBusy(false);
     }
@@ -128,6 +151,7 @@ export default function LoginChooser() {
     const values = Object.fromEntries(new FormData(event.currentTarget));
     setError('');
     setNotice('Creating your account…');
+    setNoticeType('info');
     setBusy(true);
     try {
       const result = await supabase().signUpBuyer({
@@ -138,15 +162,21 @@ export default function LoginChooser() {
       });
       if (result.needsEmailConfirmation) {
         setNotice('Account created. Check your email to confirm it.');
+        setNoticeType('success');
+        flashSuccess('Account created. Check your email to confirm it.');
         setSent(String(values.email));
       } else {
         const target = next || consumeAuthIntent() || '/account';
         saveAuthIntent(target);
         setNotice('Account created. Redirecting to your planner…');
+        setNoticeType('success');
+        flashSuccess('Account created. Redirecting to your planner…');
         router.push(target);
       }
     } catch (signUpError) {
       setNotice('Account creation was interrupted. Please try again.');
+      setNoticeType('error');
+      flashError('Account creation was interrupted. Please try again.');
       setError(signUpError.message);
     } finally {
       setBusy(false);
@@ -220,7 +250,7 @@ export default function LoginChooser() {
   if (sent) {
     return (
       <div className="login-panel">
-        {notice && <div className="status-banner" role="status" aria-live="polite"><span className="loading-spinner" aria-hidden="true" />{notice}</div>}
+        {notice && <div className={`status-banner status-banner-${noticeType}`} role="status" aria-live="polite"><span className="loading-spinner" aria-hidden="true" />{notice}</div>}
         <div className="login-copy">
           <span className="secure-mark" aria-hidden="true">⌑</span>
           <h1>Check your email.</h1>

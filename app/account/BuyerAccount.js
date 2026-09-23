@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { initBackend, usingSupabase, supabase, backendReason } from '../portal/backend.js';
+import { flashSuccess, flashInfo, flashError } from '../../lib/flash.js';
 
 /**
  * The shopper's own page — the buyer half of what /portal is for an owner.
@@ -80,8 +81,13 @@ export default function BuyerAccount() {
       });
       setProfile(await supabase().buyerProfile());
       setNotice('Saved.');
+      setError('');
+      flashSuccess('Profile saved.');
     } catch (saveError) {
-      setError(saveError.message);
+      const message = saveError.message || 'Could not save your profile.';
+      setError(message);
+      setNotice('');
+      flashError(message);
     } finally {
       setBusy(false);
     }
@@ -91,6 +97,7 @@ export default function BuyerAccount() {
     try { await supabase().signOut(); } catch { /* already gone */ }
     /* Thrown away rather than hidden — the same rule as the console. */
     setProfile(null);
+    flashInfo('Signed out successfully.');
     router.push('/');
   }
 
@@ -161,7 +168,7 @@ export default function BuyerAccount() {
         </p>
       </section>
 
-      {notice && <p className="form-error is-ok" role="status">{notice}</p>}
+      {notice && <p className="status-banner status-banner-success" role="status">{notice}</p>}
 
       <div className="account-grid">
         <section className="plan-section" aria-labelledby="details-title">

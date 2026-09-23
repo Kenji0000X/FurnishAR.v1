@@ -2359,12 +2359,17 @@ footer {
   margin: 0 0 1rem;
   padding: .7rem .9rem;
   border: 1px solid var(--rule-strong);
+  border-left-width: 4px;
   background: var(--paper-raised);
   color: var(--ink);
   font-size: .75rem;
   font-family: var(--mono);
   letter-spacing: .04em;
+  box-shadow: var(--hard-sm);
 }
+.status-banner-info { border-left-color: var(--accent); background: rgba(21, 101, 86, .08); }
+.status-banner-success { border-left-color: var(--ok); background: rgba(27, 138, 99, .08); }
+.status-banner-error { border-left-color: var(--danger); background: rgba(177, 77, 71, .08); }
 .loading-spinner {
   width: .8rem; height: .8rem;
   flex: 0 0 auto;

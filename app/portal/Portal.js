@@ -7,6 +7,7 @@ import ProductFormDialog from './ProductFormDialog.js';
 import PasswordField from '../PasswordField.js';
 import ConfirmDialog from '../ConfirmDialog.js';
 import { peso } from '../format.js';
+import { flashSuccess, flashInfo, flashError } from '../../lib/flash.js';
 
 const FREEMIUM_LIMIT = 8;
 
@@ -392,9 +393,12 @@ export default function Portal({ initialProducts }) {
         setSession({ token: response.token, user: response.user });
       }
       form.reset();
+      flashSuccess('Signed in successfully.');
       toast('Signed in.');
     } catch (error) {
-      setLoginError(error.message);
+      const message = error.message || 'Sign-in failed.';
+      setLoginError(message);
+      flashError(message);
       // Sign-in is rate-limited by Supabase too, and had exactly the same
       // "[object Object]" problem on an empty error body.
       if (error.retryAfter) startCooldown(error.retryAfter);
@@ -442,17 +446,21 @@ export default function Portal({ initialProducts }) {
       const confirm = result.needsEmailConfirmation
         ? 'Account created. Confirm your email address, then sign in'
         : 'Account created. You can sign in now';
+      const message = result.applicationFiled
+        ? `${confirm} — your store is queued for review.`
+        : `${confirm}. We could not file your store application automatically, so email hello@furnishar.ph with your store name and we will add it by hand. Do not sign up again; the account already exists.`;
       setSignupMessage({
         ok: true,
-        text: result.applicationFiled
-          ? `${confirm} — your store is queued for review.`
-          : `${confirm}. We could not file your store application automatically, so email hello@furnishar.ph with your store name and we will add it by hand. Do not sign up again; the account already exists.`,
+        text: message,
         email,
         needsEmailConfirmation: result.needsEmailConfirmation
       });
+      flashSuccess('Application received.');
       toast('Application received.');
     } catch (error) {
-      setSignupMessage({ ok: false, text: error.message });
+      const message = error.message || 'Account creation failed.';
+      setSignupMessage({ ok: false, text: message });
+      flashError(message);
       // Supabase rate-limits sign-ups hard. Holding the button shut for the
       // stated interval is the difference between one 429 and four.
       if (error.retryAfter) startCooldown(error.retryAfter);
@@ -466,6 +474,7 @@ export default function Portal({ initialProducts }) {
     else demoSession.clear();
     setSession(null);
     setOwnProducts([]);
+    flashInfo('Signed out successfully.');
     toast('Signed out.');
   }
 
@@ -480,9 +489,12 @@ export default function Portal({ initialProducts }) {
       if (usingSupabase()) await supabase().deleteProduct(product.id);
       else await api(`/api/products/${product.id}`, { method: 'DELETE', token: session.token });
       await reloadInventory();
+      flashSuccess('Product deleted.');
       toast('Product deleted.');
     } catch (error) {
-      toast(error.message);
+      const message = error.message || 'Could not delete the product.';
+      flashError(message);
+      toast(message);
     }
   }
 
