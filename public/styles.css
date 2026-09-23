@@ -4362,9 +4362,11 @@ body:has(.cookie-notice):not(:has(.bottom-nav)) {
   /* Square. The floor keeps a one-character value from collapsing to a chip;
      the ceiling stops a long note stretching one card past its neighbours. */
   aspect-ratio: 1 / 1;
-  min-width: 7.5rem; max-width: 10.5rem;
+  /* 6.25rem, not 7.5: with Geist's narrower figures every label fitted
+     inside 7.5rem, so all five tiles clamped to the same 120px square. */
+  min-width: 6.25rem; max-width: 10.5rem;
   display: flex; flex-direction: column; justify-content: center;
-  padding: 1rem 1.1rem; border: 1px solid var(--rule); border-radius: 14px;
+  padding: 1rem 1.1rem; border: 1px solid var(--rule); border-radius: var(--radius);
   background: var(--paper-raised);
 }
 .kpi-label {
