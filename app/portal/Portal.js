@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { initBackend, usingSupabase, supabase, backendReason, api, demoSession } from './backend.js';
+import { initBackend, usingSupabase, supabase, backendReason, backendConfigured, api, demoSession } from './backend.js';
 import Link from 'next/link';
 import ProductFormDialog from './ProductFormDialog.js';
 import PasswordField from '../PasswordField.js';
@@ -386,6 +386,11 @@ export default function Portal({ initialProducts }) {
       if (usingSupabase()) {
         await supabase().signIn({ email: fields.email, password: fields.password });
         await refreshSession();
+      } else if (backendConfigured()) {
+        /* A deployment WITH a database that is not answering. The demo
+           sign-in is closed here (lib/handler.js) — an outage must never
+           turn into a second way in — so say what is actually wrong. */
+        throw new Error('Connection failed. Check your internet connection and try again.');
       } else {
         const response = await api('/api/auth/login', {
           method: 'POST',

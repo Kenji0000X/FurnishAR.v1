@@ -26,7 +26,10 @@ This is the implementation-aligned replacement for the supplied sample DFD.
 | Buyer account | `/account` | P6 Profile / Account |
 | Space planner | `/plan` | P4 Planner / Device Check |
 | Store portal | `/portal` | P7 Store Portal |
-| Platform console | `/admin` | P8 Admin Console |
+| Platform console | `/admin`, `/admin/applications`, `/admin/stores`, `/admin/models`, `/admin/usage`, `/admin/activity` | P8 Admin Console |
+| Store owner / admin sign-in | `/login` (role resolved by `my_role()` after sign-in, not by the URL), the `/admin` gate | P1 Authentication |
+| Device check | `/diagnose` | P4 Planner / Device Check (read-only capability report; no data store) |
+| Help | `/faq` | Public content — no process, no data flow |
 
 ## Actual API boundary
 
@@ -41,9 +44,29 @@ The DFD is aligned with the current repository routes:
 - `GET|HEAD|POST|PATCH|DELETE /api/sb/rest/<allowlisted-resource>`
 - `GET /api/sb/model/<store-id>/<product-id>/<file>`
 - `POST /api/sb/storage/sign`
+- demo/fallback `GET /api/health`
 - demo/fallback `GET /api/products`
 - demo/fallback `GET /api/stores`
-- demo/fallback `POST /api/auth/login`
+- demo-only `POST /api/auth/login`, `POST|PUT|DELETE /api/products[/<id>]` — **404 on any deployment with a database**
+- demo-only `GET /api/demo-model/<name>.glb` — **404 on any deployment with a database**
+
+### Endpoint → process
+
+| Endpoint | Process | Data store |
+|---|---|---|
+| `/api/sb/auth/*` | P1 Authentication & Session | D1 (GoTrue) |
+| `/api/sb/rest/rpc/my_role` | P1 role resolution | D1 |
+| `/api/sb/rest/products`, `/api/sb/rest/catalog`, `/api/sb/rest/stores` | P2 / P3 reads, P7 writes | D2 |
+| `/api/sb/rest/buyers`, `/api/sb/rest/municipalities` | P6 Buyer Account (and P1 sign-up form) | D1 |
+| `/api/sb/rest/store_applications` | P7 apply, P8 review | D4 |
+| `/api/sb/rest/rpc/approve_store_application`, `reject_store_application`, `applicant_account`, `storage_usage`; `/api/sb/rest/admin_audit`, `platform_admins` | P8 Admin Console | D1, D4 |
+| `/api/sb/model/<store>/<product>/<file>` | P5 3D Access & Authorization | D3 |
+| `/api/sb/storage/sign` | P7 Store model upload | D3 |
+| `/api/sb/status` | Health (no process data) | — |
+
+The demo endpoints are the database-less mode only: no accounts exist there, so
+there is nothing to authenticate or authorize. With a database configured they
+refuse, so P1 is the only way to sign in and P5 is the only way to a model.
 
 There is no standalone `/discover` route in the current repository. Discovery is represented by the collection/catalogue process.
 
@@ -138,6 +161,7 @@ flowchart TB
     P8 -->|console result| A
 
     P1 -->|auth event| P9
+    P4 -->|device / tracking event| P9
     P5 -->|3D access event| P9
     P6 -->|profile event| P9
     P7 -->|store event| P9
@@ -224,6 +248,42 @@ Centralized user feedback. Alerts represent actual events and do not replace the
 8. Failure paths are shown when they change the next system state.
 9. Protected 3D assets are never represented as public static files in the database-backed path.
 10. The DFD follows the current repository instead of inventing a future route.
+
+## Implementation reconciliation — 2026-09-23
+
+Where this DFD and the code disagreed, and which one moved.
+
+**1. Demo sign-in on a database deployment**
+- DFD ISSUE: the API list marks `POST /api/auth/login` as demo/fallback, but did not say when it may answer.
+- CURRENT CODE BEHAVIOR (before): it answered on every deployment, issuing an owner token for a password published in `lib/handler.js`; the demo inventory writes answered too. That is a second P1 beside `/api/sb/auth/*`.
+- RECOMMENDED ARCHITECTURE: one authentication process. Demo sign-in and writes answer only when no database is configured, like `/api/demo-model`.
+- REASON: authentication must have one owner; a fallback must never widen access. **Code changed** (`lib/handler.js`, test in `tests/api.test.js`).
+
+**2. Authorization-denied wording**
+- DFD ISSUE: none — the flow says "authz fail → denied, no asset".
+- CURRENT CODE BEHAVIOR (before): the planner and product viewer overrode the denial with "3D preview is unavailable for this account.", which does not say it was a permission decision.
+- RECOMMENDED ARCHITECTURE: P5 denial → P9 raises "You don't have permission to view this 3D model."
+- REASON: a denial should read as a denial. A missing object still answers the same `403 unavailable` on purpose (it must not reveal what a store is drafting), so the wording is the same for both. **Code changed.**
+
+**3. Tracking loss was not an event**
+- DFD ISSUE: P4 had no flow to P9, so device/tracking failures had nowhere to go.
+- CURRENT CODE BEHAVIOR (before): losing tracking changed an on-screen label and, in scan mode only, a hint.
+- RECOMMENDED ARCHITECTURE: P4 → P9 "device / tracking event": one alert per loss ("Tracking lost. Move your phone slowly."), withdrawn when tracking returns. Not raised for the first pose-less frames of a session, which are "acquiring".
+- REASON: alerts represent real events; a frozen reading with no explanation is a silent failure. **DFD and code changed** (edge `e40` in the drawio).
+
+**4. Credentials and sign-up wording**
+- CURRENT CODE BEHAVIOR (before): "That email and password do not match an account." / "Your account has been created successfully."
+- RECOMMENDED ARCHITECTURE: P1 → P9 "Invalid email or password." / "Account created successfully." — neither says which half was wrong.
+- REASON: one catalogue of messages, matching the specification. **Code changed.**
+
+**5. Routes the DFD did not name**
+- DFD ISSUE: `/api/demo-model`, `/api/health`, `/diagnose`, `/faq` and the admin sub-routes were absent.
+- CURRENT CODE BEHAVIOR: all exist and are correct.
+- RECOMMENDED ARCHITECTURE: listed above against their process. `/faq` is content, not a process; `/diagnose` reports device capability and touches no store.
+- REASON: every endpoint maps to a process. **DFD changed.**
+
+**6. Database state**
+- Migrations 0005 (bucket limit), 0006 (buyers, `my_role`) and 0007 (private `furniture-models` bucket, `can_view_model` policy) are applied to the live project. 0008 takes trigger functions off the RPC surface and stops anonymous calls to `can_view_model`.
 
 ## DFD artifact
 

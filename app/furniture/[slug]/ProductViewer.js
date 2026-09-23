@@ -400,7 +400,7 @@ export default function ProductViewer({ product }) {
 
         {state === 'refused' && (
           <div className="viewer-overlay viewer-overlay-message" role="alert">
-            <p><b>3D preview is unavailable for this account.</b></p>
+            <p><b>You don&rsquo;t have permission to view this 3D model.</b></p>
             <p className="viewer-note">
               This piece&rsquo;s model is not open to view right now. The
               dimensions below are still accurate.

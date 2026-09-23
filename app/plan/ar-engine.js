@@ -25,7 +25,7 @@ import { roomDimensions, fitInRoom, minimumAreaRectangle } from '../../lib/spati
 import { SweepCoverage, scanReadiness } from '../../lib/spatial/coverage.mjs';
 import { assessPlacement, snapInsideRoom } from '../../lib/spatial/placement.mjs';
 import { createXrayNet } from './xray-net.js';
-import { notify } from '../../lib/alerts/store.mjs';
+import { notify, dismiss } from '../../lib/alerts/store.mjs';
 import { catalog } from '../../lib/alerts/messages.mjs';
 
 /**
@@ -1698,7 +1698,6 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       notify(catalog('auth.expired', { actions: [{ label: 'Sign in again', href: signIn }] }));
     } else if (issue.kind === 'forbidden') {
       notify(catalog('model.forbidden', {
-        message: '3D preview is unavailable for this account.',
         actions: [{ label: 'Back to furniture', href: '/collection' }]
       }));
     } else if (issue.kind === 'network') {
@@ -1773,7 +1772,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       return `Your session has expired. Sign in again to view this piece in 3D.${measure}`;
     }
     if (issue.kind === 'forbidden') {
-      return `3D preview is unavailable for this account.${measure}`;
+      return `You don't have permission to view this 3D model.${measure}`;
     }
     if (issue.kind === 'access-failed') {
       return `We couldn't open the 3D model just now. Please try again.${measure}`;
@@ -2249,12 +2248,20 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       */
       if (!pose) {
         setTracking('lost');
+        /* Raised once per loss, and only after the room had been found: the
+           first frames of a session have no pose either, and that is
+           "acquiring", not "lost". Taken down again when tracking returns. */
+        if (state.trackingEverFound && !state.trackingLostAlert) {
+          state.trackingLostAlert = notify(catalog('ar.tracking-lost'));
+        }
         if (state.arPurpose === 'scan') {
           setHint('Tracking lost — move slowly and point at a surface with some texture.');
         }
         return;
       }
       setTracking(state.latestHitPose ? 'stable' : 'acquiring');
+      state.trackingEverFound = true;
+      if (state.trackingLostAlert) { dismiss(state.trackingLostAlert); state.trackingLostAlert = null; }
 
       const hits = state.hitTestSource ? xrFrame.getHitTestResults(state.hitTestSource) : [];
       state.latestHitPose = hits[0]?.getPose(state.referenceSpace) || null;
@@ -3048,6 +3055,8 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     state.referenceSpace = null;
     state.latestHitPose = null;
     state.session = null;
+    state.trackingEverFound = false;
+    if (state.trackingLostAlert) { dismiss(state.trackingLostAlert); state.trackingLostAlert = null; }
     hideLiveMeasurement();
 
     /*

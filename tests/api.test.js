@@ -276,3 +276,42 @@ test('store profiles are available via /api/stores with address and contact info
   }
 });
 
+
+test('the demo sign-in and inventory writes close once a database is configured', async () => {
+  // P1 (/api/sb/auth/*) is the only authentication on a database-backed
+  // deployment. The demo shop's sign-in, with its password in lib/handler.js,
+  // must not answer there as a second way in — nor its catalogue writes.
+  const configuredPort = 43179;
+  const configured = spawn(process.execPath, ['local.js'], {
+    cwd: path.resolve(__dirname, '..'),
+    env: {
+      ...process.env,
+      PORT: String(configuredPort),
+      SUPABASE_URL: 'https://example.supabase.co',
+      SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_testonly000000000000'
+    }
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Timed out waiting for the configured server.')), 5000);
+      configured.stdout.on('data', message => {
+        if (message.toString().includes('FurnishAR is running')) { clearTimeout(timeout); resolve(); }
+      });
+      configured.once('error', reject);
+    });
+    const base = `http://127.0.0.1:${configuredPort}`;
+    const login = await fetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'owner@furnishar.ph', password: 'furnishar' })
+    });
+    assert.equal(login.status, 404);
+    assert.equal((await login.json()).token, undefined);
+    const write = await fetch(`${base}/api/products`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    assert.equal(write.status, 404);
+    // Public reads stay: they are the bundled catalogue, not a permission.
+    assert.equal((await fetch(`${base}/api/products`)).status, 200);
+  } finally {
+    configured.kill();
+  }
+});
