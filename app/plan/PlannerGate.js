@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { initBackend, usingSupabase, supabase, backendReason } from '../portal/backend.js';
+import { saveAuthIntent } from '../../lib/auth-intent.js';
 
 /**
  * The planner asks who you are before it opens the camera.
@@ -30,6 +31,11 @@ import { initBackend, usingSupabase, supabase, backendReason } from '../portal/b
  */
 export default function PlannerGate({ children }) {
   const [state, setState] = useState('checking'); // checking | open | locked
+
+  useEffect(() => {
+    if (state !== 'locked') return;
+    saveAuthIntent('/plan');
+  }, [state]);
 
   useEffect(() => {
     let alive = true;

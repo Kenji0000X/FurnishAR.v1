@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { initBackend, usingSupabase, supabase, backendReason } from '../portal/backend.js';
+import { consumeAuthIntent, peekAuthIntent, saveAuthIntent } from '../../lib/auth-intent.js';
 import PasswordField from '../PasswordField.js';
 
 /**
@@ -39,7 +40,9 @@ export default function LoginChooser() {
   const router = useRouter();
   const params = useSearchParams();
   const as = params.get('as');
-  const next = safeNext(params.get('next'));
+  const nextFromQuery = safeNext(params.get('next'));
+  const rememberedNext = safeNext(peekAuthIntent());
+  const next = nextFromQuery || rememberedNext;
 
   const [ready, setReady] = useState(false);
   const [offline, setOffline] = useState('');
@@ -66,7 +69,13 @@ export default function LoginChooser() {
          quietly sign them in again as somebody else. */
       const role = await supabase().myRole().catch(() => 'guest');
       if (!alive) return;
-      if (role === 'buyer') { setNotice('Welcome back. Redirecting to your account…'); router.replace(next || '/account'); return; }
+      if (role === 'buyer') {
+        const target = next || '/account';
+        saveAuthIntent(target);
+        setNotice('Welcome back. Redirecting to your account…');
+        router.replace(target);
+        return;
+      }
       if (role === 'owner' || role === 'pending') { setNotice('Opening your store portal…'); router.replace('/portal'); return; }
       if (role === 'admin') { setNotice('Opening the platform console…'); router.replace('/admin'); return; }
       setTowns(await supabase().listMunicipalities().catch(() => []));
@@ -102,7 +111,11 @@ export default function LoginChooser() {
       const role = await supabase().myRole();
       if (role === 'admin') router.push('/admin');
       else if (role === 'owner' || role === 'pending') router.push('/portal');
-      else router.push(next || '/account');
+      else {
+        const target = next || consumeAuthIntent() || '/account';
+        saveAuthIntent(target);
+        router.push(target);
+      }
     } catch (signInError) {
       setNotice('Sign-in failed. Please check your email and password.');
       setError(signInError.message);
@@ -127,8 +140,10 @@ export default function LoginChooser() {
         setNotice('Account created. Check your email to confirm it.');
         setSent(String(values.email));
       } else {
+        const target = next || consumeAuthIntent() || '/account';
+        saveAuthIntent(target);
         setNotice('Account created. Redirecting to your planner…');
-        router.push(next || '/account');
+        router.push(target);
       }
     } catch (signUpError) {
       setNotice('Account creation was interrupted. Please try again.');
