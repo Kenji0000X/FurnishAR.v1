@@ -303,6 +303,15 @@ flowchart TB
   L9 --> AL["Alert 'Welcome back.'"]
 ```
 
+Intent is carried two ways. The first is `?next=` in the URL: the gate
+dialog, the planner's sign-in panel and the viewer's Log in all put the full
+address there. The second is a copy remembered for the tab
+(`lib/auth-intent.js`): the planner saves it when it asks a guest to sign
+in, so a sign-in reached some other way (the header's Sign in) still comes
+back. The login page uses `?next=` first, then the remembered copy, and
+clears the copy once used, so a later visit to `/login` cannot bounce to a
+stale page. No session data is put in the URL, only the destination.
+
 `next` is only ever a path **on this site**. `safeNext()` refuses anything
 that does not start with a single `/`, and also backslashes and control
 characters. A browser reads `/\evil.example` and `/<tab>/evil.example` as
@@ -389,7 +398,10 @@ flowchart LR
 
 - **One system.** React pages use `useAlert()`. The vanilla AR engine
   imports the same store, so the planner's messages come from the same
-  queue, not a second toast system.
+  queue, not a second toast system. `lib/flash.js` (`flashSuccess`,
+  `flashError`, `flashInfo`) is the variant that survives a full page load:
+  it stores the message for the tab, and `app/FlashBanner.js` hands it to
+  the same store on the next page.
 - **Four types** (success, info, warning, error), each with an icon and a
   title, so meaning never depends on colour alone. **Critical** alerts stay
   until dismissed. The others time out (4–9 s) and pause while hovered or

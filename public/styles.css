@@ -37,8 +37,8 @@
      paper and on the sunken tone — small text never drops below AA.
      Warm near-black rather than neutral, so it belongs to the cream. */
   --ink: #241f1a;
-  --ink-muted: #5a5048;
-  --ink-faint: #665c53;
+  --ink-muted: #3d3631;
+  --ink-faint: #4a413d;
 
   /* Accent in three weights, because one hue cannot serve every background:
      --accent fills and large display type, --accent-ink small text on paper
@@ -46,9 +46,10 @@
   /* Warm brown, after the reference's buttons — not the old terracotta
      #c0502a, which against a cream page read as an alert rather than as the
      brand. */
-  --accent: #8a6243;
-  --accent-ink: #7a5439;
+  --accent: #7a553d;
+  --accent-ink: #6c4834;
   --accent-lifted: #dcb491;
+  --focus-ring: #234b3d;
   --on-accent: #ffffff;
   /* The accent at low opacity, for a fill that marks a state without
      becoming a button — the bottom bar's active pill. Text on it is --ink,
@@ -210,14 +211,15 @@
   --paper-sunken: #120f0d;
 
   --ink: #f3efe9;
-  --ink-muted: #bdb4a9;
-  --ink-faint: #a79d92;
+  --ink-muted: #d7d0c7;
+  --ink-faint: #b9b0a7;
 
   /* The brown is too dark to read on a dark surface, so small text uses the
      lifted weight and the fill lightens to keep the brand legible. */
-  --accent: #b5825b;
-  --accent-ink: #dcb491;
-  --accent-lifted: #dcb491;
+  --accent: #c48d5f;
+  --accent-ink: #e5c5a1;
+  --accent-lifted: #e5c5a1;
+  --focus-ring: #8fe3c4;
   --on-accent: #191512;
   --accent-soft: rgba(181, 130, 91, .22);
   --deep: #2b332e;
@@ -400,7 +402,27 @@ button { border: 0; background: none; cursor: pointer; -webkit-tap-highlight-col
 a { -webkit-tap-highlight-color: transparent; }
 img, svg, video, canvas { display: block; max-width: 100%; }
 
-:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; border-radius: 1px; }
+:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px rgba(35, 75, 61, 0.18);
+  border-radius: 8px;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.mode-option:focus-visible,
+.role-card:focus-visible,
+.text-button:focus-visible,
+.button:focus-visible,
+.password-reveal:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px rgba(35, 75, 61, 0.18);
+}
 
 ::selection { background: var(--ink); color: var(--paper); }
 
@@ -505,9 +527,9 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   padding: .3rem 0;
   color: var(--ink-muted);
   font-size: .8125rem;
-  transition: color var(--dur-fast) var(--ease-out);
+  transition: color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
 }
-.nav-link:hover { color: var(--ink); }
+.nav-link:hover, .nav-link:focus-visible { color: var(--ink); }
 .nav-link.active { color: var(--ink); font-weight: 500; }
 .nav-link:after {
   content: ""; position: absolute; left: 0; right: 0; bottom: -2px;
@@ -522,8 +544,14 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   padding: .5rem .9rem;
   border: 1px solid var(--rule-strong);
   background: transparent;
-  color: inherit;
+  color: var(--ink);
   font-size: .75rem;
+  transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.header-action:hover, .header-action:focus-visible {
+  border-color: var(--rule-strong);
+  background: var(--paper-raised);
+  box-shadow: var(--hard-sm);
 }
 .header-action {
   /* The one thing in the header that takes you somewhere, so it wears the
@@ -1018,13 +1046,13 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 
 .button {
   display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
-  min-height: var(--tap);
-  padding: .85rem 1.6rem;
+  min-height: 38px;
+  padding: .55rem 1.2rem;
   border: 1px solid var(--rule-strong);
   border-radius: var(--radius-pill);
   background: transparent;
   color: var(--ink);
-  font-size: .8125rem; font-weight: 500;
+  font-size: .75rem; font-weight: 500;
   text-decoration: none;
   transition:
     transform var(--dur-fast) var(--ease-out),
@@ -1038,6 +1066,13 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
    like the button slipped. */
 .button:hover { transform: translateY(-2px); box-shadow: var(--hard); }
 .button:active { transform: translateY(0) scale(.99); box-shadow: none; transition-duration: var(--dur-press); }
+.button:disabled,
+.button[aria-busy='true'],
+.button[disabled] {
+  opacity: .72;
+  cursor: wait;
+  pointer-events: auto;
+}
 
 /* The reference's filled button is the brown, not black. */
 .button-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
@@ -1049,8 +1084,10 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   display: inline-flex; align-items: center; gap: .55rem;
   padding: .85rem 0;
   font-size: .8125rem;
+  color: var(--accent-ink);
 }
 .text-button:hover { color: var(--accent-ink); }
+.text-button:focus-visible { text-decoration: underline; }
 .play-icon {
   display: grid; place-items: center;
   width: 26px; height: 26px;
@@ -1656,6 +1693,15 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   font-family: var(--mono); font-size: var(--micro);
   letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint);
 }
+.login-form label,
+.product-form label,
+.login-copy p,
+.demo-note,
+.form-error,
+.form-note,
+.role-foot {
+  color: var(--ink-muted);
+}
 /* .login-form textarea belongs here too: without it the sign-up form's "What
    will you list?" box inherited the label's uppercase mono styling and rendered
    at 10px. */
@@ -1675,12 +1721,26 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
    width, stretched below it, where a full-width submit is the correct
    pattern because the thumb is the pointer. */
 .login-form button[type="submit"], .login-form .button-primary {
-  justify-self: start; min-width: 11rem;
+  justify-self: start;
+  min-width: 9rem;
+  min-height: 38px;
+  padding: .6rem .95rem;
+  font-size: .75rem;
 }
 @media (max-width: 30rem) {
   .login-form button[type="submit"], .login-form .button-primary {
     justify-self: stretch; min-width: 0;
   }
+}
+@media (orientation: landscape) and (max-width: 900px) {
+  .login-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .login-copy {
+    border-right: 0;
+    border-bottom: 1px solid var(--rule-strong);
+  }
+  .mode-switch { margin-bottom: .8rem; }
 }
 
 /* A group of choices, not a form.
@@ -2288,6 +2348,41 @@ footer {
 /* The old bottom-of-screen .toast lived here. Every notification now goes
    through lib/alerts/store.mjs and is drawn by .alert-region (end of file). */
 
+/* In-panel progress ("Signing you in…") on the sign-in page. Progress only:
+   outcomes go to the alert region, failures sit beside their form. */
+.status-banner {
+  display: flex; align-items: center; gap: .55rem;
+  grid-column: 1 / -1;
+  margin: 0 0 1rem;
+  padding: .7rem .9rem;
+  border: 1px solid var(--rule-strong);
+  border-left-width: 4px;
+  background: var(--paper-raised);
+  color: var(--ink);
+  font-size: .75rem;
+  font-family: var(--mono);
+  letter-spacing: .04em;
+  box-shadow: var(--hard-sm);
+}
+.status-banner-info { border-left-color: var(--accent); background: rgba(21, 101, 86, .08); }
+.status-banner-success { border-left-color: var(--ok); background: rgba(27, 138, 99, .08); }
+.status-banner-error { border-left-color: var(--danger); background: rgba(177, 77, 71, .08); }
+.loading-spinner {
+  width: .8rem; height: .8rem;
+  flex: 0 0 auto;
+  border: 2px solid var(--rule-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* The words already say it is working; the ring stays, still. */
+  .loading-spinner { animation: none; }
+}
+
 /* ===========================================================================
    AR layer — the same system inverted over a live camera. Everything here
    floats, so everything here is glass; the tray keeps the square edges and
@@ -2752,6 +2847,9 @@ footer {
   box-shadow: var(--hard-sm);
 }
 .cookie-notice p { flex: 1 1 16rem; font-size: .8125rem; color: var(--ink-muted); }
+body:has(.cookie-notice):not(:has(.bottom-nav)) {
+  padding-bottom: calc(var(--notice-space, 0px) + 1rem);
+}
 
 /* ---- password reveal ---- */
 

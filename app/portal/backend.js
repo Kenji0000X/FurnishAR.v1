@@ -37,10 +37,10 @@ export async function initBackend() {
     let outage = false;
     try {
       const module = await import('../../public/supabase.js');
-      /* unavailable() is set only when a database IS configured and did not
-         answer (or the network is down) — an outage. A deployment with no
-         database at all leaves it empty. */
-      outage = Boolean(module.unavailable?.());
+      /* An outage is a configured database that did not answer, or no
+         network — not a deployment without one, and not a rejected key
+         (a configuration problem a retry cannot fix). */
+      outage = Boolean(module.isOutage?.());
       reason = module.unavailable?.() || reason;
     } catch { /* module itself failed to load */ }
     console.warn('[FurnishAR] database unavailable, using the bundled catalogue:', reason);

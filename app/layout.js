@@ -12,6 +12,7 @@ import ScrollProgress from './ScrollProgress.js';
 import PageTools from './PageTools.js';
 import CookieNotice from './CookieNotice.js';
 import AlertContainer from './alerts/AlertContainer.js';
+import FlashBanner from './FlashBanner.js';
 
 export const metadata = {
   title: {
@@ -87,7 +88,10 @@ export default function RootLayout({ children }) {
         <ScrollProgress />
         {/* tabIndex -1 so the jump actually moves focus, not just the
             scroll position; without it the next Tab returns to the header. */}
-        <main id="main" tabIndex={-1}>{children}</main>
+        <main id="main" tabIndex={-1}>
+          <FlashBanner />
+          {children}
+        </main>
         <ChromeGate><SiteFooter /></ChromeGate>
         {/* Phones only, and shoppers only — it is the same shopper menu the
             burger opens, so it goes where the burger goes. Rendered after the

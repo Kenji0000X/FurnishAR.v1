@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { initBackend, usingSupabase, supabase, backendReason, backendOutage } from '../portal/backend.js';
 import { noticeExpiredSession } from '../alerts/sessionExpiry.js';
+import { saveAuthIntent } from '../../lib/auth-intent.js';
 
 /**
  * The planner asks who you are before it opens the camera.
@@ -50,6 +51,14 @@ export default function PlannerGate({ children }) {
      product page, not a generic catalogue — and to the catalogue otherwise. */
   const product = params.get('product');
   const cancel = product ? `/furniture/${encodeURIComponent(product)}` : '/collection';
+
+  /* Remembered for this tab as well as carried in ?next=, so a sign-in
+     reached some other way (the header's Sign in, say) still comes back
+     here. The whole address, not "/plan": the piece is the point. */
+  useEffect(() => {
+    if (state !== 'locked') return;
+    saveAuthIntent(here);
+  }, [state, here]);
 
   useEffect(() => {
     let alive = true;

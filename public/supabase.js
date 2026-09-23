@@ -53,15 +53,27 @@ function storeSession(next) {
  */
 /** Set when the server has credentials but the project did not answer. */
 let unavailableReason = null;
+/**
+ * True only for an OUTAGE: the project did not answer, or nothing did. A
+ * project that answers but rejects the key is a configuration problem —
+ * permanent until someone fixes it, so "Try again" would be a false promise.
+ */
+let outageDetected = false;
 
 /** Why the backend is unusable, if it is. Null once prepare() has succeeded. */
 export function unavailable() {
   return unavailableReason;
 }
 
+/** Whether the backend is unusable because it did not answer (see above). */
+export function isOutage() {
+  return outageDetected;
+}
+
 export async function prepare() {
   if (mode) return mode;
   unavailableReason = null;
+  outageDetected = false;
   try {
     // ?probe=1 asks whether the project actually answers, not merely whether
     // the variables are present. A URL pointing at a deleted project passes the
@@ -77,6 +89,7 @@ export async function prepare() {
         mode = 'proxy';
         return mode;
       }
+      if (status.configured && status.reachable === false) outageDetected = true;
       if (status.error) unavailableReason = status.error;
       else if (status.configured && status.reachable === false) {
         unavailableReason = 'The catalogue database did not respond.';
@@ -85,7 +98,10 @@ export async function prepare() {
   } catch (error) {
     /* No answer at all. Offline is an outage, not "this site has no
        database" — the two need different screens (backend.js). */
-    if (error instanceof TypeError) unavailableReason = 'The server could not be reached. Check your internet connection.';
+    if (error instanceof TypeError) {
+      outageDetected = true;
+      unavailableReason = 'The server could not be reached. Check your internet connection.';
+    }
   }
 
   if (CONFIG.supabaseUrl && CONFIG.supabaseAnonKey) {

@@ -397,7 +397,9 @@ export default function Portal({ initialProducts }) {
       form.reset();
       toast('Signed in.');
     } catch (error) {
-      setLoginError(error.message);
+      const message = error.message || 'Sign-in failed.';
+      /* Beside the form it is about — not also as an alert. */
+      setLoginError(message);
       // Sign-in is rate-limited by Supabase too, and had exactly the same
       // "[object Object]" problem on an empty error body.
       if (error.retryAfter) startCooldown(error.retryAfter);
@@ -445,17 +447,19 @@ export default function Portal({ initialProducts }) {
       const confirm = result.needsEmailConfirmation
         ? 'Account created. Confirm your email address, then sign in'
         : 'Account created. You can sign in now';
+      const message = result.applicationFiled
+        ? `${confirm} — your store is queued for review.`
+        : `${confirm}. We could not file your store application automatically, so email hello@furnishar.ph with your store name and we will add it by hand. Do not sign up again; the account already exists.`;
       setSignupMessage({
         ok: true,
-        text: result.applicationFiled
-          ? `${confirm} — your store is queued for review.`
-          : `${confirm}. We could not file your store application automatically, so email hello@furnishar.ph with your store name and we will add it by hand. Do not sign up again; the account already exists.`,
+        text: message,
         email,
         needsEmailConfirmation: result.needsEmailConfirmation
       });
       toast('Application received.');
     } catch (error) {
-      setSignupMessage({ ok: false, text: error.message });
+      const message = error.message || 'Account creation failed.';
+      setSignupMessage({ ok: false, text: message });
       // Supabase rate-limits sign-ups hard. Holding the button shut for the
       // stated interval is the difference between one 429 and four.
       if (error.retryAfter) startCooldown(error.retryAfter);
@@ -485,7 +489,7 @@ export default function Portal({ initialProducts }) {
       await reloadInventory();
       toast('Product deleted.');
     } catch (error) {
-      toast(error.message, 'error');
+      toast(error.message || 'Could not delete the product.', 'error');
     }
   }
 

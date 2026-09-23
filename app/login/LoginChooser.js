@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { initBackend, usingSupabase, supabase, backendReason } from '../portal/backend.js';
+import { consumeAuthIntent, peekAuthIntent } from '../../lib/auth-intent.js';
+import { flashSuccess } from '../../lib/flash.js';
 import PasswordField from '../PasswordField.js';
 import useAlert from '../alerts/useAlert.js';
 
@@ -44,7 +46,13 @@ export default function LoginChooser() {
   const router = useRouter();
   const params = useSearchParams();
   const as = params.get('as');
-  const next = safeNext(params.get('next'));
+  /* Where to go afterwards: ?next= when the way in carried it, else what
+     this tab remembered when it was sent to sign in (lib/auth-intent.js) —
+     so a sign-in reached from the header still returns to the piece. Both
+     pass the same safeNext() check. */
+  const nextFromQuery = safeNext(params.get('next'));
+  const rememberedNext = safeNext(peekAuthIntent());
+  const next = nextFromQuery || rememberedNext;
 
   const alert = useAlert();
   const [ready, setReady] = useState(false);
@@ -55,14 +63,20 @@ export default function LoginChooser() {
   const [towns, setTowns] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  /* Progress only — "Signing you in…" while it happens. Outcomes are not
+     notices: a failure is the inline error beside the form, a success is an
+     alert (it outlives this page). One event, one message. */
+  const [notice, setNotice] = useState('');
   const [sent, setSent] = useState('');
 
   useEffect(() => {
     let alive = true;
     (async () => {
+      setNotice('Checking your account access…');
       await initBackend();
       if (!alive) return;
       if (!usingSupabase()) {
+        setNotice('The database is unavailable. You can still browse the catalogue.');
         setOffline(backendReason() || 'No database is connected.');
         setReady(true);
         return;
@@ -71,11 +85,29 @@ export default function LoginChooser() {
          quietly sign them in again as somebody else. */
       const role = await supabase().myRole().catch(() => 'guest');
       if (!alive) return;
-      if (role === 'buyer') { router.replace(next || '/account'); return; }
-      if (role === 'owner' || role === 'pending') { router.replace('/portal'); return; }
-      if (role === 'admin') { router.replace('/admin'); return; }
+      if (role === 'buyer') {
+        /* Used now, so forgotten now: saving it again would send every later
+           visit to /login back to this same page. */
+        consumeAuthIntent();
+        setNotice('Welcome back. Redirecting to your account…');
+        router.replace(next || '/account');
+        return;
+      }
+      if (role === 'owner' || role === 'pending') {
+        setNotice('Opening your store portal…');
+        router.replace('/portal');
+        return;
+      }
+      if (role === 'admin') {
+        setNotice('Opening the platform console…');
+        router.replace('/admin');
+        return;
+      }
       setTowns(await supabase().listMunicipalities().catch(() => []));
-      if (alive) setReady(true);
+      if (alive) {
+        setNotice('');
+        setReady(true);
+      }
     })();
     return () => { alive = false; };
   }, [router, next]);
@@ -92,6 +124,7 @@ export default function LoginChooser() {
     event.preventDefault();
     const values = Object.fromEntries(new FormData(event.currentTarget));
     setError('');
+    setNotice('Signing you in…');
     setBusy(true);
     try {
       await supabase().signIn({
@@ -110,8 +143,12 @@ export default function LoginChooser() {
       alert.raise('auth.signed-in');
       if (role === 'admin') router.push('/admin');
       else if (role === 'owner' || role === 'pending') router.push('/portal');
-      else router.push(next || '/account');
+      else {
+        consumeAuthIntent();
+        router.push(next || '/account');
+      }
     } catch (signInError) {
+      setNotice('');
       setError(signInError.message);
       setBusy(false);
     }
@@ -121,6 +158,7 @@ export default function LoginChooser() {
     event.preventDefault();
     const values = Object.fromEntries(new FormData(event.currentTarget));
     setError('');
+    setNotice('Creating your account…');
     setBusy(true);
     try {
       const result = await supabase().signUpBuyer({
@@ -129,13 +167,17 @@ export default function LoginChooser() {
         fullName: String(values.fullName).trim(),
         municipality: String(values.municipality)
       });
+      setNotice('');
       if (result.needsEmailConfirmation) {
+        flashSuccess('Account created. Check your email to confirm it.');
         setSent(String(values.email));
       } else {
+        consumeAuthIntent();
         alert.raise('auth.signed-up');
         router.push(next || '/account');
       }
     } catch (signUpError) {
+      setNotice('');
       setError(signUpError.message);
     } finally {
       setBusy(false);
@@ -233,6 +275,7 @@ export default function LoginChooser() {
 
   return (
     <div className="login-panel">
+      {notice && <div className="status-banner" role="status" aria-live="polite"><span className="loading-spinner" aria-hidden="true" />{notice}</div>}
       <div className="login-copy">
         <span className="secure-mark" aria-hidden="true">⌑</span>
         <h1 id="login-title">{mode === 'signin' ? 'Welcome back' : 'Create your account'}</h1>
@@ -243,19 +286,19 @@ export default function LoginChooser() {
         </p>
         <p className="demo-note">
           Run a shop instead? That is the <Link href="/portal">store portal</Link>.{' '}
-          <button type="button" className="text-button" onClick={() => choose('')}>
+          <button type="button" className="text-button" onClick={() => choose('')} aria-label="Return to the shopper role chooser">
             Not a shopper?
           </button>
         </p>
       </div>
 
       <div className="mode-switch" role="tablist" aria-label="Sign in or create an account">
-        <button type="button" role="tab" aria-selected={mode === 'signin'}
+        <button type="button" role="tab" id="signin-tab" aria-controls="login-form" aria-selected={mode === 'signin'}
           className={`mode-option${mode === 'signin' ? ' is-active' : ''}`}
           onClick={() => { setMode('signin'); setError(''); }}>
           Sign in
         </button>
-        <button type="button" role="tab" aria-selected={mode === 'signup'}
+        <button type="button" role="tab" id="signup-tab" aria-controls="login-form" aria-selected={mode === 'signup'}
           className={`mode-option${mode === 'signup' ? ' is-active' : ''}`}
           onClick={() => { setMode('signup'); setError(''); }}>
           Create account
@@ -263,7 +306,7 @@ export default function LoginChooser() {
       </div>
 
       {mode === 'signin' ? (
-        <form className="login-form" onSubmit={handleSignIn}>
+        <form id="login-form" className="login-form" onSubmit={handleSignIn}>
           <label>
             Email
             <input name="email" type="email" required autoComplete="email"
@@ -276,7 +319,7 @@ export default function LoginChooser() {
           <p className="form-error" role="alert" aria-live="assertive">{error}</p>
         </form>
       ) : (
-        <form className="login-form" onSubmit={handleSignUp}>
+        <form id="login-form" className="login-form" onSubmit={handleSignUp}>
           <label>
             Your name
             <input name="fullName" type="text" required minLength={2} maxLength={80}
