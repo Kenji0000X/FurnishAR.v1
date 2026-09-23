@@ -45,7 +45,7 @@ export default function SiteFooter() {
   const commit = (process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 7) || 'dev';
 
   return (
-    <footer className="site-footer">
+    <footer className="site-footer" data-build={`v${version} ${commit}`}>
       <div className="footer-band">
         <div className="footer-identity">
           <span className="brand footer-brand">
@@ -66,7 +66,6 @@ export default function SiteFooter() {
           ))}
         </nav>
 
-        <p className="build-stamp">v{version} · {commit}</p>
       </div>
     </footer>
   );

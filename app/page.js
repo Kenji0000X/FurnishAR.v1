@@ -3,6 +3,8 @@ import { getCatalog, getStores } from '../lib/catalog.mjs';
 import HeroStage from './HeroStage.js';
 import Promises from './Promises.js';
 import ProductThumb from './ProductThumb.js';
+import CtaArrow from './CtaArrow.js';
+import RevealObserver from './RevealObserver.js';
 
 // The catalogue is a file the owner portal can write to, so pages are allowed
 // to render again rather than being frozen at build time.
@@ -21,20 +23,22 @@ export const metadata = {
  */
 const PROMISES = [
   {
+    key: 'size',
     title: 'Real sizes, not press photos.',
-    body: `Every piece carries the width, depth and height its shop measured. The
-           planner puts it in your room at exactly that, so what clears the door on
-           screen clears it in the house.`
+    body: `Every piece carries the width, depth and height its shop measured, and
+           the planner places it at exactly that.`
   },
   {
+    key: 'browser',
     title: 'No app, no appointment.',
-    body: `It runs in the browser you already have. Point the camera at the wall,
-           the doorway or the empty floor and read the span back in centimetres.`
+    body: `It runs in the browser you already have. Point the camera at a wall or a
+           doorway and read the span in centimetres.`
   },
   {
+    key: 'local',
     title: 'The shops are down the road.',
-    body: `Everything listed is stocked by a store in Mamburao. You check the fit
-           here and buy it from them — there is no cart, and no middleman.`
+    body: `Every piece is stocked in Mamburao. Check the fit here, then buy it from
+           the shop itself.`
   }
 ];
 
@@ -67,7 +71,7 @@ function capsulesFrom(products) {
     .map(([category, { count, sample }]) => ({ category, count, sample }));
 }
 
-function Hero({ facts, capsules }) {
+function Hero({ capsules }) {
   return (
     <section className="hero" aria-labelledby="hero-title">
       <div className="hero-copy">
@@ -75,28 +79,23 @@ function Hero({ facts, capsules }) {
         {/* Stacked, one word to a line, set as large as the viewport allows.
             The reference's headline is the page's whole structure; this is
             the same idea in the brand's own voice. */}
+        {/* Two lines, never three: a hero headline is read at a glance. */}
         <h1 id="hero-title">
-          <span>See it.</span>
-          <span>Fit it.</span>
+          <span>See it. Fit it.</span>
           <span className="hero-title-accent">Live with it.</span>
         </h1>
         <p className="hero-text">
-          Explore furniture from Mamburao stores, stand it in your own room at true
-          scale, and know it fits before you buy.
+          Stand furniture from Mamburao stores in your own room at true scale, and
+          know it fits before you buy.
         </p>
         <div className="hero-actions">
-          <Link className="capsule capsule-solid" href="/plan">
-            Measure my space <span aria-hidden="true">→</span>
+          <Link className="capsule capsule-solid capsule-cta" href="/plan">
+            Measure my space <CtaArrow />
           </Link>
           <Link className="capsule capsule-quiet" href="/collection">
             Browse the collection
           </Link>
         </div>
-        <dl className="hero-facts">
-          <div><dt>{facts.stores}</dt><dd>{facts.stores === 1 ? 'Local store' : 'Local stores'}</dd></div>
-          <div><dt>{facts.arReady}</dt><dd>{facts.arReady === 1 ? 'Piece in AR' : 'Pieces in AR'}</dd></div>
-          <div><dt>1:1</dt><dd>True scale</dd></div>
-        </dl>
       </div>
 
       {/* The rail. Each capsule is a real filter over a real category, with
@@ -124,37 +123,46 @@ function Hero({ facts, capsules }) {
   );
 }
 
+/**
+ * The figures that used to sit inside the hero. A hero is one message and
+ * one action; these are evidence for it, so they get their own band right
+ * under it. Every number is counted from the live catalogue.
+ */
+function Facts({ facts }) {
+  return (
+    <section className="facts-band" aria-label="FurnishAR in numbers">
+      <dl className="facts-grid">
+        <div><dt>{facts.stores}</dt><dd>{facts.stores === 1 ? 'Local store' : 'Local stores'}</dd></div>
+        <div><dt>{facts.arReady}</dt><dd>{facts.arReady === 1 ? 'Piece in AR' : 'Pieces in AR'}</dd></div>
+        <div><dt>1:1</dt><dd>True scale</dd></div>
+      </dl>
+    </section>
+  );
+}
+
 function Story() {
   return (
     <section className="story" aria-labelledby="story-title">
-      <div className="story-copy">
-        <p className="eyebrow">Born from one bad delivery day</p>
+      <div className="story-copy reveal">
         <h2 id="story-title">Nothing arrives too big.</h2>
         <p>
-          A sofa that does not turn the corner of the stairs goes back on the truck,
-          and everybody loses — the family that waited three weeks for it, and the
-          shop that has to eat the trip. The measurement that would have prevented
-          it takes about forty seconds.
+          A sofa that will not turn the stair corner goes back on the truck.
+          FurnishAR gives you the forty-second measurement that prevents it.
         </p>
-        <p>
-          FurnishAR is that forty seconds, handed to the shopper before the order
-          instead of to the driver after it.
-        </p>
-        <Link className="capsule capsule-solid" href="/plan">
-          Try the planner <span aria-hidden="true">→</span>
+        <Link className="capsule capsule-solid capsule-cta" href="/plan">
+          Measure my space <CtaArrow />
         </Link>
       </div>
     </section>
   );
 }
 
-function PromiseSection() {
+function PromiseSection({ showcase }) {
   return (
     <section className="promise-section" aria-labelledby="promise-title">
       <div className="promise-copy">
-        <p className="eyebrow">What you get</p>
-        <h2 id="promise-title">Three things this actually does.</h2>
-        <Promises items={PROMISES} />
+        <h2 id="promise-title" className="reveal">Three things this actually does.</h2>
+        <Promises items={PROMISES} showcase={showcase} />
       </div>
     </section>
   );
@@ -175,10 +183,12 @@ export default async function HomePage() {
     <section className="view active">
       {/* The room is pinned behind these three, and travels as they scroll. */}
       <HeroStage>
-        <Hero facts={facts} capsules={capsulesFrom(products)} />
+        <Hero capsules={capsulesFrom(products)} />
+        <Facts facts={facts} />
         <Story />
-        <PromiseSection />
+        <PromiseSection showcase={products.find(product => product.thumbnail) || null} />
       </HeroStage>
+      <RevealObserver />
 
       {/*
           The page ends here.

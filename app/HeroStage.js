@@ -694,8 +694,11 @@ export default function HeroStage({ children }) {
         schedule();
       };
 
-      // Stop entirely when the stage is off-screen or the tab is in the
-      // background. A renderer running behind the FAQ is pure waste.
+      // Stop entirely when the ROOM is off-screen or the tab is in the
+      // background. The room's layer is the pin (one screen tall, at the top
+      // of the stage), not the stage: the stage also holds the sections
+      // below, so observing it kept the renderer drawing a canvas nobody
+      // could see for as long as those were being read (check:hero).
       const visibility = new IntersectionObserver(entries => {
         running = entries.some(entry => entry.isIntersecting);
         if (running) schedule();
@@ -705,7 +708,7 @@ export default function HeroStage({ children }) {
           frame = 0;
         }
       });
-      visibility.observe(wrap);
+      visibility.observe(canvas.parentElement || wrap);
 
       const onVisibility = () => {
         if (document.hidden) {

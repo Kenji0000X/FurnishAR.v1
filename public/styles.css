@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap');
 
 /* ===========================================================================
    FurnishAR interface
@@ -24,44 +23,45 @@
 --------------------------------------------------------------------------- */
 
 :root {
-  /* Surface — warm cream, after the Nordic reference.
-     The old paper was #f2f1ec, a cool grey-white. These are the same family
-     pushed warm: the page is cream, cards are plain white so they lift off it
-     without needing a border, and the sunken tone is the beige used for
-     photographic wells and the category circles. */
-  --paper: #faf7f1;
-  --paper-raised: #ffffff;
-  --paper-sunken: #efe8dc;
+  /* Surface: cool slate, not cream.
+     The warm cream + brown + espresso family this replaced is the palette
+     nearly every "premium furniture" site ships, which is exactly why it
+     made FurnishAR look like all of them. A cool off-white lets the actual
+     furniture, which is warm wood and fabric, be the warm thing on the page.
+     Raised surfaces are a hair lighter than the page, never pure white. */
+  --paper: #eef1f3;
+  --paper-raised: #f9fafb;
+  --paper-sunken: #e0e5e8;
 
   /* Ink. --ink-faint carries every micro-label, so it is held above 4.5:1 on
-     paper and on the sunken tone — small text never drops below AA.
-     Warm near-black rather than neutral, so it belongs to the cream. */
-  --ink: #241f1a;
-  --ink-muted: #3d3631;
-  --ink-faint: #4a413d;
+     paper and on the sunken tone: small text never drops below AA.
+     A cool near-black, never #000. */
+  --ink: #121719;
+  --ink-muted: #3a444a;
+  --ink-faint: #48535a;
 
-  /* Accent in three weights, because one hue cannot serve every background:
-     --accent fills and large display type, --accent-ink small text on paper
-     (4.7:1), --accent-lifted small text on the ink and deep blocks (6.5:1 / 4.9:1). */
-  /* Warm brown, after the reference's buttons — not the old terracotta
-     #c0502a, which against a cream page read as an alert rather than as the
-     brand. */
-  --accent: #7a553d;
-  --accent-ink: #6c4834;
-  --accent-lifted: #dcb491;
-  --focus-ring: #234b3d;
-  --on-accent: #ffffff;
+  /* One accent, forest green, in three weights because one hue cannot serve
+     every background: --accent fills and large display type (6.9:1 on
+     paper), --accent-ink small text on paper (7.9:1), --accent-lifted small
+     text on the ink and deep blocks (8.3:1 on the band). Green because the
+     brand already lived there (the bands, the browser theme colour), and
+     because a red-orange accent reads as an alert beside real alerts. */
+  --accent: #1d5c4b;
+  --accent-ink: #1a5243;
+  --accent-lifted: #8fd9bf;
+  --focus-ring: #1d4f7a;
+  --on-accent: #f7faf9;
   /* The accent at low opacity, for a fill that marks a state without
      becoming a button — the bottom bar's active pill. Text on it is --ink,
      not --on-accent, because the ground underneath is still paper. */
-  --accent-soft: rgba(138, 98, 67, .15);
-  --deep: #3a463f;
+  --accent-soft: rgba(29, 92, 75, .12);
+  --deep: #15332b;
 
   /* Rules. The hairline is now the quiet separator the reference uses rather
      than a structural outline: cards are told apart by their own surface and
      by space, not by being boxed. */
-  --rule: rgba(36, 31, 26, .12);
-  --rule-strong: rgba(36, 31, 26, .22);
+  --rule: rgba(18, 23, 25, .11);
+  --rule-strong: rgba(18, 23, 25, .2);
 
   /*
      Corners and shadow.
@@ -79,15 +79,15 @@
      not each need editing to say the same new thing. BRAND.md §1 and §5 are
      updated to match.
   */
-  --radius: 14px;
+  --radius: 16px;
   --radius-sm: 10px;
-  --radius-lg: 22px;
+  --radius-lg: 28px;
   --radius-pill: 999px;
-  --hard: 0 18px 40px -22px rgba(36, 31, 26, .30);
-  --hard-sm: 0 10px 24px -16px rgba(36, 31, 26, .26);
+  --hard: 0 24px 48px -28px rgba(18, 38, 46, .34);
+  --hard-sm: 0 12px 28px -18px rgba(18, 38, 46, .28);
 
   /* Glass — floating layers only */
-  --glass: rgba(251, 250, 247, .68);
+  --glass: rgba(246, 248, 249, .7);
   --glass-line: rgba(255, 255, 255, .75);
   --glass-blur: blur(20px) saturate(165%);
   --glass-dark: rgba(16, 22, 20, .46);
@@ -107,8 +107,8 @@
   --ar-net-depth: #e0a184;   /* the finer depth lattice, where supported */
 
   /* Type */
-  --sans: "DM Sans", system-ui, -apple-system, sans-serif;
-  --mono: "DM Mono", ui-monospace, "SF Mono", monospace;
+  --sans: var(--font-geist-sans), "Geist", system-ui, -apple-system, sans-serif;
+  --mono: var(--font-geist-mono), "Geist Mono", ui-monospace, "SF Mono", monospace;
   --micro: .625rem;
 
   /* MOTION
@@ -134,25 +134,25 @@
      referenced by scripts". Nothing referenced them — not the stylesheet, not
      a script, not a component — so they were removed along with the comment
      that kept claiming otherwise. --accent-wash went the same way. */
-  --danger: #a93a22;
+  --danger: #b0243d;
 
   /* Status colours, so a theme can move them. --ok used to be a bare #276749
      on .verification-ok, which is a dark green that disappears on a dark
      surface. */
-  --ok: #276749;
+  --ok: #1f6b4a;
   /* Amber for "look at this" — warnings in the notification system. Its own
      token rather than borrowing --accent, which is the brand, not a status:
      a warning painted in the accent reads as a highlight, not a caution.
      6.3:1 on --paper-raised; see check-contrast. */
   --warn: #8a5300;
-  --on-deep: #eef2ef;      /* text on the --deep block — 12.1:1 on it */
+  --on-deep: #eef3f1;      /* text on the --deep block — 12.1:1 on it */
   /* Secondary prose on the deep block. This used to be written inline as
      rgba(238,242,239,.82), which no contrast checker can read: a composited
      alpha is not a colour any tool can measure without knowing what it landed
      on. Flattened against --deep it is this, and now it is checkable. Both
      themes share it because the dark --deep is darker still (8.7:1 light,
      11.3:1 dark). */
-  --on-deep-muted: #c6d0cc;
+  --on-deep-muted: #c2d1cb;
 
   /* Accent sitting on an --ink ground: the footer wordmark, its mark, and the
      footer column headings.
@@ -163,7 +163,7 @@
      footer and 2.1:1 on the light one — a failure nobody could see without
      switching themes, and the reason this pair is now in
      scripts/check-contrast.mjs. */
-  --on-ink-accent: #dcb491;   /* the lifted brown, on an --ink ground */
+  --on-ink-accent: #8fd9bf;   /* the lifted brown, on an --ink ground */
 
   /* The ground under the two full-bleed home-page bands.
      It starts as --deep and has to be its own token because the bands are
@@ -174,7 +174,7 @@
      against a #101715 page, 1.02:1, which is two shades of the same black and
      no band at all. The dark value below lifts rather than sinks, at 1.23:1,
      so the alternation survives the theme it was not designed in. */
-  --band: #12332c;
+  --band: #15332b;
 
   /* One tile of paper grain, as a data URI so it costs no request. The dark
      theme overrides it: the same speckle drawn in black vanishes on a dark
@@ -206,77 +206,78 @@
 :root[data-theme="dark"] {
   /* The warm family after dark: the cream becomes a warm charcoal rather than
      a cold one, so the two themes read as the same brand at two times of day. */
-  --paper: #191512;
-  --paper-raised: #221d19;
-  --paper-sunken: #120f0d;
+  --paper: #0d1113;
+  --paper-raised: #151b1e;
+  --paper-sunken: #090c0e;
 
-  --ink: #f3efe9;
-  --ink-muted: #d7d0c7;
-  --ink-faint: #b9b0a7;
+  --ink: #eaeff0;
+  --ink-muted: #c0cacd;
+  --ink-faint: #a3aeb2;
 
   /* The brown is too dark to read on a dark surface, so small text uses the
      lifted weight and the fill lightens to keep the brand legible. */
-  --accent: #c48d5f;
-  --accent-ink: #e5c5a1;
-  --accent-lifted: #e5c5a1;
-  --focus-ring: #8fe3c4;
-  --on-accent: #191512;
-  --accent-soft: rgba(181, 130, 91, .22);
-  --deep: #2b332e;
+  --accent: #5fc3a0;
+  --accent-ink: #86d6ba;
+  --accent-lifted: #86d6ba;
+  --focus-ring: #9cc8f0;
+  --on-accent: #0d1113;
+  --accent-soft: rgba(95, 195, 160, .16);
+  --deep: #16241f;
 
-  --rule: rgba(243, 239, 233, .14);
-  --rule-strong: rgba(243, 239, 233, .26);
+  --rule: rgba(234, 239, 240, .12);
+  --rule-strong: rgba(234, 239, 240, .24);
 
   /* A diffuse shadow under a raised card. On a dark page it goes darker
      still rather than inverting to light — a light halo around a card is a
      glow, which is a different statement from depth. */
-  --hard: 0 18px 40px -22px rgba(0, 0, 0, .72);
-  --hard-sm: 0 10px 24px -16px rgba(0, 0, 0, .62);
+  --hard: 0 24px 48px -28px rgba(0, 0, 0, .7);
+  --hard-sm: 0 12px 28px -18px rgba(0, 0, 0, .6);
 
-  --glass: rgba(34, 29, 25, .72);
-  --glass-line: rgba(238, 242, 239, .14);
+  --glass: rgba(21, 27, 30, .72);
+  --glass-line: rgba(234, 239, 240, .14);
 
   --ok: #6dd39b;
   --warn: #e8b95c;
-  --danger: #ff8a70;
-  --on-deep: #eef2ef;
-  --on-ink-accent: #7a5439;   /* --ink inverts, so this one does too */
-  --band: #262f29;            /* lifts off the page instead of sinking into it */
+  --danger: #ff7d8e;
+  --on-deep: #eef3f1;
+  --on-ink-accent: #1a5243;   /* --ink inverts, so this one does too */
+  --band: #13201b;            /* lifts off the page instead of sinking into it */
   --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.055' style='mix-blend-mode:screen'/%3E%3C/svg%3E");
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --paper: #191512;
-    --paper-raised: #221d19;
-    --paper-sunken: #120f0d;
+    --paper: #0d1113;
+    --paper-raised: #151b1e;
+    --paper-sunken: #090c0e;
 
-    --ink: #f3efe9;
-    --ink-muted: #bdb4a9;
-    --ink-faint: #a79d92;
+    --ink: #eaeff0;
+    --ink-muted: #c0cacd;
+    --ink-faint: #a3aeb2;
 
-    --accent: #b5825b;
-    --accent-ink: #dcb491;
-    --accent-lifted: #dcb491;
-    --on-accent: #191512;
-    --accent-soft: rgba(181, 130, 91, .22);
-    --deep: #2b332e;
+    --accent: #5fc3a0;
+    --accent-ink: #86d6ba;
+    --accent-lifted: #86d6ba;
+    --focus-ring: #9cc8f0;
+    --on-accent: #0d1113;
+    --accent-soft: rgba(95, 195, 160, .16);
+    --deep: #16241f;
 
-    --rule: rgba(243, 239, 233, .14);
-    --rule-strong: rgba(243, 239, 233, .26);
+    --rule: rgba(234, 239, 240, .12);
+    --rule-strong: rgba(234, 239, 240, .24);
 
-    --hard: 0 18px 40px -22px rgba(0, 0, 0, .72);
-    --hard-sm: 0 10px 24px -16px rgba(0, 0, 0, .62);
+    --hard: 0 24px 48px -28px rgba(0, 0, 0, .7);
+    --hard-sm: 0 12px 28px -18px rgba(0, 0, 0, .6);
 
-    --glass: rgba(34, 29, 25, .72);
-    --glass-line: rgba(243, 239, 233, .14);
+    --glass: rgba(21, 27, 30, .72);
+    --glass-line: rgba(234, 239, 240, .14);
 
     --ok: #6dd39b;
     --warn: #e8b95c;
-    --danger: #ff8a70;
-    --on-deep: #eef2ef;
-    --on-ink-accent: #7a5439;
-    --band: #262f29;            /* lifts off the page instead of sinking into it */
+    --danger: #ff7d8e;
+    --on-deep: #eef3f1;
+    --on-ink-accent: #1a5243;
+    --band: #13201b;            /* lifts off the page instead of sinking into it */
     --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.055' style='mix-blend-mode:screen'/%3E%3C/svg%3E");
   }
 }
@@ -429,7 +430,7 @@ textarea:focus-visible,
 /* Mono micro-label — the recurring brutalist voice of the interface. */
 .eyebrow, .tray-label, .product-store, .result-count, .measure-tag,
 .inventory-stat span, .store-card dt,
-.hero-facts dd, .card-heading p, .ar-chip, .step-number {
+.card-heading p, .ar-chip, .step-number {
   font-family: var(--mono);
   font-size: var(--micro);
   font-weight: 500;
@@ -711,20 +712,6 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 
 .hero-actions { display: flex; flex-wrap: wrap; gap: .7rem; margin: 2rem 0 0; }
 
-.hero-facts {
-  display: flex; flex-wrap: wrap; gap: 0;
-  margin: 2.75rem 0 0;
-  border-top: 1px solid var(--rule-strong);
-}
-.hero-facts div {
-  flex: 1 1 6rem;
-  padding: .9rem 1rem .9rem 0;
-  border-right: 1px solid var(--rule);
-}
-.hero-facts div:last-child { border-right: 0; }
-.hero-facts div:not(:first-child) { padding-left: 1rem; }
-.hero-facts dt { font-family: var(--mono); font-size: 1.5rem; letter-spacing: -.04em; }
-.hero-facts dd { margin-top: .25rem; }
 
 /*
   A laptop window is SHORT, not just narrow.
@@ -743,8 +730,6 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   .hero h1 { font-size: clamp(2.4rem, 5.4vw, 4rem); margin: .8rem 0 1rem; }
   .hero-text { font-size: 1rem; }
   .hero-actions { margin-top: 1.4rem; }
-  .hero-facts { margin-top: 1.8rem; }
-  .hero-facts dt { font-size: 1.3rem; }
   .capsule-thumb { width: 48px; height: 48px; }
   .capsule-card { padding-top: .4rem; padding-bottom: .4rem; }
 }
@@ -792,6 +777,24 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .capsule-quiet:hover { background: var(--ink); border-color: var(--ink); color: var(--paper); }
 
 .capsule-outline { background: transparent; border-color: currentColor; }
+
+/* The primary call to action ends in its own circle (CtaArrow), flush with
+   the pill's inner edge, rather than a bare arrow after the label. The pill
+   gives up its right padding to it so the two edges run concentric. */
+.capsule-cta { padding-right: .4rem; gap: .9rem; }
+.cta-arrow {
+  display: inline-grid; place-items: center;
+  width: 2rem; height: 2rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--on-accent) 16%, transparent);
+  transition: transform 420ms cubic-bezier(.32, .72, 0, 1), background var(--dur-fast) var(--ease-out);
+}
+.capsule-cta:hover .cta-arrow {
+  transform: translate(2px, -2px) scale(1.06);
+  background: color-mix(in srgb, var(--on-accent) 24%, transparent);
+}
+/* The generic `.capsule > span[aria-hidden]` nudge is for bare arrows. */
+.capsule-cta:hover > .cta-arrow { transform: translate(2px, -2px) scale(1.06); }
 
 /* ---- the category rail ---- */
 
@@ -950,8 +953,74 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   font-size: clamp(2.1rem, 5vw, 3.4rem);
   letter-spacing: -.045em;
 }
-.story p { margin-bottom: 1rem; color: var(--ink-muted); font-size: 1.0625rem; }
-.story .capsule { margin-top: 1rem; }
+.story p {
+  max-width: 34rem; margin: 0 auto 1.6rem;
+  color: var(--ink-muted); font-size: 1.125rem; line-height: 1.55;
+}
+.story h2 { font-size: clamp(2.6rem, 7vw, 5rem); letter-spacing: -.055em; line-height: 1; text-wrap: balance; }
+.story p, .promise p { text-wrap: pretty; }
+
+/* ---------------------------------------------------------- facts band ---- */
+/*
+   The hero's evidence, given a band of its own under it. Large mono figures
+   on a hairline, three columns on a desktop and a single column on a phone.
+*/
+.facts-band {
+  max-width: var(--maxw); margin: 0 auto;
+  padding: clamp(1rem, 3vh, 2rem) var(--gutter) clamp(2rem, 6vh, 4rem);
+}
+.facts-grid {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--rule-strong);
+}
+.facts-grid div { padding: 1.4rem 1.5rem 0 0; }
+.facts-grid div + div { padding-left: 1.5rem; border-left: 1px solid var(--rule); }
+.facts-grid dt {
+  font-family: var(--mono); font-size: clamp(2.2rem, 5vw, 3.6rem);
+  letter-spacing: -.06em; line-height: 1;
+}
+.facts-grid dd {
+  margin-top: .6rem;
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint);
+}
+@media (max-width: 47.99rem) {
+  .facts-grid { grid-template-columns: minmax(0, 1fr); }
+  .facts-grid div + div { padding-left: 0; border-left: 0; border-top: 1px solid var(--rule); }
+  .facts-grid div { padding: 1.1rem 0; display: flex; align-items: baseline; gap: 1rem; }
+  .facts-grid dd { margin-top: 0; }
+}
+
+/* ------------------------------------------------------------- bezels ---- */
+/*
+   A nested frame: an outer shell with a hairline and a little padding, and
+   an inner core with its own surface and a smaller, concentric radius
+   (outer radius minus the shell's padding). Used where something should read
+   as an object sitting on the page, not a box drawn round some text.
+*/
+.bezel {
+  padding: 6px;
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+.bezel-core {
+  height: 100%;
+  border-radius: calc(var(--radius-lg) - 6px);
+  background: var(--paper-raised);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 60%, transparent), var(--hard-sm);
+}
+
+/* ------------------------------------------------------- scroll reveal ---- */
+/* Only once RevealObserver has run, and never under reduced motion: without
+   JavaScript the page is simply there. */
+:root[data-reveal="on"] .reveal {
+  transition: opacity 800ms cubic-bezier(.32, .72, 0, 1), transform 800ms cubic-bezier(.32, .72, 0, 1), filter 800ms cubic-bezier(.32, .72, 0, 1);
+}
+:root[data-reveal="on"] .reveal.is-pending { opacity: 0; transform: translateY(2.5rem); filter: blur(6px); }
+@media (prefers-reduced-motion: reduce) {
+  :root[data-reveal="on"] .reveal.is-pending { opacity: 1; transform: none; filter: none; }
+}
 
 /* ----------------------------------------------------------- promises ---- */
 /*
@@ -960,21 +1029,41 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
    cause a reflow mid-scroll.
 */
 
-.promise-list { display: grid; gap: 2rem; margin-top: 2rem; }
-
-.promise h3 {
-  margin-bottom: .4rem;
-  font-size: 1.25rem; letter-spacing: -.03em;
-  color: var(--accent);
-  opacity: .34;
-  transition: opacity 600ms var(--ease-out);
+.promise-copy { max-width: none; width: 100%; }
+.promise-grid {
+  display: grid; gap: 1rem;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  margin-top: 2.5rem;
+  text-align: left;
 }
-.promise p {
-  color: var(--ink-muted);
-  opacity: .34;
-  transition: opacity 600ms var(--ease-out) 90ms;
+.promise-size { grid-row: 1 / span 2; }
+.promise .bezel-core { display: grid; align-content: end; gap: .6rem; padding: clamp(1.4rem, 3vw, 2.2rem); }
+.promise h3 { font-size: clamp(1.35rem, 2.4vw, 1.75rem); letter-spacing: -.035em; line-height: 1.1; }
+.promise p { color: var(--ink-muted); max-width: 32rem; }
+.promise-figure { margin: 0 0 1rem; }
+.promise-figure img {
+  display: block; width: min(100%, 22rem); height: auto; margin: 0 auto;
+  mix-blend-mode: multiply;
 }
-.promise.is-lit h3, .promise.is-lit p { opacity: 1; }
+.promise-figure figcaption {
+  margin-top: .6rem; text-align: center;
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint);
+}
+/* Told apart by surface, not by icons. */
+.promise-browser .bezel-core { background: var(--band); }
+.promise-browser h3, .promise-browser p { color: var(--on-deep); }
+.promise-browser p { color: var(--on-deep-muted); }
+.promise-local .bezel-core { background: color-mix(in srgb, var(--accent) 12%, var(--paper-raised)); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .promise-figure img { mix-blend-mode: normal; }
+}
+:root[data-theme="dark"] .promise-figure img { mix-blend-mode: normal; }
+@media (max-width: 47.99rem) {
+  .promise-grid { grid-template-columns: minmax(0, 1fr); }
+  .promise-size { grid-row: auto; }
+}
 
 /* ------------------------------------------------------------ marquee ---- */
 
@@ -2004,8 +2093,9 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 
 footer {
   padding: clamp(2.5rem, 6vw, 4rem) var(--gutter) 1.5rem;
-  border-top: 1px solid var(--rule-strong);
-  background: var(--ink); color: var(--paper);
+  /* The forest band in BOTH themes. It used to be --ink, which inverts, so
+     in dark mode the footer flipped into a pale block with faint links. */
+  background: var(--band); color: var(--on-deep);
 }
 .footer-inner {
   display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 2fr);
@@ -2013,10 +2103,10 @@ footer {
   max-width: var(--maxw); margin: 0 auto;
 }
 .footer-about { display: grid; gap: .5rem; align-content: start; }
-.footer-brand { color: var(--paper); }
-.footer-brand > span:last-child span { color: var(--on-ink-accent); }
-.footer-brand .brand-mark i { background: var(--paper); }
-.footer-brand .brand-mark i:nth-child(3) { background: var(--on-ink-accent); }
+.footer-brand { color: var(--on-deep); }
+.footer-brand > span:last-child span { color: var(--accent-lifted); }
+.footer-brand .brand-mark i { background: var(--on-deep); }
+.footer-brand .brand-mark i:nth-child(3) { background: var(--accent-lifted); }
 .footer-about p { font-size: .75rem; opacity: .6; }
 
 /* auto-fit, not repeat(3): the column count is hard-coded in CSS and the
@@ -2032,23 +2122,15 @@ footer {
   margin-bottom: .75rem;
   font-family: var(--mono); font-size: var(--micro); font-weight: 500;
   letter-spacing: .14em; text-transform: uppercase;
-  color: var(--on-ink-accent);
+  color: var(--accent-lifted);
 }
 .footer-column ul { list-style: none; display: grid; gap: .1rem; }
 .footer-column a {
   display: inline-flex; align-items: center; min-height: var(--tap);
-  color: var(--paper); font-size: .875rem; text-decoration: none;
+  color: var(--on-deep); font-size: .875rem; text-decoration: none;
   opacity: .82;
 }
 .footer-column a:hover, .footer-column a:focus-visible { opacity: 1; text-decoration: underline; }
-
-.build-stamp {
-  max-width: var(--maxw);
-  margin: clamp(2rem, 5vw, 3rem) auto 0;
-  padding-top: 1rem;
-  border-top: 1px solid rgba(242, 241, 236, .16);
-  font-size: .75rem; opacity: .6;
-}
 
 /* ------------------------------------------------------------ dialogs ---- */
 /* Floating: frosted backdrop, frosted panel, one hard edge. */
@@ -3258,12 +3340,10 @@ body:has(.cookie-notice):not(:has(.bottom-nav)) {
      outline capsule is transparent — the label ends up set over a picture
      frame. It gets the page's own ground here so it stays a button. */
   .hero-actions .capsule-quiet { background: var(--paper); }
-  /* The band of empty page the room shows through. Without it the facts sit
-     straight under the buttons and there is nowhere for the room to be. */
-  /* Far enough that the facts row clears the first screen entirely. It shared
-     the fold with the room at 31vh and the sofa sat across "LOCAL STORES". */
-  .hero-facts { margin-top: min(48vh, 24rem); }
-  .capsule-rail { width: 100%; }
+  /* The band of empty page the room shows through, between the buttons and
+     the category rail. Without it the rail sits straight under the buttons
+     and there is nowhere for the room to be. */
+  .capsule-rail { width: 100%; margin-top: min(48vh, 24rem); }
   /* A phone is portrait, so the room reads better lower and larger than the
      desktop composition puts it — behind the copy rather than beside it. */
   .hero-stage-still { background-size: 92vw auto; background-position: center 72%; }
@@ -4099,14 +4179,14 @@ body:has(.cookie-notice):not(:has(.bottom-nav)) {
    page whose last section was already a call to action. Same information,
    one row. Not rendered at all on /portal and /admin.
    ===================================================================== */
-.site-footer { margin-top: clamp(3rem, 7vw, 5rem); background: var(--ink); color: var(--paper); }
+.site-footer { margin-top: clamp(3rem, 7vw, 5rem); background: var(--band); color: var(--on-deep); }
 .footer-band {
   display: flex; flex-wrap: wrap; align-items: flex-start; gap: 1.5rem 2.5rem;
   padding: 1.6rem var(--gutter, 1.25rem) 1.35rem;
   max-width: var(--page-max, 1320px); margin-inline: auto;
 }
 .footer-identity { flex: 1 1 15rem; min-width: 0; }
-.footer-identity p { margin: .45rem 0 0; font-size: .8125rem; line-height: 1.5; color: var(--on-ink-muted, #b3a796); }
+.footer-identity p { margin: .45rem 0 0; font-size: .8125rem; line-height: 1.5; color: var(--on-deep-muted); }
 .footer-groups {
   flex: 2 1 26rem;
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.25rem;
@@ -4118,25 +4198,20 @@ body:has(.cookie-notice):not(:has(.bottom-nav)) {
 .footer-group h2 + a { margin-top: .3rem; }
 .footer-group h2 {
   margin: 0; font-family: var(--mono); font-size: var(--micro); font-weight: 600;
-  letter-spacing: .11em; text-transform: uppercase; color: var(--on-ink-faint, #8a7c6d);
+  letter-spacing: .11em; text-transform: uppercase; color: var(--accent-lifted);
 }
 /* A 13px line of text is a 20px tap target. Thumbs miss those, and the
    footer is exactly where a phone user reaches for "Measure my space".
    The text stays the same size; the box around it grows to 44px. */
 .footer-group a {
   display: flex; align-items: center; min-height: 44px;
-  font-size: .8125rem; color: var(--on-ink, #e4dcce); text-decoration: none;
+  font-size: .8125rem; color: var(--on-deep); text-decoration: none;
 }
 .footer-group a:hover { text-decoration: underline; }
-.site-footer .build-stamp {
-  flex: 0 0 auto; align-self: flex-end; margin: 0;
-  font-family: var(--mono); font-size: var(--micro); color: var(--on-ink-faint, #776b5d);
-}
 
 @media (max-width: 40rem) {
   .footer-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .site-footer .build-stamp { flex-basis: 100%; align-self: flex-start; }
-}
+  }
 
 /* ------------------------------------------------------------ tables -- */
 .table-pager {
@@ -4591,3 +4666,19 @@ body:has(.ar-layer) .alert.is-error .alert-icon { color: var(--ar-alert); }
 }
 
 @media print { .alert-region { display: none; } }
+
+/* A printed page never scrolls, so nothing waiting to be revealed may stay hidden. */
+@media print {
+  .reveal.is-pending { opacity: 1 !important; transform: none !important; filter: none !important; }
+}
+
+/* The logo on the footer band: light bars, the lifted accent on the third. */
+.site-footer .brand-mark i { background: var(--on-deep); }
+.site-footer .brand-mark i:nth-child(3) { background: var(--accent-lifted); }
+.site-footer .footer-brand { color: var(--on-deep); }
+
+/* On a dark ground the bezel's top highlight is a hairline, not a glare. */
+:root[data-theme="dark"] .bezel-core { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), var(--hard-sm); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .bezel-core { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), var(--hard-sm); }
+}

@@ -4,6 +4,10 @@
 // and the Next build cannot drift apart. It moves to app/globals.css once the
 // vanilla site is retired.
 import '../public/styles.css';
+// Self-hosted through next/font: no request to a font CDN at run time, and
+// the fallback metrics are adjusted so text does not jump when it loads.
+import { GeistSans } from 'geist/font/sans';
+import { GeistMono } from 'geist/font/mono';
 import SiteHeader from './SiteHeader.js';
 import SiteFooter from './SiteFooter.js';
 import ChromeGate from './ChromeGate.js';
@@ -35,8 +39,8 @@ export const metadata = {
 
 export const viewport = {
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#14483e' },
-    { media: '(prefers-color-scheme: dark)', color: '#0e1513' }
+    { media: '(prefers-color-scheme: light)', color: '#15332b' },
+    { media: '(prefers-color-scheme: dark)', color: '#0d1113' }
   ],
   colorScheme: 'light dark',
   width: 'device-width',
@@ -57,7 +61,7 @@ export const viewport = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`} suppressHydrationWarning>
       <head>
         {/*
           Applies the saved theme BEFORE first paint.
