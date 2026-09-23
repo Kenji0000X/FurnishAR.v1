@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { canPlaceInSpace } from '../../model-state.js';
 import { initBackend, usingSupabase, supabase } from '../../portal/backend.js';
 import AuthGateDialog from '../../AuthGateDialog.js';
+import CtaArrow from '../../CtaArrow.js';
 
 /**
  * The buttons under a product.
@@ -91,14 +92,14 @@ export default function ProductActions({ product }) {
     <div className="product-actions">
       {placeable && (
         <Link
-          className="button button-primary"
+          className="button button-primary capsule-cta"
           href={placeHref}
           onClick={event => go(event, placeHref, {
             title: 'Sign in to view this furniture in 3D.',
             body: `Create a free account or sign in to continue. You will come straight back to the ${product.name}.`
           })}
         >
-          View in my space
+          View in my space <CtaArrow />
         </Link>
       )}
 

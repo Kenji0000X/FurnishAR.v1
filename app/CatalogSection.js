@@ -125,8 +125,7 @@ export default function CatalogSection({ products }) {
     <section id="catalog" className="catalog-section" aria-labelledby="catalog-title">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Made nearby, chosen by you</p>
-          <h2 id="catalog-title">Explore the collection</h2>
+          <h2 id="catalog-title">Every piece</h2>
         </div>
         <div className="catalog-tools">
           <p className="result-count" aria-live="polite">

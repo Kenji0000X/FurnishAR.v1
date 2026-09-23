@@ -4682,3 +4682,77 @@ body:has(.ar-layer) .alert.is-error .alert-icon { color: var(--ar-alert); }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .bezel-core { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), var(--hard-sm); }
 }
+
+/* ------------------------------------------------ catalogue, overhauled ---- */
+/* Filters are grouped by their labels and by space, not by the browser's
+   default fieldset box. */
+fieldset.filter-group { border: 0; padding: 0; margin-inline: 0; min-width: 0; }
+fieldset.filter-group > legend { padding: 0; margin-bottom: .5rem; }
+
+/* The page's one heading gets room to breathe before the first section rule. */
+.page-intro { padding-bottom: clamp(1.5rem, 4vw, 2.5rem); }
+.page-intro p { text-wrap: pretty; }
+
+/* The product's well reads as an object on the page: a rounded core inside
+   a faint outer shell (the same nested frame as the home page's bezels),
+   drawn with two rings so the card's layout does not change. */
+.product-media {
+  border-radius: calc(var(--radius-lg) - 6px);
+  box-shadow:
+    0 0 0 6px var(--paper-raised),
+    0 0 0 7px var(--rule);
+  margin: 7px;
+  transition: box-shadow var(--dur-fast) var(--ease-out), transform 420ms cubic-bezier(.32, .72, 0, 1);
+}
+.product-card:hover .product-media {
+  transform: translateY(-3px);
+  box-shadow:
+    0 0 0 6px color-mix(in srgb, var(--accent) 10%, transparent),
+    0 0 0 7px color-mix(in srgb, var(--accent) 30%, transparent),
+    var(--hard-sm);
+}
+@media (prefers-reduced-motion: reduce) {
+  .product-card:hover .product-media { transform: none; }
+}
+
+/* The marquee's wells share the catalogue's radius: one shape system. */
+.marquee-art { border-radius: calc(var(--radius-lg) - 6px); overflow: hidden; }
+
+/* --------------------------------------------- product page, overhauled ---- */
+/* The viewer, the dimension strip and the shop's details share the page's
+   one shape system: rounded cores, and a faint shell round the viewer. */
+.viewer-stage {
+  border: 0;
+  border-radius: calc(var(--radius-lg) - 6px);
+  box-shadow: 0 0 0 6px var(--paper-raised), 0 0 0 7px var(--rule);
+  margin: 7px;
+}
+.viewer-dims { border-radius: var(--radius); overflow: hidden; margin: 0 7px; }
+.store-card {
+  border: 0; border-radius: var(--radius);
+  background: var(--paper-raised); box-shadow: inset 0 0 0 1px var(--rule);
+  padding: 1.1rem 1.2rem;
+}
+.product-actions .capsule-cta { padding-right: .35rem; gap: .75rem; }
+
+/* ------------------------------------------------- the floating header ---- */
+/* On a desktop the header is an island: detached from the top edge and the
+   sides, rounded, with a soft shadow. Its height plus the gap above it still
+   add up to --header-h, so every offset that uses the token (the alert
+   region, sticky panels) is unchanged. Phones keep the full-width bar and
+   the bottom navigation, where an island would only cost space. */
+@media (min-width: 64rem) {
+  .site-header {
+    top: .75rem;
+    height: calc(var(--header-h) - .75rem);
+    width: min(calc(100% - 2 * var(--gutter)), var(--maxw));
+    margin: .75rem auto 0;
+    padding: 0 .5rem 0 1.4rem;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-pill);
+    box-shadow: var(--hard-sm);
+  }
+}
+/* Inside a compact .button the arrow shrinks so the row keeps one height. */
+.button.capsule-cta { padding-block: .3rem; }
+.button.capsule-cta .cta-arrow { width: 1.6rem; height: 1.6rem; }

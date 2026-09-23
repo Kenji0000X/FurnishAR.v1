@@ -119,8 +119,7 @@ export default function Marquee({ products }) {
   return (
     <section className="marquee-section" aria-labelledby="marquee-title">
       <div className="marquee-head">
-        <p className="eyebrow">In the shops right now</p>
-        <h2 id="marquee-title">Measure it. Place it. Live with it.</h2>
+        <h2 id="marquee-title">In the shops now</h2>
       </div>
 
       <div className="marquee" role="group" aria-label="Pieces from the catalogue">

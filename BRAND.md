@@ -1,4 +1,4 @@
-# FurnishAR — brand and interface kit
+# FurnishAR: brand and interface kit
 
 The single source of truth for the tokens is the `:root` block in
 `public/styles.css`. This document explains what each token is for and records
@@ -9,224 +9,145 @@ stylesheet is right and this file is stale.
 
 ## 1. The design thesis
 
-Three ideas, one rule each, so they never fight:
+**Calm, architectural, and about the furniture.** The page is cool and quiet
+so that the one warm thing on it, the actual wood and fabric of a listed
+piece, is what you look at.
 
 | Idea | Its one rule |
 | --- | --- |
-| **Minimalism** — carries the page | One paper, one ink, one accent. Two typefaces, few sizes. Space separates things, not boxes or colour. |
-| **Brutalism** — the structure, in small doses | Anything sitting *on* the page is square-cornered and drawn with a 1px ink rule. Emphasis is a hard offset block, never a blur. |
-| **Glassmorphism** — the z-axis | Only surfaces that float *above* content are frosted. **If it is frosted, it is floating. If it is flat, it is part of the page.** |
+| **One accent** | Forest green, used for the one action that matters on a screen and for display emphasis. Never decorative, never a second accent beside it. |
+| **Objects, not boxes** | Things that sit *on* the page (a product, a promise, the 3D viewer) are nested frames: an outer shell and an inner core with a concentric radius. Text is grouped by space, not by drawing boxes round it. |
+| **Glass means floating** | Only surfaces that float above content are frosted: the header island, dialogs, alerts, the AR layer. If it is frosted, it is floating. |
 
-That last line is the load-bearing rule. It is what stops the glass reading as
-decoration: frosting is not a style here, it is a statement about depth. The
-sticky header, dialogs, the toast, the AR badge, the measurement tags and the
-whole AR layer are frosted. Cards, forms, tables and panels are flat.
+Landing pages (home, catalogue, product) follow the anti-template rules in the
+design skills used for the overhaul: a hero is one message and one action, at
+most one eyebrow label per three sections, one label per intent (the planner is
+always "Measure my space"), no version stamps, no scroll cues.
 
 ---
 
 ## 2. Logo and mark
 
-The mark is three bars — tall, short, tall — in a 16px box, 4px wide with 2px
+The mark is three bars, tall, short, tall, in a 16px box, 4px wide with 2px
 gaps. The third bar is `--accent` on light grounds and `--accent-lifted` on
-dark. The wordmark is `FurnishAR`, DM Sans 700, `-0.035em` tracking, with `AR`
-in the accent.
+the forest band. The wordmark is `FurnishAR`, Geist 700, `-0.035em` tracking,
+with `AR` in the accent.
 
-**Do:** keep the mark and wordmark on one baseline with a 0.55rem gap. Give the
-lockup clear space of at least the mark's own width on every side.
-
-**Don't:** re-colour the bars individually, add a third colour, outline the
-wordmark, set it in another face, or place the light-ground mark on a dark
-ground (use the lifted accent instead).
+**Don't:** re-colour the bars individually, add a colour, outline the
+wordmark, or set it in another face.
 
 ---
 
 ## 3. Colour
 
-Eleven tokens. Every one has a job; none are decorative alternates.
+Cool slate surfaces, one forest accent. The warm cream, brown and espresso
+family this replaced is the palette almost every furniture site ships; it made
+FurnishAR look like all of them, and it competed with the furniture.
 
-### Surface
-| Token | Value | Use |
-| --- | --- | --- |
-| `--paper` | `#f2f1ec` | The page. |
-| `--paper-raised` | `#fbfaf7` | Anything sitting on the page: cards, forms, table bodies, dialog content. |
-| `--paper-sunken` | `#e7e5dd` | Recesses: product artwork wells, the measurement strip, the room scene. |
+### Surface (light / dark)
+| Token | Light | Dark | Use |
+| --- | --- | --- | --- |
+| `--paper` | `#eef1f3` | `#0d1113` | The page. |
+| `--paper-raised` | `#f9fafb` | `#151b1e` | Cores of cards and frames, forms, dialogs. Never pure white. |
+| `--paper-sunken` | `#e0e5e8` | `#090c0e` | Recesses: product wells, the viewer stage. |
 
 ### Ink
-| Token | Value | Use |
-| --- | --- | --- |
-| `--ink` | `#141413` | Body copy, headlines, hairline rules, the hard shadow, inverted blocks. |
-| `--ink-muted` | `#5d5b53` | Secondary prose. |
-| `--ink-faint` | `#68655c` | Every mono micro-label. |
+| Token | Light | Dark | Use |
+| --- | --- | --- | --- |
+| `--ink` | `#121719` | `#eaeff0` | Body copy and headlines. Never `#000`. |
+| `--ink-muted` | `#3a444a` | `#c0cacd` | Secondary prose. |
+| `--ink-faint` | `#48535a` | `#a3aeb2` | Every mono micro-label; held above 4.5:1 everywhere. |
 
 ### Accent
-One hue cannot serve every background, so it exists in three weights. Picking
-the wrong one is the most likely way to break contrast.
+| Token | Light | Dark | Use |
+| --- | --- | --- | --- |
+| `--accent` | `#1d5c4b` | `#5fc3a0` | Fills and **large** display type. |
+| `--accent-ink` | `#1a5243` | `#86d6ba` | **Small** accent text on paper. |
+| `--accent-lifted` | `#8fd9bf` | `#86d6ba` | Accent on the forest band and the footer. |
+| `--on-accent` | `#f7faf9` | `#0d1113` | Text on an accent fill. |
+| `--band` / `--deep` | `#15332b` | `#13201b` / `#16241f` | The forest band: the footer (in both themes) and the deep promise cell. |
+| `--focus-ring` | `#1d4f7a` | `#9cc8f0` | Focus indicators, deliberately not the accent so focus never reads as "selected". |
 
-| Token | Value | Use |
-| --- | --- | --- |
-| `--accent` | `#c0502a` | Fills and **large** display type only: the hero emphasis, the nav underline, accent blocks. |
-| `--accent-ink` | `#b44a26` | **Small** accent text on paper: condition icons, link hovers, focus rings. |
-| `--accent-lifted` | `#e08159` | Accent on the ink and deep blocks: footer wordmark, portal marks. |
-| `--on-accent` | `#ffffff` | Text sitting on an accent fill. Never `--paper` — it fails at 4.20:1. |
-| `--deep` | `#12332c` | Inverted informational blocks: the fit verdict, the portal panel. |
+Status colours (`--ok`, `--warn`, `--danger`) are reserved for alerts and
+always travel with an icon and a title, never colour alone.
 
 ### Measured contrast
 
-Every pair below is computed from the live token values (WCAG 2.1 relative
-luminance). Large = ≥24px, or ≥18.66px at 700.
+`npm run check:contrast` computes every documented pair from the live tokens,
+in both themes, and fails below WCAG AA. At the overhaul the lowest pair was
+`--on-ink-accent` on `--ink` in dark mode at 7.76:1; `--accent` on `--paper`
+is 6.90:1 light and 8.86:1 dark; `--on-accent` on `--accent` is 7.45:1.
 
-| Pair | Ratio | Result |
-| --- | --- | --- |
-| `--ink` on `--paper` — body text | 16.30:1 | PASS (needs 4.5) |
-| `--ink-muted` on `--paper` — secondary text | 6.02:1 | PASS (needs 4.5) |
-| `--ink-faint` on `--paper` — micro-labels | 5.15:1 | PASS (needs 4.5) |
-| `--ink-faint` on `--paper-raised` — on cards | 5.58:1 | PASS (needs 4.5) |
-| `--ink-faint` on `--paper-sunken` — on recesses | 4.62:1 | PASS (needs 4.5) |
-| `--accent-ink` on `--paper` — small accent text | 4.70:1 | PASS (needs 4.5) |
-| `--accent` on `--paper` — display accent | 4.20:1 | PASS (needs 3, large only) |
-| `--on-accent` on `--accent` — text on accent fill | 4.75:1 | PASS (needs 4.5) |
-| `--paper` on `--ink` — text on ink blocks | 16.30:1 | PASS (needs 4.5) |
-| `--paper` on `--deep` — text on deep blocks | 12.09:1 | PASS (needs 4.5) |
-| `--accent-lifted` on `--ink` — accent on ink | 6.54:1 | PASS (needs 4.5) |
-| `--accent-lifted` on `--deep` — accent on deep | 4.85:1 | PASS (needs 4.5) |
-| `--danger` on `--paper-raised` — form errors | 6.07:1 | PASS (needs 4.5) |
-
-`--ink-faint` is the tightest constraint in the system: it carries every
-micro-label, including on the sunken tone at 4.62:1. **Do not lighten it.**
-
-### The dark theme
-
-Only the tokens change. Not one layout or component rule is themed, which is
-the payoff for having had a token layer to begin with — and the reason the two
-themes cannot drift apart as components are added.
-
-Two selectors, in this order and for this reason:
-
-- `:root[data-theme="dark"]` — an explicit choice, made with the toggle.
-- `@media (prefers-color-scheme: dark)` scoped to `:root:not([data-theme="light"])`
-  — the OS preference, which must never override someone who has explicitly
-  asked for light.
-
-The stored value is `'light'`, `'dark'`, or absent. Absent means "follow the
-OS" and is not the same as light; collapsing the three to a boolean is how a
-dark-mode visitor who never touched the toggle gets permanently pinned to dark.
-
-The surfaces keep some of `--deep`'s green rather than inverting to neutral
-black, so it reads as the same brand at night. The hard offset shadow inverts
-to light, because an ink shadow on a dark page is invisible.
-
-| Pair | Ratio | Result |
-| --- | --- | --- |
-| `--ink` on `--paper` — body text | 16.08:1 | PASS (needs 4.5) |
-| `--ink-muted` on `--paper` — secondary text | 9.35:1 | PASS (needs 4.5) |
-| `--ink-faint` on `--paper` — micro-labels | 7.09:1 | PASS (needs 4.5) |
-| `--ink-faint` on `--paper-raised` — on cards | 6.36:1 | PASS (needs 4.5) |
-| `--ink-faint` on `--paper-sunken` — on recesses | 7.39:1 | PASS (needs 4.5) |
-| `--accent-ink` on `--paper` — small accent text | 7.71:1 | PASS (needs 4.5) |
-| `--accent` on `--paper` — display accent | 4.74:1 | PASS (needs 3, large only) |
-| `--on-accent` on `--accent` — text on accent fill | 4.91:1 | PASS (needs 4.5) |
-| `--danger` on `--paper-raised` — form errors | 7.08:1 | PASS (needs 4.5) |
-
-Both tables are generated by `npm run check:contrast`, which parses the token
-values straight out of `styles.css` rather than keeping a second copy of the
-palette. Run it after touching any colour. It reproduces the light table above
-exactly, which is what makes it trustworthy for the dark one.
-
-The AR layer is exempt. It overlays a camera feed and is dark in both themes by
-design — see §7.
+The two dark blocks (`[data-theme="dark"]` and the `prefers-color-scheme`
+query) hold identical values. They had drifted apart before, and the system
+one had no focus ring at all.
 
 ---
 
 ## 4. Typography
 
-Two families, loaded as one request from Google Fonts.
+**Geist Sans** for everything, **Geist Mono** for figures and micro-labels.
+Both are self-hosted through `next/font` (the `geist` package): no request to
+a font CDN, and fallback metrics adjusted so nothing jumps when they load.
 
-| Role | Face | Setting |
-| --- | --- | --- |
-| Display and UI | **DM Sans** | 700 for headings at `-0.03em` to `-0.05em`; 400/500 for prose. |
-| Data and labels | **DM Mono** | 400/500. Every number a person might compare — prices, dimensions, measurements, stats — and every micro-label. |
-
-**The micro-label rule.** Eyebrows, store names, table headers, filter labels,
-tray labels and status chips are all one recurring thing: DM Mono, `0.625rem`,
-`0.14em` tracking, uppercase, `--ink-faint`. It is the interface's connective
-voice and the main reason the page reads as one system. It is defined once as a
-shared selector list, not re-declared per component.
-
-Headings are fluid: `clamp(2.6rem, 8.5vw, 5.25rem)` for the hero,
-`clamp(1.75rem, 4vw, 2.6rem)` for section titles. Body is `0.9375rem/1.55`.
-
-Numbers set in mono must never be re-set in the sans — a price in DM Sans in one
-place and DM Mono in another is the fastest way to make the product look
-assembled by different people.
+- Display: tight tracking (`-0.05em`), leading near 1, `text-wrap: balance`.
+  A hero headline is two lines, never three.
+- Body: 1.0625 to 1.125rem, `--ink-muted`, max ~65ch, `text-wrap: pretty`.
+- Micro-labels: Geist Mono, `--micro`, uppercase, `.14em` tracking,
+  `--ink-faint`. Used for data labels, not above every heading.
 
 ---
 
-## 5. Space and structure
+## 5. Shape and space
 
-- Page gutter: `clamp(1.15rem, 5vw, 4.5rem)`. Max width: `1340px`.
-- Sections are separated by a **1px ink rule**, not by cards or colour.
-- Structural corners are square. Radius is `0` everywhere on the page. The only
-  curves in the product are the AR reticle and the place button, which are
-  round because they are camera instruments, not page furniture.
-- **One shadow exists:** `--hard`, a `5px 5px 0` ink offset with no blur. It
-  appears on hover for buttons and cards, and on dialogs. There are no blurred
-  shadows anywhere.
-- Grids that always fill their columns (planner steps, dimension cells,
-  conditions) may use the shared-hairline trick — a 1px gap over a ruled
-  container. Grids with a variable item count (catalog, inventory stats) must
-  use real gaps and bordered items, or a half-empty row shows the container
-  colour as a slab.
+One radius system, and it is followed everywhere:
+
+| Thing | Radius |
+| --- | --- |
+| Anything you press to go somewhere (capsules, buttons, the header island) | pill |
+| Frames: outer shell / inner core | `--radius-lg` 28px / 22px (shell minus its 6px padding) |
+| Panels, spec strips, the shop card | `--radius` 16px |
+| Inputs | `--radius-sm` 10px |
+
+Shadows are soft and tinted toward the slate (`--hard`, `--hard-sm`), never
+black on a light page. Sections breathe: landing sections are at least 70svh
+or carry generous vertical padding; the catalogue is denser by design.
+
+The primary action on a landing page ends in its own arrow circle
+(`app/CtaArrow.js`, a Phosphor icon), flush with the pill's inner edge. It
+shrinks inside compact `.button`s so a row keeps one height.
 
 ---
 
 ## 6. Motion
 
-Three durations, three curves. Nothing else.
+Motion only says something: an element arriving, a press, a state change.
 
-| Token | Value | Use |
-| --- | --- | --- |
-| `--dur-press` | `90ms` | The press itself. |
-| `--dur-fast` | `150ms` | Hover, colour, border changes. |
-| `--dur-base` | `220ms` | Dialogs, view changes, toast, the AR layer. |
-| `--ease-out` | `cubic-bezier(.22, 1, .36, 1)` | Everything entering. Lands softly. |
-| `--ease-in` | `cubic-bezier(.4, 0, 1, 1)` | Everything leaving. Gets out of the way. |
-| `--ease-pop` | `cubic-bezier(.34, 1.4, .64, 1)` | A hair of overshoot. Presses and the toast only. |
-
-**Rules:**
-
-1. **Animate `transform` and `opacity` only.** They stay on the compositor, so
-   nothing reflows mid-gesture. Never animate width, height, top or margin.
-2. **Enter out, leave in.** Entrances use `--ease-out`, exits `--ease-in`. A
-   dialog that leaves on the same curve it arrived on feels sticky.
-3. **Move a little.** Dialogs travel 8px and scale 2%. Views rise 6px. Enough to
-   read as motion, small enough that nothing jumps.
-4. **Sequence sparingly.** In the AR layer the camera fades first and the glass
-   panels follow 80ms later, so the view reads as camera first, controls
-   second. That is the only stagger in the product.
-5. **Reduced motion means no movement, not no feedback.** Under
-   `prefers-reduced-motion: reduce`, every transform and keyframe stops, but
-   colour, border and shadow changes stay, so nothing loses its state.
+- Scroll reveal (`app/RevealObserver.js`): one IntersectionObserver, a short
+  fade, lift and de-blur on a `cubic-bezier(.32, .72, 0, 1)` curve, once. It
+  does nothing under reduced motion and is always shown in print.
+- Hover: primary CTAs nudge their arrow up and right; product wells lift 3px.
+- The home page's 3D room renders only while its own layer is on screen.
+- Only `transform`, `opacity` and `filter` animate. Everything collapses to
+  static under `prefers-reduced-motion`.
 
 ---
 
 ## 7. Surfaces
 
-| Surface | Treatment |
-| --- | --- |
-| On the page | `--paper-raised`, 1px `--rule` border, square, no shadow. |
-| Floating (light) | `--glass` at 68% with `blur(20px) saturate(165%)`, a `--glass-line` border. Header, dialogs, toast, AR badge, measure tags. |
-| Floating (over camera) | `--glass-dark` at 46% with `blur(18px) saturate(150%)`, `--glass-dark-line` border, `--glass-dark-text`. The whole AR layer. |
-| Inverted | `--ink` (footer) or `--deep` (verdict, portal) with `--paper` text. |
-
-The AR layer is the same system inverted over a live camera: square glass
-panels, mono tracked labels, the same durations and curves. It should never
-read as a different product.
+- **Header:** a frosted island on desktop, detached from the edges; its height
+  plus its top gap equal `--header-h`, so every offset built on that token is
+  unchanged. On phones it is a full-width bar with the bottom navigation.
+- **Footer:** the forest band in both themes. The build version is a
+  `data-build` attribute, not visible text.
+- **Alerts, dialogs, the AR layer:** frosted, because they float.
 
 ---
 
 ## 8. Voice
 
-Short, factual, specific. The interface states what is true and what to do
+Short, factual, specific. No em-dashes in anything a shopper reads on the
+home, catalogue or product pages: two sentences, a comma or a colon instead. The interface states what is true and what to do
 next, and stops.
 
 **Do:** "Flat surface found. Tap to place." · "Readings differ by 8%. Scan
