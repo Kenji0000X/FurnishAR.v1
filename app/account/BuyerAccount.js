@@ -3,8 +3,9 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import { initBackend, usingSupabase, supabase, backendReason } from '../portal/backend.js';
-import { flashSuccess, flashInfo, flashError } from '../../lib/flash.js';
+import { initBackend, usingSupabase, supabase, backendReason, backendOutage } from '../portal/backend.js';
+import useAlert from '../alerts/useAlert.js';
+import { noticeExpiredSession } from '../alerts/sessionExpiry.js';
 
 /**
  * The shopper's own page — the buyer half of what /portal is for an owner.
@@ -24,24 +25,30 @@ const MUNICIPALITY_HINT = 'Used to show you the shops nearest you as more join.'
 
 export default function BuyerAccount() {
   const router = useRouter();
-  const [state, setState] = useState('loading'); // loading | offline | guest | wrong-door | ready
+  const [state, setState] = useState('loading'); // loading | offline | unreachable | guest | wrong-door | ready
   const [reason, setReason] = useState('');
   const [profile, setProfile] = useState(null);
   const [towns, setTowns] = useState([]);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState('');
-  const [error, setError] = useState('');
+  const alert = useAlert();
 
   const verify = useCallback(async () => {
     await initBackend();
     if (!usingSupabase()) {
+      /* Configured but not answering is an outage, not a site without
+         accounts — and not a reason to show the sign-in form. */
+      if (backendOutage()) { setState('unreachable'); return; }
       setReason(backendReason() || 'No database is connected.');
       setState('offline');
       return;
     }
     const sb = supabase();
     const role = await sb.myRole();
-    if (role === 'guest') { setState('guest'); return; }
+    if (role === 'guest') {
+      await noticeExpiredSession(sb, '/account');
+      setState('guest');
+      return;
+    }
     if (role !== 'buyer') { setState('wrong-door'); return; }
 
     const [row, list] = await Promise.all([
@@ -55,7 +62,8 @@ export default function BuyerAccount() {
 
   useEffect(() => {
     let alive = true;
-    verify().catch(() => { if (alive) setState('guest'); });
+    /* A question the server did not answer is not "you are signed out". */
+    verify().catch(() => { if (alive) setState('unreachable'); });
     return () => { alive = false; };
   }, [verify]);
 
@@ -72,32 +80,33 @@ export default function BuyerAccount() {
     event.preventDefault();
     const values = Object.fromEntries(new FormData(event.currentTarget));
     setBusy(true);
-    setError('');
-    setNotice('');
     try {
       await supabase().updateBuyerProfile({
         fullName: String(values.fullName).trim(),
         municipality: String(values.municipality)
       });
       setProfile(await supabase().buyerProfile());
-      setNotice('Saved.');
-      setError('');
-      flashSuccess('Profile saved.');
+      /* Only after the server said yes — never optimistically. */
+      alert.raise('profile.saved');
     } catch (saveError) {
-      const message = saveError.message || 'Could not save your profile.';
-      setError(message);
-      setNotice('');
-      flashError(message);
+      /* The whole save failed, so it is a global alert; the fields
+         themselves are checked natively (required, minLength) before this
+         ever runs. The server's own wording goes to the console, not the
+         screen — a constraint name is not a sentence. */
+      console.warn('[FurnishAR] profile save failed:', saveError?.message);
+      if (saveError instanceof TypeError) alert.fromError(saveError);   // the network, not the save
+      else alert.raise('profile.save-failed');
     } finally {
       setBusy(false);
     }
   }
 
   async function handleSignOut() {
-    try { await supabase().signOut(); } catch { /* already gone */ }
+    let revoked = true;
+    try { await supabase().signOut(); } catch { revoked = false; }
     /* Thrown away rather than hidden — the same rule as the console. */
     setProfile(null);
-    flashInfo('Signed out successfully.');
+    alert.raise(revoked ? 'auth.signed-out' : 'auth.sign-out-failed');
     router.push('/');
   }
 
@@ -111,6 +120,24 @@ export default function BuyerAccount() {
           <h1>Accounts need the database.</h1>
           <p className="demo-note">{reason}</p>
           <p className="demo-note"><Link href="/collection">Browse the catalogue</Link> instead.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (state === 'unreachable') {
+    return (
+      <div className="login-panel">
+        <div className="login-copy" role="alert">
+          <span className="secure-mark" aria-hidden="true">⌑</span>
+          <h1 id="account-title">Your account can&rsquo;t be reached right now.</h1>
+          <p>Connection failed. Check your internet connection and try again.</p>
+        </div>
+        <div className="panel-actions">
+          <button className="button button-primary" type="button" onClick={() => window.location.reload()}>
+            Try again
+          </button>
+          <Link className="button" href="/collection">Browse the catalogue</Link>
         </div>
       </div>
     );
@@ -168,8 +195,6 @@ export default function BuyerAccount() {
         </p>
       </section>
 
-      {notice && <p className="status-banner status-banner-success" role="status">{notice}</p>}
-
       <div className="account-grid">
         <section className="plan-section" aria-labelledby="details-title">
           <div className="section-heading">
@@ -195,7 +220,6 @@ export default function BuyerAccount() {
             <button className="button button-primary" type="submit" disabled={busy}>
               {busy ? 'Saving…' : 'Save changes'}
             </button>
-            <p className="form-error" role="alert" aria-live="assertive">{error}</p>
           </form>
         </section>
 

@@ -207,9 +207,11 @@ console.log('--- the planner asks who you are ---');
      and then have it taken away. */
   check('and the planner itself is not rendered behind the panel',
     await page.locator('.planner-view .product-grid, .measure-surface').count() === 0);
+  /* Compared decoded: `next` is URL-encoded so a query inside it
+     (?product=…) survives the trip instead of being split off. */
+  const wayIn = await page.getAttribute('.panel-actions a.button-primary', 'href');
   check('the way in carries where you were going',
-    (await page.getAttribute('.panel-actions a.button-primary', 'href')) === '/login?as=buyer&next=/plan',
-    await page.getAttribute('.panel-actions a.button-primary', 'href'));
+    decodeURIComponent(wayIn || '') === '/login?as=buyer&next=/plan', wayIn);
   await page.close();
 }
 

@@ -11,6 +11,7 @@ import BottomNav from './BottomNav.js';
 import ScrollProgress from './ScrollProgress.js';
 import PageTools from './PageTools.js';
 import CookieNotice from './CookieNotice.js';
+import AlertContainer from './alerts/AlertContainer.js';
 import FlashBanner from './FlashBanner.js';
 
 export const metadata = {
@@ -99,6 +100,11 @@ export default function RootLayout({ children }) {
         <ChromeGate><BottomNav /></ChromeGate>
         <PageTools />
         <CookieNotice />
+        {/* The one place notifications are drawn — every page, the portal,
+            the console and the planner all raise through lib/alerts/store.mjs
+            and land here. Last in the body so it paints above everything,
+            including the full-screen AR layer. */}
+        <AlertContainer />
       </body>
     </html>
   );

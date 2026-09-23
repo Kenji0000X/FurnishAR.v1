@@ -4,9 +4,10 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { initBackend, usingSupabase, supabase, backendReason } from '../portal/backend.js';
-import { consumeAuthIntent, peekAuthIntent, saveAuthIntent } from '../../lib/auth-intent.js';
-import { flashSuccess, flashError, consumeFlash } from '../../lib/flash.js';
+import { consumeAuthIntent, peekAuthIntent } from '../../lib/auth-intent.js';
+import { flashSuccess } from '../../lib/flash.js';
 import PasswordField from '../PasswordField.js';
+import useAlert from '../alerts/useAlert.js';
 
 /**
  * One door, two kinds of person behind it.
@@ -34,6 +35,10 @@ function safeNext(value) {
      phishing link borrows your domain: ?next=https://evil.example would send
      someone who just typed their password to somebody else's copy of it. */
   if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')) return null;
+  /* A browser reads "\" as "/" and silently drops tabs and newlines, so
+     "/\evil.example" and "/<tab>/evil.example" both become "//evil.example"
+     — another site — while passing the check above. */
+  if (/[\\\u0000-\u001f\u007f]/.test(value)) return null;
   return value;
 }
 
@@ -41,27 +46,28 @@ export default function LoginChooser() {
   const router = useRouter();
   const params = useSearchParams();
   const as = params.get('as');
+  /* Where to go afterwards: ?next= when the way in carried it, else what
+     this tab remembered when it was sent to sign in (lib/auth-intent.js) —
+     so a sign-in reached from the header still returns to the piece. Both
+     pass the same safeNext() check. */
   const nextFromQuery = safeNext(params.get('next'));
   const rememberedNext = safeNext(peekAuthIntent());
   const next = nextFromQuery || rememberedNext;
 
+  const alert = useAlert();
   const [ready, setReady] = useState(false);
   const [offline, setOffline] = useState('');
-  const [mode, setMode] = useState('signin'); // signin | signup
+  /* "Create account" from the 3D gate arrives with ?mode=signup, so it opens
+     on the right tab instead of making someone find it. */
+  const [mode, setMode] = useState(params.get('mode') === 'signup' ? 'signup' : 'signin');
   const [towns, setTowns] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  /* Progress only — "Signing you in…" while it happens. Outcomes are not
+     notices: a failure is the inline error beside the form, a success is an
+     alert (it outlives this page). One event, one message. */
   const [notice, setNotice] = useState('');
-  const [noticeType, setNoticeType] = useState('info');
   const [sent, setSent] = useState('');
-
-  useEffect(() => {
-    const flash = consumeFlash();
-    if (flash) {
-      setNotice(flash.message);
-      setNoticeType(flash.type || 'info');
-    }
-  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -80,22 +86,20 @@ export default function LoginChooser() {
       const role = await supabase().myRole().catch(() => 'guest');
       if (!alive) return;
       if (role === 'buyer') {
-        const target = next || '/account';
-        saveAuthIntent(target);
+        /* Used now, so forgotten now: saving it again would send every later
+           visit to /login back to this same page. */
+        consumeAuthIntent();
         setNotice('Welcome back. Redirecting to your account…');
-        setNoticeType('info');
-        router.replace(target);
+        router.replace(next || '/account');
         return;
       }
       if (role === 'owner' || role === 'pending') {
         setNotice('Opening your store portal…');
-        setNoticeType('info');
         router.replace('/portal');
         return;
       }
       if (role === 'admin') {
         setNotice('Opening the platform console…');
-        setNoticeType('info');
         router.replace('/admin');
         return;
       }
@@ -112,15 +116,15 @@ export default function LoginChooser() {
     const query = new URLSearchParams();
     query.set('as', value);
     if (next) query.set('next', next);
+    if (params.get('mode') === 'signup') query.set('mode', 'signup');
     router.push(`/login?${query}`);
-  }, [router, next]);
+  }, [router, next, params]);
 
   async function handleSignIn(event) {
     event.preventDefault();
     const values = Object.fromEntries(new FormData(event.currentTarget));
     setError('');
     setNotice('Signing you in…');
-    setNoticeType('info');
     setBusy(true);
     try {
       await supabase().signIn({
@@ -130,17 +134,21 @@ export default function LoginChooser() {
          button they pressed. Someone who runs a store and clicked "I'm
          shopping" should land in their portal, not in a shopper's account
          page that has nothing in it. */
-      const role = await supabase().myRole();
+      /* Signed in either way; if the role could not be asked, the buyer
+         default below is where most accounts belong. */
+      const role = await supabase().myRole().catch(() => null);
+      /* Confirmed through the one notification system — the page is about to
+         change, so an inline "signed in" would vanish with it. Failures stay
+         inline, beside the form they are about: one event, one message. */
+      alert.raise('auth.signed-in');
       if (role === 'admin') router.push('/admin');
       else if (role === 'owner' || role === 'pending') router.push('/portal');
       else {
-        const target = next || consumeAuthIntent() || '/account';
-        saveAuthIntent(target);
-        router.push(target);
+        consumeAuthIntent();
+        router.push(next || '/account');
       }
     } catch (signInError) {
-      setNotice('Sign-in failed. Please check your email and password.');
-      setNoticeType('error');
+      setNotice('');
       setError(signInError.message);
       setBusy(false);
     }
@@ -151,7 +159,6 @@ export default function LoginChooser() {
     const values = Object.fromEntries(new FormData(event.currentTarget));
     setError('');
     setNotice('Creating your account…');
-    setNoticeType('info');
     setBusy(true);
     try {
       const result = await supabase().signUpBuyer({
@@ -160,23 +167,17 @@ export default function LoginChooser() {
         fullName: String(values.fullName).trim(),
         municipality: String(values.municipality)
       });
+      setNotice('');
       if (result.needsEmailConfirmation) {
-        setNotice('Account created. Check your email to confirm it.');
-        setNoticeType('success');
         flashSuccess('Account created. Check your email to confirm it.');
         setSent(String(values.email));
       } else {
-        const target = next || consumeAuthIntent() || '/account';
-        saveAuthIntent(target);
-        setNotice('Account created. Redirecting to your planner…');
-        setNoticeType('success');
-        flashSuccess('Account created. Redirecting to your planner…');
-        router.push(target);
+        consumeAuthIntent();
+        alert.raise('auth.signed-up');
+        router.push(next || '/account');
       }
     } catch (signUpError) {
-      setNotice('Account creation was interrupted. Please try again.');
-      setNoticeType('error');
-      flashError('Account creation was interrupted. Please try again.');
+      setNotice('');
       setError(signUpError.message);
     } finally {
       setBusy(false);
@@ -250,7 +251,6 @@ export default function LoginChooser() {
   if (sent) {
     return (
       <div className="login-panel">
-        {notice && <div className={`status-banner status-banner-${noticeType}`} role="status" aria-live="polite"><span className="loading-spinner" aria-hidden="true" />{notice}</div>}
         <div className="login-copy">
           <span className="secure-mark" aria-hidden="true">⌑</span>
           <h1>Check your email.</h1>

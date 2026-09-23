@@ -34,19 +34,30 @@ export async function initBackend() {
     // closed" and "the database is misconfigured" need different responses
     // from whoever runs the site.
     let reason = error?.message;
+    let outage = false;
     try {
       const module = await import('../../public/supabase.js');
+      /* An outage is a configured database that did not answer, or no
+         network — not a deployment without one, and not a rejected key
+         (a configuration problem a retry cannot fix). */
+      outage = Boolean(module.isOutage?.());
       reason = module.unavailable?.() || reason;
     } catch { /* module itself failed to load */ }
     console.warn('[FurnishAR] database unavailable, using the bundled catalogue:', reason);
     sb = null;
-    resolved = { kind: 'local', reason };
+    resolved = { kind: 'local', reason, outage };
   }
   return resolved;
 }
 
 export const usingSupabase = () => resolved?.kind === 'supabase' && Boolean(sb);
 export const supabase = () => sb;
+/**
+ * True when a database is configured but could not be reached. Different from
+ * "no database": that deployment has no accounts, so nothing is gated; this
+ * one does, and must not open what it cannot check.
+ */
+export const backendOutage = () => Boolean(resolved?.outage);
 /** Why the database is not in use, when it is not. */
 export const backendReason = () => resolved?.reason || null;
 

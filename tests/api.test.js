@@ -60,9 +60,22 @@ test('catalog products with a GLB carry AR bounds and the file is served', async
     assert.ok(product.modelBounds.width > 0);
     assert.ok(product.modelBounds.height > 0);
     assert.ok(product.modelBounds.depth > 0);
+    /* Whether the file itself is handed out depends on whether a database is
+       configured, and both answers are asserted — not skipped.
+       Bundled models moved out of /public to data/models: with a database,
+       products are protected by 0007 and a product model must never be a
+       plain download, even when the database is momentarily unreachable and
+       the catalogue has fallen back to the bundled copy (fail closed). With
+       no database at all there are no accounts to require, so the offline
+       demo serves it. The server decides with this same isConfigured(). */
     const asset = await fetch(`http://127.0.0.1:${port}/${product.modelGlb}`);
-    assert.equal(asset.status, 200, `${product.modelGlb} should be served`);
-    assert.equal(asset.headers.get('content-type'), 'model/gltf-binary');
+    if (require('../lib/supabase-proxy.js').isConfigured()) {
+      assert.equal(asset.status, 404,
+        `${product.modelGlb} must not be a plain download on a deployment with a database`);
+    } else {
+      assert.equal(asset.status, 200, `${product.modelGlb} should be served in offline demo mode`);
+      assert.equal(asset.headers.get('content-type'), 'model/gltf-binary');
+    }
   }
 });
 

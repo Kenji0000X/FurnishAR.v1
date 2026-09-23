@@ -13,7 +13,7 @@
       Emphasis is a hard offset block, never a blur. Labels are mono, upper
       case, tracked out.
    3. GLASSMORPHISM is reserved for the z-axis. Only surfaces that float ABOVE
-      content are frosted: the sticky header, dialogs, the toast, badges and
+      content are frosted: the sticky header, dialogs, notifications, badges and
       the AR layer. If it is frosted, it is floating. If it is flat, it is
       part of the page.
    =========================================================================== */
@@ -114,12 +114,12 @@
   /* MOTION
      Three durations and three curves, no more. Enter with --ease-out so the
      movement lands softly; leave with --ease-in so it gets out of the way.
-     --ease-pop overshoots by a hair and is only for presses and the toast.
+     --ease-pop overshoots by a hair and is only for presses.
      Only transform and opacity are ever animated: they stay on the
      compositor, so nothing reflows mid-gesture. */
   --dur-press: 90ms;
   --dur-fast: 150ms;   /* hovers, colour changes */
-  --dur-base: 220ms;   /* dialogs, view changes, toast */
+  --dur-base: 220ms;   /* dialogs, view changes, notifications */
   --ease-out: cubic-bezier(.22, 1, .36, 1);
   --ease-in: cubic-bezier(.4, 0, 1, 1);
   --ease-pop: cubic-bezier(.34, 1.4, .64, 1);
@@ -140,6 +140,11 @@
      on .verification-ok, which is a dark green that disappears on a dark
      surface. */
   --ok: #276749;
+  /* Amber for "look at this" — warnings in the notification system. Its own
+     token rather than borrowing --accent, which is the brand, not a status:
+     a warning painted in the accent reads as a highlight, not a caution.
+     6.3:1 on --paper-raised; see check-contrast. */
+  --warn: #8a5300;
   --on-deep: #eef2ef;      /* text on the --deep block — 12.1:1 on it */
   /* Secondary prose on the deep block. This used to be written inline as
      rgba(238,242,239,.82), which no contrast checker can read: a composited
@@ -232,6 +237,7 @@
   --glass-line: rgba(238, 242, 239, .14);
 
   --ok: #6dd39b;
+  --warn: #e8b95c;
   --danger: #ff8a70;
   --on-deep: #eef2ef;
   --on-ink-accent: #7a5439;   /* --ink inverts, so this one does too */
@@ -266,6 +272,7 @@
     --glass-line: rgba(243, 239, 233, .14);
 
     --ok: #6dd39b;
+    --warn: #e8b95c;
     --danger: #ff8a70;
     --on-deep: #eef2ef;
     --on-ink-accent: #7a5439;
@@ -2209,6 +2216,17 @@ footer {
 .viewer-overlay b { color: var(--ink); }
 .viewer-note { max-width: 26rem; font-size: .8125rem; }
 .viewer-overlay .button { justify-self: center; margin-top: .4rem; }
+/* The signed-out viewer's two ways in. Side by side even on a phone: the
+   stage is a fixed 4:3 box, and stacking them would push the second one
+   out of it on a 320px screen. */
+.viewer-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: .5rem; }
+.viewer-actions .button { margin-top: 0; }
+@media (max-width: 30rem) {
+  .viewer-overlay { padding: 1rem; gap: .45rem; }
+  /* Narrower pills so both fit one row inside a 288px stage; the height,
+     the part a thumb needs, is untouched. */
+  .viewer-actions .button { padding-inline: 1rem; }
+}
 
 /* A skeleton in the shape of the thing that is coming, not a spinner: it
    says "a picture is arriving here" rather than "something is happening". */
@@ -2327,32 +2345,11 @@ footer {
 }
 .model-preview-ok { width: 6px; height: 6px; background: var(--ok); }
 
-/* -------------------------------------------------------------- toast ---- */
+/* The old bottom-of-screen .toast lived here. Every notification now goes
+   through lib/alerts/store.mjs and is drawn by .alert-region (end of file). */
 
-.toast {
-  position: fixed; z-index: 80; left: 50%; bottom: 1.2rem;
-  max-width: calc(100% - 2rem);
-  transform: translate(-50%, 200%);
-  padding: .7rem 1rem;
-  border: 1px solid var(--rule-strong);
-  background: rgba(251, 250, 247, .92);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  box-shadow: var(--hard-sm);
-  font-size: .75rem;
-  opacity: 0; visibility: hidden;
-  transition:
-    transform var(--dur-base) var(--ease-in),
-    opacity var(--dur-fast) var(--ease-in),
-    visibility 0s linear var(--dur-base);
-}
-.toast.show {
-  transform: translate(-50%, 0); opacity: 1; visibility: visible;
-  transition:
-    transform var(--dur-base) var(--ease-pop),
-    opacity var(--dur-fast) var(--ease-out),
-    visibility 0s;
-}
+/* In-panel progress ("Signing you in…") on the sign-in page. Progress only:
+   outcomes go to the alert region, failures sit beside their form. */
 .status-banner {
   display: flex; align-items: center; gap: .55rem;
   grid-column: 1 / -1;
@@ -2380,6 +2377,10 @@ footer {
 }
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* The words already say it is working; the ring stays, still. */
+  .loading-spinner { animation: none; }
 }
 
 /* ===========================================================================
@@ -2949,7 +2950,7 @@ body:has(.cookie-notice):not(:has(.bottom-nav)) {
   /* Anything pinned to the viewport prints on top of the content, usually on
      page one, and the rest are controls that do nothing on paper. */
   .site-header, .scroll-progress, .page-tools, .cookie-notice, .skip-link,
-  .filters, .toast, .theme-toggle, .nav-toggle, .product-actions,
+  .filters, .theme-toggle, .nav-toggle, .product-actions,
   .dialog-close, .ar-layer { display: none !important; }
 
   body { background: #fff; color: #000; font-size: 11pt; }
@@ -3177,7 +3178,6 @@ body:has(.cookie-notice):not(:has(.bottom-nav)) {
      has; each is lifted by the bar's height. */
   .cookie-notice { bottom: calc(5.6rem + env(safe-area-inset-bottom)); }
   .back-to-top { bottom: calc(5.6rem + env(safe-area-inset-bottom)); }
-  .toast { bottom: calc(5.6rem + env(safe-area-inset-bottom)); }
   /* Except in AR, which is full-screen and has its own controls. */
   body:has(.ar-layer) .bottom-nav { display: none; }
 }
@@ -3868,6 +3868,10 @@ body:has(.cookie-notice):not(:has(.bottom-nav)) {
 }
 .ms-tip { top: .75rem; }
 .ms-toast { top: 3.4rem; background: rgba(242, 193, 78, .92); color: #1b1206; font-weight: 600; }
+/* Always in the DOM now, so its live region exists before its text changes;
+   hidden when empty. Explicit, because any later display rule would beat the
+   hidden attribute and leave an empty amber bar across the camera. */
+.ms-toast[hidden] { display: none; }
 .ms-anchor-warn {
   bottom: 10.5rem; font-size: .6875rem; letter-spacing: .02em;
   background: rgba(12, 10, 8, .55); color: #cfc6b6;
@@ -4470,3 +4474,115 @@ body:has(.cookie-notice):not(:has(.bottom-nav)) {
   font-family: var(--sans); font-size: .75rem; line-height: 1.45;
   letter-spacing: normal; text-transform: none; color: var(--ink-muted);
 }
+
+/* ===================================================================
+   Notifications — the one renderer for lib/alerts/store.mjs.
+
+   Floating, so it follows the floating-chrome rule (BRAND.md §7): a solid
+   floor first, blur as decoration on top, so the text is legible whether
+   or not backdrop-filter does anything on this device. Identity is carried
+   by the icon AND the title text, never by colour alone — and there is no
+   thick coloured side-border, which is the default alert look this refuses.
+   =================================================================== */
+.alert-region {
+  position: fixed; z-index: 95;
+  top: calc(var(--header-h) + .75rem); right: var(--gutter);
+  width: min(24rem, calc(100vw - 2rem));
+  display: flex; flex-direction: column; gap: .5rem;
+  /* The region is a column of cards, not a sheet: clicks between and around
+     cards fall through to the page underneath. */
+  pointer-events: none;
+}
+.alert-stack { display: flex; flex-direction: column; gap: .5rem; }
+.alert-stack:empty { display: none; }
+
+.alert {
+  pointer-events: auto;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start; gap: .7rem;
+  padding: .8rem .8rem .8rem .9rem;
+  border: 1px solid var(--rule-strong); border-radius: 14px;
+  background: var(--paper-raised);
+  background: color-mix(in srgb, var(--paper-raised) 97%, transparent);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--hard-sm);
+  color: var(--ink);
+  animation: alert-in var(--dur-base) var(--ease-out) both;
+}
+.alert.is-leaving { animation: alert-out 180ms var(--ease-in) both; }
+@keyframes alert-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes alert-out {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translateY(-4px); }
+}
+
+.alert-icon { display: flex; padding-top: .1rem; }
+.alert.is-success .alert-icon { color: var(--ok); }
+.alert.is-error   .alert-icon { color: var(--danger); }
+.alert.is-warning .alert-icon { color: var(--warn); }
+.alert.is-info    .alert-icon { color: var(--accent-ink); }
+
+.alert-title { display: block; font-size: .8125rem; font-weight: 600; line-height: 1.35; }
+.alert-message {
+  margin: .15rem 0 0; font-size: .8125rem; line-height: 1.5; color: var(--ink-muted);
+  overflow-wrap: anywhere;
+}
+.alert-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .6rem; }
+.alert-action {
+  display: inline-flex; align-items: center; min-height: 36px; padding: 0 .8rem;
+  border: 1px solid var(--rule-strong); border-radius: 999px;
+  background: transparent; color: var(--ink);
+  font: inherit; font-size: .75rem; font-weight: 600; text-decoration: none; cursor: pointer;
+}
+.alert-action:first-child { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.alert-close {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; margin: -.3rem -.3rem 0 0;
+  border: 0; border-radius: 8px; background: transparent; color: var(--ink-muted); cursor: pointer;
+}
+.alert-close:hover { background: var(--paper-sunken, rgba(0,0,0,.05)); color: var(--ink); }
+
+/* A thumb, not a cursor: the controls grow to the contract's 44px. */
+@media (pointer: coarse) {
+  .alert-action { min-height: var(--tap); }
+  .alert-close { width: var(--tap); height: var(--tap); }
+}
+
+/* Phones: across the top, clear of the bottom bar, inside the notch. */
+@media (max-width: 760px) {
+  .alert-region {
+    left: .75rem; right: .75rem; width: auto;
+    top: calc(var(--header-h) + env(safe-area-inset-top) + .5rem);
+  }
+}
+
+/* Over the camera the AR layer is dark in both themes (BRAND.md §3), so an
+   alert there wears the AR glass and the AR status colours instead of the
+   page's — and sits right at the top, where it covers sky, not the floor
+   the person is trying to measure. */
+body:has(.ar-layer) .alert-region {
+  top: calc(env(safe-area-inset-top) + .6rem);
+}
+body:has(.ar-layer) .alert {
+  background: var(--glass-dark); border-color: var(--glass-dark-line);
+  color: var(--glass-dark-text);
+}
+body:has(.ar-layer) .alert-message { color: var(--glass-dark-text); opacity: .86; }
+body:has(.ar-layer) .alert.is-success .alert-icon { color: var(--ar-ok); }
+body:has(.ar-layer) .alert.is-warning .alert-icon,
+body:has(.ar-layer) .alert.is-info .alert-icon { color: var(--ar-warn); }
+body:has(.ar-layer) .alert.is-error .alert-icon { color: var(--ar-alert); }
+
+/* Travel removed, the fade kept — so a dismissed alert still visibly leaves
+   rather than blinking out (BRAND.md §6: remove the motion, keep the end
+   state and the information). */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes alert-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes alert-out { from { opacity: 1; } to { opacity: 0; } }
+}
+
+@media print { .alert-region { display: none; } }

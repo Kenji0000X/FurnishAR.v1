@@ -1,5 +1,23 @@
 # FurnishAR alert / notification audit
 
+> **Merged state.** This audit was written alongside a second, parallel
+> alert system (`lib/alerts` + `AlertContainer`). The two were merged into
+> one so that no event is announced twice:
+>
+> - `lib/alerts/store.mjs` is the one store; `app/alerts/AlertContainer.js`
+>   is the one place alerts are drawn (two live regions: polite and assertive).
+> - `lib/flash.js` keeps its API (`flashSuccess`, `flashError`, `flashInfo`)
+>   and still survives a full page load. `app/FlashBanner.js` no longer
+>   draws a banner; it hands each flash to the alert store. It also clears
+>   a flash raised on the current page, which previously reappeared on the
+>   next load.
+> - Where a page raised both a flash and a toast for the same event, one
+>   was kept. Validation errors stay beside their form, as recommended below.
+> - `.status-banner` remains for in-panel *progress* on the sign-in page
+>   ("Signing you in…"); outcomes go to the alert region.
+>
+> See docs/system-flow.md §10 for the notification flow.
+
 | FILE / COMPONENT | CURRENT BEHAVIOR | PROBLEM | RECOMMENDED CHANGE | IMPACT |
 | --- | --- | --- | --- | --- |
 | app/layout.js | Global shell renders header, footer, page content, and cookie notice. | No centralized alert container existed at the app shell. | Add one shared notification area at the top-level layout. | Makes every page share the same alert surface. |

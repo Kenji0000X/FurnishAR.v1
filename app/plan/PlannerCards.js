@@ -326,8 +326,9 @@ function PlannerBody({ products }) {
         </div>
       </section>
 
-      {/* The engine shows messages here, exactly as before. */}
-      <div id="toast" className="toast" role="status" aria-live="polite" />
+      {/* The engine's own toast element used to live here. Its messages now
+          go through lib/alerts/store.mjs and are drawn by the site's single
+          AlertContainer, so there is one live region for them, not two. */}
 
       {measuring && (
         <Suspense fallback={<p className="ar-status">Opening the measuring tools…</p>}>

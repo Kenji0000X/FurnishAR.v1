@@ -2,6 +2,14 @@
 const nextConfig = {
   reactStrictMode: true,
 
+  // The demo catalogue's 3D model lives in data/models, which is not served
+  // statically (it used to be in /public, where it was a download for
+  // anyone). The route that serves it in database-less demo mode reads it
+  // from disk, so it has to be traced into that function's bundle.
+  outputFileTracingIncludes: {
+    '/api/demo-model/[name]': ['./data/models/**/*']
+  },
+
   // The AR engine reaches for `window`, `navigator.xr` and a WebGL context at
   // module scope. None of that exists while rendering on the server, so the
   // component that mounts it is loaded with `ssr: false` (see

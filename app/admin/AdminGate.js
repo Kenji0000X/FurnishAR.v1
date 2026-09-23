@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from 'rea
 import { initBackend, usingSupabase, supabase, backendReason } from '../portal/backend.js';
 import PasswordField from '../PasswordField.js';
 import AdminNav from './AdminNav.js';
+import { alerts } from '../alerts/useAlert.js';
 
 /**
  * One door for the whole console, and one copy of its data.
@@ -54,8 +55,6 @@ export default function AdminGate({ children }) {
   const [missingModels, setMissingModels] = useState([]);
   const [usage, setUsage] = useState([]);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState('');
-  const [error, setError] = useState('');
   const [loginError, setLoginError] = useState('');
   const [email, setEmail] = useState('');
 
@@ -182,7 +181,8 @@ export default function AdminGate({ children }) {
    * next person signed in, or if the page came back from the bfcache.
    */
   async function handleSignOut() {
-    try { await supabase().signOut(); } catch { /* already gone */ }
+    let revoked = true;
+    try { await supabase().signOut(); } catch { revoked = false; }
     setApplications([]);
     setStores([]);
     setAccounts({});
@@ -190,22 +190,25 @@ export default function AdminGate({ children }) {
     setModels([]);
     setMissingModels([]);
     setUsage([]);
-    setNotice('');
-    setError('');
     setEmail('');
     setLoginError('');
     setState('signin');
+    /* Said only once the session is really gone on this device. If the
+       server could not be told, say that too rather than a bare "signed
+       out" — the refresh token may still be live until it expires. */
+    alerts.raise(revoked ? 'auth.signed-out' : 'auth.sign-out-failed');
   }
 
   async function handleApprove(application, slug) {
     setBusy(true);
-    setError('');
     try {
       await supabase().approveApplication(application.id, slug);
-      setNotice(`${application.store_name} approved. They can sign in and publish now.`);
+      alerts.showSuccess(`${application.store_name} approved. They can sign in and publish now.`);
       await load();
     } catch (approveError) {
-      setError(approveError.message);
+      /* A refused approval stays until it is read — it usually means the
+         applicant cannot be approved yet, and that is worth not missing. */
+      alerts.showError(approveError.message, { priority: 'critical', title: 'Not approved' });
     } finally {
       setBusy(false);
     }
@@ -213,13 +216,12 @@ export default function AdminGate({ children }) {
 
   async function handleReject(application, note) {
     setBusy(true);
-    setError('');
     try {
       await supabase().rejectApplication(application.id, note);
-      setNotice(`${application.store_name} rejected.`);
+      alerts.showSuccess(`${application.store_name} rejected.`);
       await load();
     } catch (rejectError) {
-      setError(rejectError.message);
+      alerts.showError(rejectError.message, { priority: 'critical', title: 'Not rejected' });
     } finally {
       setBusy(false);
     }
@@ -299,7 +301,7 @@ export default function AdminGate({ children }) {
 
   const value = {
     applications, stores, accounts, audit, models, missingModels, usage,
-    busy, setBusy, notice, setNotice, error, setError, reload: load,
+    busy, setBusy, reload: load,
     onApprove: handleApprove, onReject: handleReject
   };
 
@@ -311,8 +313,6 @@ export default function AdminGate({ children }) {
           email={email}
           onSignOut={handleSignOut}
         />
-        {notice && <p className="form-error is-ok" role="status">{notice}</p>}
-        {error && <p className="form-error" role="alert">{error}</p>}
         {children}
       </div>
     </AdminContext.Provider>

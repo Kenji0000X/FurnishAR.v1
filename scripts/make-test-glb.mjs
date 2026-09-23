@@ -10,7 +10,7 @@
  * The body is padding, not real glTF chunks: these fixtures exercise upload
  * mechanics — progress, retries, size limits — and never parse the model.
  * A test that needs a model three.js can actually read should use the real
- * public/models/cane-back-armchair.glb instead.
+ * data/models/cane-back-armchair.glb instead.
  */
 export function makeTestGlb(totalBytes) {
   if (totalBytes < 12) throw new Error('a .glb is at least its 12-byte header');

@@ -5,9 +5,9 @@ import { initBackend, usingSupabase, supabase, backendReason, api, demoSession }
 import Link from 'next/link';
 import ProductFormDialog from './ProductFormDialog.js';
 import PasswordField from '../PasswordField.js';
+import useAlert from '../alerts/useAlert.js';
 import ConfirmDialog from '../ConfirmDialog.js';
 import { peso } from '../format.js';
-import { flashSuccess, flashInfo, flashError } from '../../lib/flash.js';
 
 const FREEMIUM_LIMIT = 8;
 
@@ -270,7 +270,6 @@ export default function Portal({ initialProducts }) {
   const [signupMessage, setSignupMessage] = useState(null);
   const [editing, setEditing] = useState(undefined); // undefined = closed
   const [pendingDelete, setPendingDelete] = useState(null); // product awaiting confirmation
-  const [notice, setNotice] = useState('');
   const [cooldown, setCooldown] = useState(0);       // seconds left after a 429
   // Whether to show a way through to the platform console. The server answers
   // this; it decides what to render and grants nothing on its own.
@@ -305,10 +304,13 @@ export default function Portal({ initialProducts }) {
 
   const startCooldown = seconds => setCooldown(Math.min(Math.ceil(seconds), 3600));
 
-  const toast = message => {
-    setNotice(message);
-    setTimeout(() => setNotice(''), 3400);
-  };
+  /* The portal's messages go through the site's one notification system.
+     This used to be a private toast — a state string, a timer and its own
+     <div> — which showed a FAILED delete in exactly the same neutral style as
+     a successful one. The type is now part of the call, so an error reads as
+     an error. */
+  const alert = useAlert();
+  const toast = (message, type = 'success') => alert.notify({ type, message });
 
   /** Reads whichever session exists and loads the store's own inventory. */
   const refreshSession = useCallback(async () => {
@@ -393,12 +395,11 @@ export default function Portal({ initialProducts }) {
         setSession({ token: response.token, user: response.user });
       }
       form.reset();
-      flashSuccess('Signed in successfully.');
       toast('Signed in.');
     } catch (error) {
       const message = error.message || 'Sign-in failed.';
+      /* Beside the form it is about — not also as an alert. */
       setLoginError(message);
-      flashError(message);
       // Sign-in is rate-limited by Supabase too, and had exactly the same
       // "[object Object]" problem on an empty error body.
       if (error.retryAfter) startCooldown(error.retryAfter);
@@ -455,12 +456,10 @@ export default function Portal({ initialProducts }) {
         email,
         needsEmailConfirmation: result.needsEmailConfirmation
       });
-      flashSuccess('Application received.');
       toast('Application received.');
     } catch (error) {
       const message = error.message || 'Account creation failed.';
       setSignupMessage({ ok: false, text: message });
-      flashError(message);
       // Supabase rate-limits sign-ups hard. Holding the button shut for the
       // stated interval is the difference between one 429 and four.
       if (error.retryAfter) startCooldown(error.retryAfter);
@@ -474,7 +473,6 @@ export default function Portal({ initialProducts }) {
     else demoSession.clear();
     setSession(null);
     setOwnProducts([]);
-    flashInfo('Signed out successfully.');
     toast('Signed out.');
   }
 
@@ -489,12 +487,9 @@ export default function Portal({ initialProducts }) {
       if (usingSupabase()) await supabase().deleteProduct(product.id);
       else await api(`/api/products/${product.id}`, { method: 'DELETE', token: session.token });
       await reloadInventory();
-      flashSuccess('Product deleted.');
       toast('Product deleted.');
     } catch (error) {
-      const message = error.message || 'Could not delete the product.';
-      flashError(message);
-      toast(message);
+      toast(error.message || 'Could not delete the product.', 'error');
     }
   }
 
@@ -730,7 +725,6 @@ export default function Portal({ initialProducts }) {
         />
       )}
 
-      {notice && <div className="toast show" role="status" aria-live="polite">{notice}</div>}
     </section>
   );
 }
