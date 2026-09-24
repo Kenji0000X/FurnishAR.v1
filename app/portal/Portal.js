@@ -7,6 +7,7 @@ import ProductFormDialog from './ProductFormDialog.js';
 import PasswordField from '../PasswordField.js';
 import useAlert from '../alerts/useAlert.js';
 import ConfirmDialog from '../ConfirmDialog.js';
+import { formatDimensions } from '../../lib/spatial/units.mjs';
 import { SquaresFour, Package, ShoppingBag, Receipt, Crown, Plus, ArrowRight, ArrowUpRight } from '@phosphor-icons/react/dist/ssr';
 import ConsoleShell, { ConsoleHeader, ConsoleSection, ConsoleCta } from '../console/ConsoleShell.js';
 
@@ -749,7 +750,7 @@ export default function Portal({ initialProducts }) {
                   </div>
                 </td>
                 <td data-label="Dimensions">
-                  {product.dimensions.width} × {product.dimensions.depth} × {product.dimensions.height} cm
+                  {formatDimensions(product.dimensions, 'cm')}
                 </td>
                 <td data-label="Price" className="num">{money(product.price)}</td>
                 <td data-label="In stock" className="num">{product.stock}</td>

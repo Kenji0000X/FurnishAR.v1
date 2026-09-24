@@ -189,10 +189,12 @@ async function launchAR(productId) {
     if (/\[AR\]|Error|is not a function|is not defined/i.test(text)) pageLog.push(text.slice(0, 300));
   });
   page.on('pageerror', error => pageLog.push(`PAGEERROR ${error.message}`));
-  await page.goto(`http://127.0.0.1:${APP_PORT}/plan?product=${productId}`, { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(2500);
-  await page.click('#ar-button').catch(() => {});
-  await page.waitForTimeout(6000);
+  /* Placement, which is where a model is loaded. (The room-scan button no
+     longer opens an untracked camera on a device without WebXR: it hands
+     over to Measure without AR, because a camera that cannot track cannot
+     measure. The model messages belong to placing a piece.) */
+  await page.goto(`http://127.0.0.1:${APP_PORT}/plan?product=${productId}&ar=1`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(8500);
   const fallback = await page.locator('.fallback-message').innerText().catch(() => '');
   await context.close();
   return fallback.trim();

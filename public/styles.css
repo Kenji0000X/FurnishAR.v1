@@ -5266,3 +5266,208 @@ dialog, .drawer-panel { overscroll-behavior: contain; }
 }
 .request-dialog { margin: auto; max-height: calc(100dvh - 2rem); overflow-y: auto; }
 .receipt-view .receipt { margin-top: clamp(1rem, 4vw, 2.5rem); margin-bottom: 2rem; }
+
+/* ===========================================================================
+   Camera first: the tracked AR view after the field tests.
+
+   The recordings showed the camera buried under a product card, a mode chip,
+   a dimension chip, a paragraph of status, a full control tray and a coral
+   wash over the whole model. What is left on screen now:
+
+     top      Close · the piece and its size · a small tracking word
+     centre   the reticle, and the piece once placed
+     bottom   one instruction and one button (Place / Add corner / Add point);
+              move, rotate and reset appear only after placing.
+
+   The reticle alone says whether the target is good. The room is never
+   tinted.
+   ======================================================================== */
+.ar-bar { justify-content: space-between; }
+.ar-bar .ar-chip-button { order: 0; min-height: 40px; padding: .5rem .85rem; }
+.ar-bar .ar-title { order: 1; flex: 1 1 auto; min-width: 0; }
+.ar-bar .ar-title strong, .ar-bar .ar-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-bar .ar-tracking { order: 2; margin-left: 0; gap: .4em; font-family: var(--mono); font-size: .58rem; letter-spacing: .08em; text-transform: uppercase; }
+.ar-tracking::before { content: ''; width: 6px; height: 6px; background: currentColor; flex: 0 0 auto; }
+.ar-tracking[data-state="stable"] { color: var(--ar-ok); }
+.ar-tracking[data-state="acquiring"] { color: var(--glass-dark-text); }
+.ar-tracking[data-state="lost"] { color: var(--ar-alert); }
+.ar-tracking[data-state="untracked"] { color: var(--ar-warn); }
+
+/* Reticle states: white searching, green valid, amber uncertain, red invalid.
+   Shape changes with colour so the state never rests on hue alone: valid is
+   the full square, uncertain draws in, invalid narrows to a slot. */
+.ar-reticle[data-state="searching"] { border-color: rgba(255, 255, 255, .6); }
+.ar-reticle[data-state="valid"] { border-color: var(--ar-ok); border-width: 2px; }
+.ar-reticle[data-state="valid"] span { background: var(--ar-ok); }
+.ar-reticle[data-state="uncertain"] { border-color: var(--ar-warn); border-style: dashed; transform: translate(-50%, -50%) scale(.92); }
+.ar-reticle[data-state="uncertain"] span { background: var(--ar-warn); }
+.ar-reticle[data-state="invalid"] { border-color: var(--ar-alert); transform: translate(-50%, -50%) scale(.82); }
+.ar-reticle[data-state="invalid"] span { background: var(--ar-alert); inset: 46% 30%; }
+
+.ar-dock { gap: .6rem; }
+.ar-hint { font-size: .78rem; max-width: min(92vw, 24rem); }
+.ar-place { width: 64px; height: 64px; border-radius: 50%; }
+.ar-place span { border-radius: 50%; }
+.ar-place[hidden] { display: none; }
+/* The button's action, written under it, so "Place" and "Add corner" are
+   words and not a guess about a circle. */
+.ar-place::after {
+  content: attr(data-label);
+  position: absolute; left: 50%; top: calc(100% + .3rem); transform: translateX(-50%);
+  font-family: var(--mono); font-size: .58rem; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--glass-dark-text); white-space: nowrap; pointer-events: none;
+}
+.ar-place { position: relative; margin-bottom: 1rem; }
+.tray-btn { min-width: 40px; height: 40px; font-size: .9rem; }
+.tray-pad { grid-template-columns: repeat(3, 40px); }
+
+/* The room scan panel, compacted: one instruction, the running size, the
+   actions. The rest of the old panel (walls, sweep) only appears on devices
+   that report planes. */
+.scan-panel { gap: .5rem; padding: .7rem .85rem; bottom: calc(6.8rem + env(safe-area-inset-bottom)); }
+.scan-panel .scan-guidance { font-size: .8rem; margin: 0; opacity: 1; }
+.scan-panel .scan-found div:nth-child(2), .scan-panel .scan-found div:nth-child(4) { display: none; }
+.scan-panel .scan-found { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.scan-panel .scan-totals, .scan-panel .scan-arc:empty { display: none; }
+.scan-panel .scan-note:empty { display: none; }
+.scan-panel .scan-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
+.scan-panel .scan-actions [hidden] { display: none; }
+.scan-panel #use-room { min-height: 44px; }
+
+/* ----------------------------------------- measuring without AR, v2 --- */
+.ms-title { font-size: 1rem; font-weight: 600; margin: 0; }
+.ms-bar-left { display: flex; align-items: center; gap: .6rem; min-width: 0; }
+.ms-back {
+  appearance: none; min-height: 44px; padding: 0 .85rem; border-radius: 999px;
+  border: 1px solid rgba(246, 241, 231, .22); background: transparent; color: inherit;
+  font: inherit; font-size: .8125rem; cursor: pointer;
+}
+.ms-method { font-size: .875rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.ms-methods { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
+.ms-method-card {
+  width: 100%; display: grid; gap: .2rem; text-align: left;
+  padding: .9rem 1rem; border-radius: 14px; min-height: 64px;
+  border: 1px solid rgba(246, 241, 231, .2); background: rgba(246, 241, 231, .05);
+  color: inherit; font: inherit; cursor: pointer;
+}
+.ms-method-card:hover:not(:disabled) { border-color: #f2c14e; }
+.ms-method-card:disabled { opacity: .45; cursor: not-allowed; }
+.ms-method-title { font-weight: 600; font-size: .9375rem; }
+.ms-method-status { font-family: var(--mono); font-size: .6875rem; color: #f2c14e; letter-spacing: .02em; }
+.ms-method-blurb { font-size: .8125rem; color: #cfc6b6; line-height: 1.45; }
+.ms-hint-small { font-size: .75rem; }
+.ms-hint-small a { color: #f2c14e; }
+.ms-warn { color: #ffcf73; }
+
+.ms-calibrate {
+  position: absolute; inset: auto .75rem max(1rem, env(safe-area-inset-bottom)) .75rem;
+  display: grid; gap: .6rem; padding: 1rem;
+  border-radius: 16px; background: rgba(12, 10, 8, .9);
+  border: 1px solid rgba(242, 193, 78, .3);
+}
+.ms-calibrate .ms-subhead { margin: 0; font-size: 1rem; }
+.ms-tip.is-warn { background: rgba(242, 193, 78, .92); color: #1b1206; font-weight: 600; }
+.ms-distance {
+  position: absolute; left: 50%; top: calc(50% + 28px); transform: translateX(-50%);
+  margin: 0; padding: .3rem .7rem; border-radius: 999px;
+  background: rgba(12, 10, 8, .72); color: #f6f1e7;
+  font-family: var(--mono); font-size: .8125rem; white-space: nowrap;
+}
+.ms-distance span { opacity: .7; font-size: .6875rem; margin-right: .35rem; }
+.ms-summary-method { display: block; font-family: var(--mono); font-size: .6875rem; color: #a99d8a; }
+
+.ms-field, .ms-field-row label { display: grid; gap: .25rem; font-size: .875rem; }
+.ms-field-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .6rem; }
+.ms-field select, .ms-field input {
+  min-height: 48px; border-radius: 10px; padding: 0 .75rem;
+  border: 1px solid rgba(246, 241, 231, .25); background: rgba(246, 241, 231, .06); color: inherit; font: inherit;
+}
+.ms-photo-frame { position: relative; overflow: hidden; border-radius: 12px; background: #000; touch-action: none; }
+.ms-photo-pan { position: relative; transform-origin: center; cursor: crosshair; }
+.ms-photo-frame .ms-photo { aspect-ratio: auto; width: 100%; height: auto; border-radius: 0; user-select: none; -webkit-user-drag: none; }
+.ms-photo-tools { display: flex; flex-wrap: wrap; gap: .4rem; }
+.ms-photo-tools .ms-chip { min-height: 44px; min-width: 44px; }
+.ms-result {
+  display: grid; gap: .1rem; padding: .7rem 1rem; border-radius: 12px;
+  background: rgba(20, 16, 10, .78); border: 1px solid rgba(123, 107, 217, .7);
+}
+.ms-result b { font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+.ms-result span { font-variant-numeric: tabular-nums; color: #d9cfe8; }
+.ms-result small { font-family: var(--mono); font-size: .6875rem; color: #a99fc4; line-height: 1.45; }
+.ms-result.is-coarse { border-color: rgba(242, 193, 78, .7); }
+
+.ms-units { display: flex; gap: .35rem; padding: 3px; border: 1px solid rgba(246, 241, 231, .25); border-radius: 999px; width: max-content; }
+.ms-unit { position: relative; display: block; }
+.ms-unit input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.ms-unit span { display: grid; place-items: center; min-width: 3rem; min-height: 40px; padding: 0 .7rem; border-radius: 999px; font-family: var(--mono); font-size: .8125rem; }
+.ms-unit.is-on span { background: #f2c14e; color: #1b1206; font-weight: 600; }
+.ms-unit input:focus-visible + span { outline: 2px solid #f2c14e; outline-offset: 2px; }
+.ms-typed input { font-variant-numeric: tabular-nums; }
+.ms-typed-note { font-family: var(--mono); font-size: .75rem; color: #a99d8a; min-height: 1em; }
+.ms-typed .has-warning .ms-typed-note { color: #ffcf73; }
+.ms-typed .has-error .ms-typed-note { color: #ff9b8a; }
+.ms-typed .has-error input { border-color: #ff9b8a; }
+.ms-confirm { display: flex; align-items: center; gap: .6rem; min-height: 44px; font-size: .875rem; }
+.ms-confirm input { width: 22px; height: 22px; }
+
+/* ------------------------------------------------- the device check v2 --- */
+.diag-summary {
+  display: grid; gap: .5rem; margin: 1.5rem 0;
+  padding: 1.1rem 1.2rem; border: 1px solid var(--rule); border-radius: var(--radius);
+  background: var(--paper-raised);
+}
+.diag-summary h2 { font-size: 1.25rem; margin: 0; }
+.diag-summary p { margin: 0; font-size: .9375rem; line-height: 1.55; color: var(--ink-muted); }
+.diag-summary p b { color: var(--ink); }
+.diag-recommend { display: flex; flex-wrap: wrap; gap: .25rem .6rem; align-items: baseline; padding-top: .6rem; border-top: 1px solid var(--rule); }
+.diag-recommend span { font-family: var(--mono); font-size: var(--micro); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); }
+.diag-row.is-warn b { color: var(--warn); }
+.diag-actions { display: flex; flex-wrap: wrap; gap: .6rem; }
+.diag-actions .button { width: auto; flex: 1 1 14rem; }
+.diag-callout {
+  display: grid; gap: .6rem; margin: 1rem 0 1.5rem; padding: 1.1rem 1.2rem;
+  border: 1px solid var(--rule-strong); border-radius: var(--radius); background: var(--paper-raised);
+}
+.diag-callout p { margin: 0; color: var(--ink-muted); }
+.diag-small { font-size: .8125rem; color: var(--ink-muted); margin: .4rem 0 0; }
+.diag-methods { margin: 1.5rem 0; }
+.diag-methods h3 { font-size: 1rem; margin: 0 0 .5rem; }
+.diag-methods ul { margin: 0; padding-left: 1.1rem; display: grid; gap: .25rem; color: var(--ink-muted); }
+.diag-report {
+  margin-top: .75rem; padding: .8rem; overflow-x: auto; max-width: 100%;
+  border: 1px solid var(--rule); border-radius: var(--radius-sm); background: var(--paper-sunken);
+  font-family: var(--mono); font-size: .6875rem; line-height: 1.5; color: var(--ink);
+  white-space: pre-wrap; word-break: break-word;
+}
+.diag-ua .button { margin-top: .75rem; }
+@media (max-width: 30rem) {
+  .diag-row { flex-direction: column; align-items: flex-start; gap: .3rem; }
+  .diag-a { justify-items: start; text-align: left; max-width: 100%; }
+}
+
+/* The in-app browser notice on the planner card. */
+.ar-status[data-state="in-app"], .ar-status[data-state="refused"] { display: grid; gap: .5rem; justify-items: start; }
+.inapp-handoff { margin-top: .25rem; }
+.inapp-steps { font-size: .8125rem; color: var(--ink-muted); }
+.dims-key { font-family: var(--mono); font-size: .85em; opacity: .7; }
+
+/* The scan panel sits under the header, so the instruction line and the
+   capture button keep the thumb zone to themselves. Its title and tracking
+   word repeat the header's, so they are not shown twice. */
+.scan-panel {
+  top: calc(max(.9rem, env(safe-area-inset-top)) + 4.4rem); bottom: auto;
+}
+.scan-panel > header { display: none; }
+.scan-panel[data-planes="false"] .scan-arc { display: none; }
+.scan-panel[data-planes="false"] .scan-found div:nth-child(1) { grid-column: 1; }
+
+/* Buttons on the dark measuring surface. The site's outline button draws
+   dark ink on dark here, and a disabled primary looked live. */
+.ms-root .button-outline, .ms-root .button:not(.button-primary) {
+  color: #f6f1e7; border-color: rgba(246, 241, 231, .45); background: transparent;
+}
+.ms-root .button-outline:hover, .ms-root .button:not(.button-primary):hover { border-color: #f2c14e; }
+.ms-root .button:disabled { opacity: .38; cursor: not-allowed; box-shadow: none; }
+/* A room scan has one instruction line: the panel's. */
+.ar-layer[data-purpose="scan"] #ar-mode-label { display: none; }

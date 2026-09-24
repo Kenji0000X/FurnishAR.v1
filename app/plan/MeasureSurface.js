@@ -3,43 +3,46 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  distanceFromTilt, heightFromTilt, floorPointFromAim, bearingDelta,
-  surfacesFromCorners, cornerReadiness, MAX_TILT_DEGREES, projectFloorPoint
+  distanceFromTilt, heightFromTilt, floorPointFromAim,
+  surfacesFromCorners, projectFloorPoint
 } from '../../lib/spatial/clinometer.mjs';
-import {
-  KNOWN_OBJECTS, scaleFromReference, measure, squareness, wallsToCorners
-} from '../../lib/spatial/photo-scale.mjs';
+import { wallsToCorners } from '../../lib/spatial/photo-scale.mjs';
+import { REFERENCE_RECTANGLES, referencePlane, measureOnPlane } from '../../lib/spatial/homography.mjs';
 import { roomDimensions } from '../../lib/spatial/room.mjs';
 import { HeadingTracker, TiltTracker } from '../../lib/spatial/heading.mjs';
 import { Steadiness } from '../../lib/spatial/smoothing.mjs';
+import { cameraPose, applyCalibration, calibrationFrom } from '../../lib/spatial/orientation.mjs';
+import { AIM } from '../../lib/spatial/measure-config.mjs';
+import {
+  ROOM_UNITS, manualRoom, convertRoomFields, formatRoomLength
+} from '../../lib/spatial/room-units.mjs';
 import {
   gradeMeasurement, formatMeasurement, METHOD, CONFIDENCE_COPY
 } from '../../lib/spatial/confidence.mjs';
 
 /**
- * Measuring a room on a phone that cannot run AR.
+ * Measuring a room on a phone that cannot run tracked AR.
  *
- * ARCore is not available on every Android, and where it is missing there is
- * no WebXR AR and no native fallback either — a native app would sit on the
- * same ARCore. This surface is what is left, and all three of its modes are
- * real measurement rather than AR theatre:
+ * Where WebXR is missing (TECNO KI5k, vivo 1906, every iPhone, any in-app
+ * browser) there is no world tracking, and nothing here pretends otherwise.
+ * What is left is real measurement by other means, offered according to what
+ * THIS phone's sensors actually do:
  *
- *   Aim    Live. The tilt sensor plus a height you type gives the distance to
- *          the floor point under the crosshair, updating every frame. Turn on
- *          the spot and tap each corner; the outline builds as you go.
- *   Photo  Freeze a frame, mark something of known size, then measure along
- *          that same plane. One wall per photo.
- *   Type   A tape measure and the keypad. The most accurate of the three and
- *          presented as such, not as the booby prize.
+ *   Aim with phone   The camera's angle from straight down, from the FULL
+ *                    device orientation (alpha, beta, gamma and the screen
+ *                    rotation — lib/spatial/orientation.mjs), calibrated for
+ *                    this phone, plus the holding height, gives the distance to
+ *                    the floor point under the crosshair. A room OUTLINE also
+ *                    needs a steady compass; without one, single distances
+ *                    only.
+ *   Photo reference  Four corners of a rectangle of known size fix the
+ *                    perspective of one wall (a homography); lines on that
+ *                    wall are then measured in metres. One wall per photo.
+ *   Tape measure     Typed figures in a chosen unit, checked for sense. The
+ *                    most accurate method, and said to be.
  *
- * All three end in the same place: a corner list, through surfacesFromCorners
- * into roomDimensions — the very function the AR path uses — so the fit
- * check, the placement rules and the results panel work unchanged.
- *
- * The look is lifted from the measuring apps this was asked to resemble
- * (ARuler, Apple's Measure): gold pills on the edges carrying lengths, violet
- * pills stacked in the middle carrying the derived H / S / P / V, a thin gold
- * wireframe with round vertex dots, and a dotted reticle while aiming.
+ * Every number carries the method that produced it. All three end in
+ * roomDimensions(), the same function the AR path uses.
  */
 
 /* Named here rather than inline so the SVG, the pills and the stylesheet
@@ -208,8 +211,25 @@ function FloorPlan({ corners, closed, room, width = 320, height = 240 }) {
 
 /* ================================================================= surface = */
 
+/** Which way the screen is turned, for turning the device pose into a camera pose. */
+function screenAngle() {
+  if (typeof window === 'undefined') return 0;
+  const a = window.screen?.orientation?.angle;
+  if (Number.isFinite(a)) return a;
+  return Number.isFinite(window.orientation) ? window.orientation : 0;
+}
+
+const METHOD_NAME = {
+  aim: 'Aim with phone',
+  point: 'Aim with phone',
+  photo: 'Photo reference',
+  manual: 'Tape measure'
+};
+
+const CORNER_NAMES = ['top-left', 'top-right', 'bottom-right', 'bottom-left'];
+
 export default function MeasureSurface({ onUseRoom, onClose }) {
-  const [mode, setMode] = useState('aim');
+  const [mode, setMode] = useState('choose');
   const [eyeHeight, setEyeHeight] = useState(1.4);
   /*
      Asked before anything is measured, not buried in a settings sheet.
@@ -226,41 +246,47 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
   const [ceiling, setCeiling] = useState(null);
   const [note, setNote] = useState(null);
 
+  /* ------------------------------------------------------------- probe -- */
+  /* What this phone's sensors actually report, measured for a moment when
+     the surface opens, so the method list claims only what was observed. */
+  const [probe, setProbe] = useState({ done: false, events: 0, rate: 0, xr: null });
+  useEffect(() => {
+    let events = 0;
+    const onOrient = e => { if (Number.isFinite(e.beta)) events += 1; };
+    window.addEventListener('deviceorientation', onOrient);
+    const started = performance.now();
+    let xr = null;
+    navigator.xr?.isSessionSupported?.('immersive-ar').then(ok => { xr = ok; }).catch(() => { xr = false; });
+    const timer = setTimeout(() => {
+      window.removeEventListener('deviceorientation', onOrient);
+      const seconds = (performance.now() - started) / 1000;
+      setProbe({ done: true, events, rate: events / seconds, xr, needsPermission: typeof window.DeviceOrientationEvent?.requestPermission === 'function' });
+    }, 1200);
+    return () => { clearTimeout(timer); window.removeEventListener('deviceorientation', onOrient); };
+  }, []);
+
   /* Live sensor state. Kept in a ref as well as in state: the ref is what the
      tap handler reads, so a corner is placed from the angle at the instant of
      the tap rather than from whatever React last rendered. */
-  const live = useRef({ tilt: null, bearing: null, events: 0 });
-  const [reading, setReading] = useState({ tilt: null, bearing: null, events: 0 });
-  /*
-     Raw sensor samples are not usable as they arrive: they jitter about a
-     degree at 60 Hz, which redraws every marker sixty times a second from a
-     slightly different angle — the shaking dots — and the compass throws the
-     occasional wild step near anything steel. Both are handled in
-     lib/spatial/heading.mjs, and only the cleaned values reach the geometry.
-  */
+  const live = useRef({ tilt: null, bearing: null, roll: 0, events: 0 });
+  const [reading, setReading] = useState({ tilt: null, bearing: null, roll: 0, events: 0 });
   const heading = useRef(new HeadingTracker());
   const tiltTrack = useRef(new TiltTracker());
   const [compass, setCompass] = useState({ verdict: 'unknown' });
-  /*
-     Smoothing buys steady markers at the cost of lag: the filter trails a
-     fast turn by about four degrees, which at 2.5 m is 17 cm of error if a
-     corner is placed mid-turn. Rather than hide that, the button waits.
-     Steadiness watches the last half-second of readings and the + is only
-     live once they have settled — so the lag becomes a visible "hold still"
-     instead of a silent mistake in the room.
-  */
   const steady = useRef(new Steadiness(30));
   const [settled, setSettled] = useState(false);
 
+  /* Calibration: this session only. `null` until done or skipped. */
+  const [calibration, setCalibration] = useState(null);
+  const calibrationRef = useRef(null);
+  calibrationRef.current = calibration;
+  const calSamples = useRef(null);
+  const [calibrating, setCalibrating] = useState(false);
+  const rate = useRef({ count: 0, since: 0, hz: null });
+
   const [showPlan, setShowPlan] = useState(false);
-  /* Point-to-point: one loose end waiting for its partner, then a finished
-     segment added to the list. Kept separate from the room outline because
-     these are independent measurements, not a chain. */
   const [pendingA, setPendingA] = useState(null);
   const [segments, setSegments] = useState([]);
-  /* The camera element's real pixel size. The overlay is drawn in those
-     pixels rather than through an SVG viewBox, so endpoint dots stay round
-     and strokes stay even whatever shape the viewport is. */
   const viewRef = useRef(null);
   const [view, setView] = useState({ w: 0, h: 0 });
 
@@ -268,9 +294,6 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
   const streamRef = useRef(null);
   const [cameraError, setCameraError] = useState(null);
 
-  /* The page behind must not scroll under the overlay: on a phone a stray
-     drag scrolls the planner instead of the tool, and the tool comes back
-     somewhere other than where it was left. */
   useEffect(() => {
     const previous = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -278,8 +301,9 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
   }, []);
 
   /* ------------------------------------------------------------ camera -- */
+  const wantsCamera = (mode === 'aim' || mode === 'point') ? heightConfirmed : mode === 'photo';
   useEffect(() => {
-    if (mode === 'type') return undefined;
+    if (!wantsCamera) return undefined;
     let dead = false;
     navigator.mediaDevices?.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
       .then(stream => {
@@ -287,13 +311,15 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
         streamRef.current = stream;
         if (videoRef.current) videoRef.current.srcObject = stream;
       })
-      .catch(err => setCameraError(`${err?.name}: ${err?.message}`));
+      .catch(err => setCameraError(err?.name === 'NotAllowedError'
+        ? 'Camera access was refused for this site.'
+        : 'The camera would not open.'));
     return () => {
       dead = true;
       streamRef.current?.getTracks().forEach(t => t.stop());
       streamRef.current = null;
     };
-  }, [mode]);
+  }, [wantsCamera, mode]);
 
   /* ------------------------------------------------------- tilt sensor -- */
   const startSensor = useCallback(async () => {
@@ -301,33 +327,39 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
       const gate = window.DeviceOrientationEvent?.requestPermission;
       if (typeof gate === 'function') {
         const granted = await gate.call(window.DeviceOrientationEvent);
-        if (granted !== 'granted') { setNote('Motion access was refused, so aiming cannot work. Try the Photo or Type mode.'); return; }
+        if (granted !== 'granted') { setNote('Motion access was refused, so aiming cannot work. Use Photo reference or Tape measure.'); return undefined; }
       }
     } catch { /* Android has no gate */ }
 
     const onOrient = e => {
-      if (typeof e.beta !== 'number' || e.beta === null) return;
-      const now = performance.now();
       /*
-         beta is the tilt from flat-and-face-up, which is already the angle
-         from straight DOWN that the trigonometry wants: 0 is the rear camera
-         pointing at the floor beneath you, 90 is pointing at the horizon.
+         The camera's angle from straight down, from the WHOLE orientation
+         and the screen rotation — not beta. beta alone is right only in
+         portrait with the phone perfectly unrolled; in landscape it reads
+         the horizon as the floor at your feet.
       */
-      const tilt = tiltTrack.current.push(e.beta, now);
-      const alpha = typeof e.alpha === 'number' ? e.alpha : null;
-      /* Only the bearing RELATIVE to the first reading is used. An indoor
-         magnetometer drifts, but a drift common to every corner rotates the
-         whole room, which changes no dimension of it. */
-      const { bearing } = heading.current.push(alpha, now);
-      live.current = { tilt, bearing, events: live.current.events + 1 };
+      const raw = cameraPose({ alpha: e.alpha, beta: e.beta, gamma: e.gamma }, screenAngle());
+      if (!raw) return;
+      if (calSamples.current) calSamples.current.push(raw);
+      const pose = applyCalibration(raw, calibrationRef.current);
+      const now = performance.now();
+
+      const r = rate.current;
+      if (!r.since) r.since = now;
+      r.count += 1;
+      if (now - r.since >= 1000) { r.hz = (r.count * 1000) / (now - r.since); r.count = 0; r.since = now; }
+
+      const tilt = tiltTrack.current.push(pose.angleFromDown, now);
+      /* The line of sight's own bearing. Only the bearing RELATIVE to the
+         first reading is used: a drift common to every corner rotates the
+         room, which changes no dimension of it. */
+      const { bearing } = heading.current.push(Number.isFinite(pose.heading) ? pose.heading : null, now);
+      live.current = { tilt, bearing, roll: pose.roll, events: live.current.events + 1, hz: r.hz };
       setReading(live.current);
 
-      /* Both angles folded into one number, so a wobble in either keeps the
-         button disabled. Half a degree of combined spread is roughly 2 cm at
-         2.5 m — tight enough to place a corner on. */
       steady.current.push(tilt + bearing);
       const spread = steady.current.spread();
-      setSettled(steady.current.ready && spread !== null && spread < 0.5);
+      setSettled(steady.current.ready && spread !== null && spread < AIM.maxSteadySpreadDeg);
 
       if (live.current.events % 20 === 0) setCompass(heading.current.reliability);
     };
@@ -338,24 +370,48 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
   useEffect(() => {
     if (mode !== 'aim' && mode !== 'point') return undefined;
     let off = null;
-    startSensor().then(fn => { off = fn; });
-    return () => { if (off) off(); };
+    let dead = false;
+    startSensor().then(fn => { if (dead) fn?.(); else off = fn; });
+    return () => { dead = true; if (off) off(); };
   }, [mode, startSensor]);
+
+  function runCalibration() {
+    calSamples.current = [];
+    setCalibrating(true);
+    setNote(null);
+    setTimeout(() => {
+      const result = calibrationFrom(calSamples.current);
+      calSamples.current = null;
+      setCalibrating(false);
+      if (result.ok) {
+        setCalibration(result);
+        tiltTrack.current.reset();
+        steady.current.reset();
+      } else {
+        setNote(result.reason);
+      }
+    }, 700);
+  }
 
   /* --------------------------------------------------------- live shot -- */
   const shot = useMemo(
     () => distanceFromTilt({ eyeHeight, tiltDegrees: reading.tilt }),
     [eyeHeight, reading.tilt]
   );
+  const rollBad = Math.abs(reading.roll || 0) > AIM.maxRollDeg;
+  const slowSensor = reading.hz != null && reading.hz < AIM.minEventRate;
+  /* A room OUTLINE is built from bearings, so it needs a compass that has
+     been observed to behave. Distances to single points need none. */
+  const outlineAllowed = AIM.headingVerdictsForOutline.includes(compass.verdict);
+  const compassKnown = compass.verdict !== 'unknown';
 
   const room = useMemo(() => {
     if (corners.length < 3 || !closed) return null;
-    return roomDimensions(surfacesFromCorners(corners, { ceilingHeight: ceiling }), { minFloorArea: 0.5 });
+    const r = roomDimensions(surfacesFromCorners(corners, { ceilingHeight: ceiling }), { minFloorArea: 0.5 });
+    if (r) r.method = 'aim';
+    return r;
   }, [corners, closed, ceiling]);
 
-  const readiness = cornerReadiness(corners, { closed });
-
-  /* Keep the overlay's pixel canvas the same size as the camera element. */
   useEffect(() => {
     const node = viewRef.current;
     if (!node) return undefined;
@@ -364,41 +420,17 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
     const ro = new ResizeObserver(sync);
     ro.observe(node);
     return () => ro.disconnect();
-    /* heightConfirmed belongs here: the camera view mounts when it flips, not
-       when the mode changes, so keying on mode alone left the ref null when
-       this ran and the overlay canvas stayed 0 x 0 — lines and labels were
-       computed and then drawn into nothing. */
-  }, [mode, heightConfirmed]);
+  }, [mode, heightConfirmed, calibration]);
 
-  /*
-     The corners, projected back onto the picture.
-
-     This is what makes it behave like the app it copies: a placed marker
-     stays on its spot on the floor while the phone pans across the room,
-     instead of sitting in a panel underneath. It is a real projection of the
-     floor plane from the current tilt and bearing — not world tracking, and
-     it holds only while the person turns on the spot, which the interface
-     says out loud.
-  */
   const aiming = shot.distance != null;
   const viewMarks = useMemo(() => {
     if (!view.w || !view.h) return [];
     return corners.map((c, i) => {
-      const at = projectFloorPoint({
-        point: c, eyeHeight,
-        tiltDegrees: reading.tilt, bearingDegrees: reading.bearing
-      });
-      return {
-        key: i, visible: at.visible,
-        x: (at.u ?? 0) * view.w, y: (at.v ?? 0) * view.h,
-        distance: at.distance
-      };
+      const at = projectFloorPoint({ point: c, eyeHeight, tiltDegrees: reading.tilt, bearingDegrees: reading.bearing });
+      return { key: i, visible: at.visible, x: (at.u ?? 0) * view.w, y: (at.v ?? 0) * view.h, distance: at.distance };
     });
   }, [corners, eyeHeight, reading.tilt, reading.bearing, view.w, view.h]);
 
-  /* One segment per wall already placed, plus a dashed live one running from
-     the last corner to the crosshair — the rubber band that shows what the
-     next tap would add before it is committed. */
   const viewSegments = useMemo(() => {
     const out = [];
     const len = (a, b) => Math.hypot(b.x - a.x, b.z - a.z);
@@ -409,42 +441,25 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
     }
     if (closed && corners.length > 2) {
       const a = viewMarks[corners.length - 1], b = viewMarks[0];
-      if (a?.visible || b?.visible) {
-        out.push({ key: 'close', a, b, label: m2cm(len(corners[corners.length - 1], corners[0])), live: false });
-      }
+      if (a?.visible || b?.visible) out.push({ key: 'close', a, b, label: m2cm(len(corners[corners.length - 1], corners[0])), live: false });
     }
     if (!closed && corners.length && aiming && view.w) {
       const last = viewMarks[corners.length - 1];
-      const here = floorPointFromAim({
-        eyeHeight, tiltDegrees: reading.tilt, bearingDegrees: reading.bearing
-      });
+      const here = floorPointFromAim({ eyeHeight, tiltDegrees: reading.tilt, bearingDegrees: reading.bearing });
       if (last?.visible && here.point) {
-        out.push({
-          key: 'live', a: last, b: { x: view.w / 2, y: view.h / 2 },
-          label: m2cm(len(corners[corners.length - 1], here.point)), live: true
-        });
+        out.push({ key: 'live', a: last, b: { x: view.w / 2, y: view.h / 2 }, label: m2cm(len(corners[corners.length - 1], here.point)), live: true });
       }
     }
     return out;
   }, [corners, viewMarks, closed, aiming, eyeHeight, reading.tilt, reading.bearing, view.w, view.h]);
 
-  /*
-     The same projection, applied to point-to-point measurements.
-
-     Every endpoint is a floor point stored relative to where the person is
-     standing, so it re-projects onto the picture exactly as a room corner
-     does — which is why a segment stays stretched across the sofa while the
-     phone pans instead of sliding with the view.
-  */
   const pointDots = useMemo(() => {
     if (!view.w || !view.h) return [];
     const all = [];
     segments.forEach((seg, i) => { all.push(['a' + i, seg.a]); all.push(['b' + i, seg.b]); });
     if (pendingA) all.push(['pending', pendingA]);
     return all.map(([key, p]) => {
-      const at = projectFloorPoint({
-        point: p, eyeHeight, tiltDegrees: reading.tilt, bearingDegrees: reading.bearing
-      });
+      const at = projectFloorPoint({ point: p, eyeHeight, tiltDegrees: reading.tilt, bearingDegrees: reading.bearing });
       return { key, visible: at.visible, x: (at.u ?? 0) * view.w, y: (at.v ?? 0) * view.h };
     });
   }, [segments, pendingA, eyeHeight, reading.tilt, reading.bearing, view.w, view.h]);
@@ -456,62 +471,48 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
     segments.forEach((seg, i) => {
       const a = byKey['a' + i], b = byKey['b' + i];
       if (!a?.visible && !b?.visible) return;
-      out.push({
-        key: String(i), a, b, live: false,
-        label: formatMeasurement(seg.metres, { spread: seg.spread }).text
-      });
+      out.push({ key: String(i), a, b, live: false, label: formatMeasurement(seg.metres, { spread: seg.spread }).text });
     });
-    /* The rubber band: from the loose end to the crosshair, with the length
-       it would record if you tapped now. */
     if (pendingA && aiming) {
       const a = byKey.pending;
-      const here = floorPointFromAim({
-        eyeHeight, tiltDegrees: reading.tilt, bearingDegrees: reading.bearing
-      });
+      const here = floorPointFromAim({ eyeHeight, tiltDegrees: reading.tilt, bearingDegrees: reading.bearing });
       if (a?.visible && here.point) {
         const metres = Math.hypot(here.point.x - pendingA.x, here.point.z - pendingA.z);
         out.push({
           key: 'live', a, b: { x: view.w / 2, y: view.h / 2 }, live: true,
-          label: formatMeasurement(metres, {
-            spread: Math.hypot(pendingA.spread || 0, here.spread || 0)
-          }).text
+          label: formatMeasurement(metres, { spread: Math.hypot(pendingA.spread || 0, here.spread || 0) }).text
         });
       }
     }
     return out;
   }, [segments, pointDots, pendingA, aiming, eyeHeight, reading.tilt, reading.bearing, view.w, view.h]);
 
-  /*
-     Drop any label that would land on top of one already drawn.
-
-     On the first phone test five pills stacked in the same few pixels —
-     "124 · 27 · 57 · 20 · 21 cm" — and not one of them could be read. A
-     measurement you cannot read is worth no more than one that was never
-     taken, so a colliding label is skipped rather than layered. The segment
-     itself still draws; only its number is withheld, and turning the phone
-     a little separates them.
-  */
   const placedLabels = useMemo(() => {
     const kept = [];
     for (const seg of viewSegments) {
       const mx = (seg.a.x + seg.b.x) / 2;
       const my = (seg.a.y + seg.b.y) / 2;
       if (!Number.isFinite(mx) || !Number.isFinite(my)) continue;
-      // Off the picture entirely: nothing to collide with, nothing to show.
       if (mx < 0 || my < 0 || mx > view.w || my > view.h) continue;
-      const clashes = kept.some(k => Math.abs(k.mx - mx) < 76 && Math.abs(k.my - my) < 32);
-      if (clashes) continue;
+      if (kept.some(k => Math.abs(k.mx - mx) < 76 && Math.abs(k.my - my) < 32)) continue;
       kept.push({ ...seg, mx, my });
     }
     return kept;
   }, [viewSegments, view.w, view.h]);
 
   /* ------------------------------------------------------------- taps -- */
+  const canCaptureAim = aiming && settled && !rollBad;
+
   function addCorner() {
+    if (rollBad) { setNote('Straighten the phone.'); return; }
+    if (!outlineAllowed) {
+      setNote(compassKnown
+        ? 'The compass is unstable here, so a room outline cannot be built by turning. Measure single distances, or use Photo reference or Tape measure for the room.'
+        : 'Turn slowly left and right for a moment so the compass can be checked.');
+      return;
+    }
     const now = live.current;
-    const placed = floorPointFromAim({
-      eyeHeight, tiltDegrees: now.tilt, bearingDegrees: now.bearing
-    });
+    const placed = floorPointFromAim({ eyeHeight, tiltDegrees: now.tilt, bearingDegrees: now.bearing });
     if (!placed.point) { setNote(placed.reason); return; }
     setNote(placed.trust === 'coarse' ? placed.reason : null);
     setCorners(list => [...list, { ...placed.point, spread: placed.spread, trust: placed.trust }]);
@@ -521,7 +522,6 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
   function setCeilingFromAim() {
     const now = live.current;
     if (!corners.length) { setNote('Measure at least one corner first — the ceiling needs a distance to work from.'); return; }
-    // Aimed UP: beta above 90 is a rise above the horizon.
     const rise = (now.tilt ?? 0) - 90;
     if (rise <= 2) { setNote('Aim up at the line where the wall meets the ceiling.'); return; }
     const last = corners[corners.length - 1];
@@ -533,36 +533,33 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
   }
 
   /*
-     Point-to-point, the interaction Apple's Measure is built on.
-
-     First tap drops a loose end; the second closes it into a segment with
-     its length on the line. Independent measurements rather than a chain,
-     because a sofa's width has nothing to do with the doorway measured
-     before it — which is also why they accumulate in a list instead of
-     replacing one another.
+     Point-to-point. Two ends, both at the angle of the moment they were
+     tapped; the length between them needs the bearing between them, so a
+     compass observed to be jumping blocks the SECOND end with the reason.
   */
   function addPoint() {
+    if (rollBad) { setNote('Straighten the phone.'); return; }
     const now = live.current;
-    const placed = floorPointFromAim({
-      eyeHeight, tiltDegrees: now.tilt, bearingDegrees: now.bearing
-    });
+    const placed = floorPointFromAim({ eyeHeight, tiltDegrees: now.tilt, bearingDegrees: now.bearing });
     if (!placed.point) { setNote(placed.reason); return; }
     if (!pendingA) {
       setPendingA({ ...placed.point, spread: placed.spread });
       setNote(null);
       return;
     }
+    if (compass.verdict === 'bad') {
+      setNote('The compass is jumping, so the angle between the two ends is not known. Move away from metal and try again, or use Photo reference.');
+      return;
+    }
     const metres = Math.hypot(placed.point.x - pendingA.x, placed.point.z - pendingA.z);
-    /* Both ends carry their own doubt, and they add in quadrature — the
-       segment cannot be tighter than the points that define it. */
     const spread = Math.hypot(pendingA.spread || 0, placed.spread || 0);
-    const { grade } = gradeMeasurement({
+    const { grade, worst } = gradeMeasurement({
       spread,
       steadiness: steady.current.spread(),
       sensorHealth: heading.current.reliability.rejectedFraction,
       method: METHOD.TILT
     });
-    setSegments(list => [...list, { a: pendingA, b: placed.point, metres, spread, grade }]);
+    setSegments(list => [...list, { a: pendingA, b: placed.point, metres, spread, grade, worst }]);
     setPendingA(null);
     setNote(null);
   }
@@ -588,12 +585,23 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
   }
 
   /* ------------------------------------------------------------ photo -- */
-  const [photo, setPhoto] = useState(null);
-  const [marks, setMarks] = useState([]);
-  const [refObject, setRefObject] = useState(KNOWN_OBJECTS[0]);
-  const [customMetres, setCustomMetres] = useState(1);
+  /* Reference → photo → four corners → perspective check → two ends →
+     result, accepted wall by wall. A photo's scale holds only on the plane
+     of its reference, so each wall is its own photo. */
+  const [photo, setPhoto] = useState(null);           // { src, width, height }
+  const [refId, setRefId] = useState(REFERENCE_RECTANGLES[0].id);
+  const [customSize, setCustomSize] = useState({ width: '', height: '' });
+  const [refCorners, setRefCorners] = useState([]);
+  const [ends, setEnds] = useState([]);
   const [walls, setWalls] = useState([]);
-  const canvasRef = useRef(null);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const drag = useRef(null);
+  const imgRef = useRef(null);
+
+  const reference = REFERENCE_RECTANGLES.find(r => r.id === refId);
+  const refWidth = reference.width ?? Number(customSize.width) / 100;
+  const refHeight = reference.height ?? Number(customSize.height) / 100;
 
   function grabFrame() {
     const video = videoRef.current;
@@ -602,86 +610,180 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext('2d').drawImage(video, 0, 0);
-    setPhoto(canvas.toDataURL('image/jpeg', 0.85));
-    setMarks([]);
+    setPhoto({ src: canvas.toDataURL('image/jpeg', 0.9), width: canvas.width, height: canvas.height });
+    setRefCorners([]); setEnds([]); setZoom(1); setPan({ x: 0, y: 0 }); setNote(null);
   }
 
-  function markAt(event) {
-    const box = event.currentTarget.getBoundingClientRect();
-    const point = {
-      x: ((event.clientX - box.left) / box.width) * 1000,
-      y: ((event.clientY - box.top) / box.height) * 1000
+  /** Screen point to image pixels, through whatever zoom and pan are applied. */
+  function toImage(event) {
+    const rect = imgRef.current?.getBoundingClientRect();
+    if (!rect || !photo) return null;
+    return {
+      x: ((event.clientX - rect.left) / rect.width) * photo.width,
+      y: ((event.clientY - rect.top) / rect.height) * photo.height
     };
-    setMarks(list => (list.length >= 4 ? [point] : [...list, point]));
   }
 
-  const refMetres = refObject.metres ?? (Number(customMetres) || 0);
-  const photoScale = marks.length >= 2
-    ? scaleFromReference({ a: marks[0], b: marks[1], realMetres: refMetres })
-    : { metresPerPixel: null, reason: 'Drag along the reference object: tap each end of it.' };
-  const photoSpan = marks.length >= 4
-    ? measure({
-        a: marks[2], b: marks[3],
-        metresPerPixel: photoScale.metresPerPixel,
-        referencePixels: photoScale.pixels
-      })
-    : { metres: null };
+  const marks = [...refCorners, ...ends];
+  function onPhotoPointerDown(event) {
+    const p = toImage(event);
+    if (!p) return;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    // Grabbing an existing mark moves it; a fingertip is not a precision cursor.
+    const rect = imgRef.current.getBoundingClientRect();
+    const pxPerImage = rect.width / photo.width;
+    const hit = marks.findIndex(m => Math.hypot(m.x - p.x, m.y - p.y) * pxPerImage < 22);
+    drag.current = { startX: event.clientX, startY: event.clientY, pan: { ...pan }, moved: false, mark: hit };
+  }
+  function onPhotoPointerMove(event) {
+    const d = drag.current;
+    if (!d) return;
+    const dx = event.clientX - d.startX, dy = event.clientY - d.startY;
+    if (Math.hypot(dx, dy) > 6) d.moved = true;
+    if (!d.moved) return;
+    if (d.mark >= 0) {
+      const p = toImage(event);
+      if (!p) return;
+      if (d.mark < refCorners.length) setRefCorners(list => list.map((m, i) => (i === d.mark ? p : m)));
+      else setEnds(list => list.map((m, i) => (i === d.mark - refCorners.length ? p : m)));
+    } else if (zoom > 1) {
+      setPan({ x: d.pan.x + dx, y: d.pan.y + dy });
+    }
+  }
+  function onPhotoPointerUp(event) {
+    const d = drag.current;
+    drag.current = null;
+    if (!d || d.moved) return;
+    const p = toImage(event);
+    if (!p) return;
+    if (refCorners.length < 4) setRefCorners(list => [...list, p]);
+    else if (ends.length < 2) setEnds(list => [...list, p]);
+  }
+  function undoMark() {
+    if (ends.length) setEnds(list => list.slice(0, -1));
+    else setRefCorners(list => list.slice(0, -1));
+  }
+  function resetMarks() { setRefCorners([]); setEnds([]); }
+
+  const plane = useMemo(() => (refCorners.length === 4
+    ? referencePlane({ corners: refCorners, width: refWidth, height: refHeight })
+    : null), [refCorners, refWidth, refHeight]);
+  const photoSpan = useMemo(() => (plane?.ok && ends.length === 2
+    ? measureOnPlane(plane, ends[0], ends[1])
+    : null), [plane, ends]);
 
   const photoRoom = useMemo(() => {
     if (walls.length < 3) return null;
-    return roomDimensions(surfacesFromCorners(wallsToCorners(walls), { ceilingHeight: ceiling }), { minFloorArea: 0.5 });
+    const r = roomDimensions(surfacesFromCorners(wallsToCorners(walls.map(w => w.metres)), { ceilingHeight: ceiling }), { minFloorArea: 0.5 });
+    if (r) r.method = 'photo';
+    return r;
   }, [walls, ceiling]);
 
-  /* ------------------------------------------------------------- type -- */
+  /* ------------------------------------------------------------ manual -- */
+  const [unit, setUnit] = useState('m');
   const [typed, setTyped] = useState({ length: '', width: '', height: '' });
-  const typedRoom = useMemo(() => {
-    const L = Number(typed.length), W = Number(typed.width), H = Number(typed.height);
-    if (!(L > 0 && W > 0)) return null;
-    const corners4 = [
-      { x: 0, z: 0 }, { x: L, z: 0 }, { x: L, z: W }, { x: 0, z: W }
-    ];
-    return roomDimensions(surfacesFromCorners(corners4, { ceilingHeight: H > 0 ? H : null }), { minFloorArea: 0.5 });
-  }, [typed]);
+  const [confirmed, setConfirmed] = useState(false);
+  const manual = useMemo(() => manualRoom(typed, unit, { confirmed }), [typed, unit, confirmed]);
 
-  const activeRoom = mode === 'aim' ? room : mode === 'photo' ? photoRoom : typedRoom;
+  function changeUnit(next) {
+    setTyped(fields => convertRoomFields(fields, unit, next));
+    setUnit(next);
+    setConfirmed(false);
+  }
+
+  const typedRoom = useMemo(() => {
+    if (!manual.ready) return null;
+    const { length: L, width: W, height: H } = manual.metres;
+    const corners4 = [{ x: 0, z: 0 }, { x: L, z: 0 }, { x: L, z: W }, { x: 0, z: W }];
+    const r = roomDimensions(surfacesFromCorners(corners4, { ceilingHeight: H > 0 ? H : null }), { minFloorArea: 0.1 });
+    if (r) r.method = 'manual';
+    return r;
+  }, [manual]);
+
+  const activeRoom = mode === 'aim' ? room : mode === 'photo' ? photoRoom : mode === 'manual' ? typedRoom : null;
 
   /* ------------------------------------------------------------ render -- */
-  /*
-     Rendered into <body> rather than in place.
+  const aimTip = reading.events === 0
+    ? (probe.needsPermission ? 'Allow motion access to aim.' : 'Waiting for the tilt sensor…')
+    : rollBad
+      ? 'Straighten the phone.'
+      : shot.reason
+        ? shot.reason
+        : !settled
+          ? 'Hold still…'
+          : null;
 
-     .planner-view carries a transform, and a transformed ancestor becomes the
-     containing block for position: fixed — so this overlay was laid out
-     against the planner section instead of the viewport, came out 2258 px
-     tall starting 780 px above the top of the screen, and let the site header
-     and the bottom bar show straight through it. No z-index fixes that,
-     because the problem is the containing block, not the stacking order.
-     A portal takes it out of the transformed subtree entirely.
-  */
+  const methods = [
+    {
+      id: 'aim', title: 'Aim with phone',
+      status: probe.events > 0
+        ? (probe.rate >= AIM.minEventRate ? 'Motion sensor responding' : 'Motion sensor is slow on this phone')
+        : probe.needsPermission ? 'Needs motion access' : probe.done ? 'No motion readings from this phone' : 'Checking…',
+      usable: probe.events > 0 || probe.needsPermission,
+      blurb: 'Aim at each corner where the floor meets the wall. The room outline needs a steady compass, which is checked as you go.'
+    },
+    {
+      id: 'point', title: 'Aim: single distances',
+      status: probe.events > 0 ? 'Motion sensor responding' : probe.needsPermission ? 'Needs motion access' : probe.done ? 'No motion readings' : 'Checking…',
+      usable: probe.events > 0 || probe.needsPermission,
+      blurb: 'Measure one span along the floor, such as a doorway or the space for a sofa.'
+    },
+    {
+      id: 'photo', title: 'Photo reference',
+      status: navigator.mediaDevices?.getUserMedia ? 'Needs the camera' : 'No camera access in this browser',
+      usable: Boolean(navigator.mediaDevices?.getUserMedia),
+      blurb: 'Photograph a wall with an A4 sheet, a card or a tile on it. One wall per photo.'
+    },
+    {
+      id: 'manual', title: 'Tape measure', status: 'Most accurate', usable: true,
+      blurb: 'Type in figures from a tape measure, in the unit you measured in.'
+    }
+  ];
+
   const surface = (
     <div className="ms-root" role="dialog" aria-modal="true" aria-label="Measure your room">
       <header className="ms-bar">
-        <div className="ms-modes" role="tablist" aria-label="How to measure">
-          {[
-            ['aim', 'Room'],
-            /* Point-to-point, the way Apple's Measure works. The room modes
-               only ever produced a floor OUTLINE, so there was no way to
-               measure a sofa, a doorway or the span of one wall — the very
-               thing the reference apps spend most of their time doing. */
-            ['point', 'Measure'],
-            ['photo', 'Photo'],
-            ['type', 'Type']
-          ].map(([id, label]) => (
-            <button key={id} type="button" role="tab" aria-selected={mode === id}
-              className={`ms-mode${mode === id ? ' is-on' : ''}`}
-              onClick={() => { setMode(id); setNote(null); }}>
-              {label}
-            </button>
-          ))}
-        </div>
+        {mode === 'choose'
+          ? <h2 className="ms-title">How would you like to measure?</h2>
+          : (
+            <div className="ms-bar-left">
+              <button type="button" className="ms-back" onClick={() => { setMode('choose'); setNote(null); }}>
+                <span aria-hidden="true">‹</span> Methods
+              </button>
+              <span className="ms-method">{METHOD_NAME[mode]}</span>
+            </div>
+          )}
         <button type="button" className="ms-close" onClick={onClose} aria-label="Close measuring">×</button>
       </header>
 
-      {/* ------------------------------------------------------------ AIM */}
+      {/* ------------------------------------------------------ CHOOSER */}
+      {mode === 'choose' && (
+        <div className="ms-stage ms-stage-plain">
+          <p className="ms-hint">
+            This phone cannot run tracked AR here, or you chose not to. Each method
+            below says what this phone was seen to support.
+          </p>
+          <ul className="ms-methods">
+            {methods.map(m => (
+              <li key={m.id}>
+                <button type="button" className="ms-method-card" disabled={!m.usable}
+                  onClick={() => { setMode(m.id); setNote(null); }}>
+                  <span className="ms-method-title">{m.title}</span>
+                  <span className="ms-method-status">{m.status}</span>
+                  <span className="ms-method-blurb">{m.blurb}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="ms-hint ms-hint-small">
+            Numbers keep the name of the method that produced them. A tape measure
+            is still the most accurate of all.{' '}
+            <a href="/diagnose">Check this phone</a>
+          </p>
+        </div>
+      )}
+
+      {/* ------------------------------------------- AIM: height, calibrate */}
       {(mode === 'aim' || mode === 'point') && !heightConfirmed && (
         <div className="ms-stage ms-stage-plain">
           <h2 className="ms-subhead">How high are you holding the phone?</h2>
@@ -692,11 +794,7 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
             it never needs touching again.
           </p>
           <div className="ms-height-choices">
-            {[
-              ['Chest height', 1.40],
-              ['Waist height', 1.05],
-              ['Eye level', 1.60]
-            ].map(([label, metres]) => (
+            {[['Chest height', 1.40], ['Waist height', 1.05], ['Eye level', 1.60]].map(([label, metres]) => (
               <button key={label} type="button"
                 className={`ms-chip${Math.abs(eyeHeight - metres) < 0.005 ? ' is-on' : ''}`}
                 onClick={() => setEyeHeight(metres)}>
@@ -705,232 +803,161 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
             ))}
           </div>
           <label className="ms-height-row">
-            Or type it exactly — {eyeHeight.toFixed(2)} m
+            Or set it exactly — {eyeHeight.toFixed(2)} m
             <input type="range" min="0.8" max="2" step="0.01" value={eyeHeight}
               onChange={e => setEyeHeight(Number(e.target.value))}
               aria-label="Height you are holding the phone at, in metres" />
           </label>
           <div className="ms-actions">
-            <button type="button" className="button button-primary"
-              onClick={() => setHeightConfirmed(true)}>
+            <button type="button" className="button button-primary" onClick={() => setHeightConfirmed(true)}>
               Start measuring
             </button>
           </div>
         </div>
       )}
 
-      {mode === 'aim' && heightConfirmed && (
+      {(mode === 'aim' || mode === 'point') && heightConfirmed && (
         <div className="ms-view" ref={viewRef}>
           <video ref={videoRef} className="ms-view-video" autoPlay playsInline muted />
 
-          {/*
-             The overlay, drawn the way the app this copies draws it: a thin
-             white line between white endpoint dots, with the length in a
-             white pill at the middle of the line. No panel, no card — the
-             measurement lives on the picture, over the thing measured.
-
-             Sized in real pixels from the element rather than through a
-             viewBox, so the dots stay round and the strokes stay even
-             whatever shape the viewport is.
-          */}
-          <svg className="ms-view-svg" width={view.w} height={view.h} aria-hidden="true">
-            {viewSegments.map(seg => (
-              <line key={`s${seg.key}`} x1={seg.a.x} y1={seg.a.y} x2={seg.b.x} y2={seg.b.y}
-                stroke="#fff" strokeWidth="2.5" strokeLinecap="round"
-                strokeDasharray={seg.live ? '7 7' : undefined} opacity={seg.live ? 0.85 : 1} />
-            ))}
-            {viewMarks.filter(m => m.visible).map(m => (
-              <g key={`m${m.key}`}>
-                <circle cx={m.x} cy={m.y} r="8" fill="#fff" />
-                <circle cx={m.x} cy={m.y} r="3.5" fill="rgba(0,0,0,.55)" />
-              </g>
-            ))}
-            {aiming && (
-              <g>
-                <circle cx={view.w / 2} cy={view.h / 2} r="17" fill="none"
-                  stroke="#fff" strokeWidth="2.5" opacity="0.95" />
-                <circle cx={view.w / 2} cy={view.h / 2} r="3" fill="#fff" />
-              </g>
-            )}
-            {placedLabels.map(seg => {
-              const w = seg.label.length * 8.2 + 20;
-              const mx = seg.mx;
-              const my = seg.my;
-              return (
-                <g key={`t${seg.key}`}>
-                  <rect x={mx - w / 2} y={my - 14} width={w} height={28} rx={14}
-                    fill="#fff" opacity={seg.live ? 0.9 : 1} />
-                  <text x={mx} y={my + 5} textAnchor="middle" className="ms-view-label">
-                    {seg.label}
-                  </text>
-                </g>
-              );
-            })}
-          </svg>
-
-          {/*
-              One message, not two. The first phone test stacked the dark
-              prompt and a gold warning on top of each other so neither could
-              be read; they are now the same slot, and the most urgent thing
-              wins it.
-          */}
-          <p className={`ms-tip${compass.verdict === 'bad' ? ' is-warn' : ''}`}>
-            {reading.events === 0
-              ? 'Waiting for the tilt sensor…'
-              : compass.verdict === 'bad'
-                ? compass.reason
-                : shot.reason
-                  ? shot.reason
-                  : !settled
-                    /* Ahead of the first-run instruction on purpose. While
-                       this is showing the + is disabled, and "why is the
-                       button dead" beats "here is how to start" — the
-                       instruction is readable again a fraction of a second
-                       later, once the hand stops. */
-                    ? 'Hold still…'
-                    : corners.length === 0
-                      ? 'Stand still. Aim where the wall meets the floor, then tap +'
-                      : closed
-                        ? 'Outline closed. Aim up at the ceiling for the height.'
-                        : `Corner ${corners.length} placed — turn to the next one`}
-          </p>
-
-          {/* Stay-put warning. The markers are anchored to where you are
-              standing, not to the world, so walking invalidates them. Said
-              plainly instead of letting the outline quietly go wrong. */}
-          {!showPlan && (
-            <p className="ms-anchor-warn">Measured from where you stand — turn, don&apos;t walk</p>
-          )}
-
-          <div className="ms-dock">
-            <div className="ms-dock-row">
-              <button type="button" className="ms-chip" onClick={undoCorner}
-                disabled={!corners.length}>Undo</button>
-              <button type="button" className="ms-add" onClick={addCorner}
-                disabled={shot.distance == null || !settled}
-                aria-label="Place a corner here">
-                <span aria-hidden="true">+</span>
-              </button>
-              <button type="button" className="ms-chip" onClick={() => setClosed(true)}
-                disabled={corners.length < 3 || closed}>Close</button>
+          {calibration === null ? (
+            /* Calibration: one step, this session only. Removes the constant
+               offset this phone's sensors read at "upright"; never a scale. */
+            <div className="ms-calibrate">
+              <h2 className="ms-subhead">Hold the phone upright and level</h2>
+              <p className="ms-hint">
+                Stand it straight up, against a door frame or a wall if you can, then tap Calibrate.
+                This corrects this phone&apos;s tilt sensor for this session.
+              </p>
+              <div className="ms-actions">
+                <button type="button" className="button button-primary" onClick={runCalibration} disabled={calibrating || reading.events === 0}>
+                  {calibrating ? 'Hold still…' : 'Calibrate'}
+                </button>
+                <button type="button" className="button" onClick={() => setCalibration({ ok: false, skipped: true })}>
+                  Skip
+                </button>
+              </div>
+              {note && <p className="ms-hint ms-warn" role="status">{note}</p>}
             </div>
-            <div className="ms-dock-row ms-dock-second">
-              <button type="button" className="ms-chip" onClick={setCeilingFromAim}>
-                {ceiling ? `Ceiling ${m2cm(ceiling)}` : 'Ceiling'}
-              </button>
-              <button type="button" className="ms-chip" onClick={() => setShowPlan(s => !s)}>
-                {showPlan ? 'Hide plan' : 'Plan'}
-              </button>
-              <button type="button" className="ms-chip" onClick={reset}>Reset</button>
-            </div>
-          </div>
+          ) : (
+            <>
+              <svg className="ms-view-svg" width={view.w} height={view.h} aria-hidden="true">
+                {(mode === 'aim' ? viewSegments : pointLines).map(seg => (
+                  <line key={`s${seg.key}`} x1={seg.a.x} y1={seg.a.y} x2={seg.b.x} y2={seg.b.y}
+                    stroke="#fff" strokeWidth="2.5" strokeLinecap="round"
+                    strokeDasharray={seg.live ? '7 7' : undefined} opacity={seg.live ? 0.85 : 1} />
+                ))}
+                {(mode === 'aim' ? viewMarks : pointDots).filter(m => m.visible).map(m => (
+                  <g key={`m${m.key}`}>
+                    <circle cx={m.x} cy={m.y} r="8" fill="#fff" />
+                    <circle cx={m.x} cy={m.y} r="3.5" fill="rgba(0,0,0,.55)" />
+                  </g>
+                ))}
+                {aiming && (
+                  <g>
+                    <circle cx={view.w / 2} cy={view.h / 2} r="17" fill="none"
+                      stroke={rollBad ? '#ffb020' : '#fff'} strokeWidth="2.5" opacity="0.95" />
+                    <circle cx={view.w / 2} cy={view.h / 2} r="3" fill="#fff" />
+                  </g>
+                )}
+                {(mode === 'aim' ? placedLabels : pointLines).map(seg => {
+                  if (!seg.label) return null;
+                  const w = seg.label.length * 8.2 + 20;
+                  const mx = seg.mx ?? (seg.a.x + seg.b.x) / 2;
+                  const my = seg.my ?? (seg.a.y + seg.b.y) / 2;
+                  if (!Number.isFinite(mx) || !Number.isFinite(my)) return null;
+                  return (
+                    <g key={`t${seg.key}`}>
+                      <rect x={mx - w / 2} y={my - 14} width={w} height={28} rx={14} fill="#fff" opacity={seg.live ? 0.9 : 1} />
+                      <text x={mx} y={my + 5} textAnchor="middle" className="ms-view-label">{seg.label}</text>
+                    </g>
+                  );
+                })}
+              </svg>
 
-          {showPlan && (
-            <div className="ms-plan-sheet">
-              <FloorPlan corners={corners} closed={closed} room={room} />
-              <label className="ms-height-row">
-                Holding height {eyeHeight.toFixed(2)} m
-                <input type="range" min="0.8" max="2" step="0.01" value={eyeHeight}
-                  onChange={e => setEyeHeight(Number(e.target.value))}
-                  aria-label="Height you are holding the phone at, in metres" />
-              </label>
-            </div>
-          )}
-        </div>
-      )}
-      {/* ------------------------------------------------ POINT TO POINT */}
-      {mode === 'point' && heightConfirmed && (
-        <div className="ms-view" ref={viewRef}>
-          <video ref={videoRef} className="ms-view-video" autoPlay playsInline muted />
+              {/* One instruction, the most urgent. */}
+              <p className={`ms-tip${aimTip && aimTip !== 'Hold still…' ? ' is-warn' : ''}`} role="status" aria-live="polite">
+                {aimTip
+                  ?? (mode === 'aim'
+                    ? (compassKnown && !outlineAllowed
+                      ? 'Compass is unstable. Move away from metal, or use Photo or Tape measure for the room.'
+                      : corners.length === 0
+                        ? 'Aim where the wall meets the floor, then tap +'
+                        : closed
+                          ? 'Outline closed. Aim up at the ceiling for the height.'
+                          : `Corner ${corners.length} placed. Turn to the next one`)
+                    : (pendingA ? 'Now aim at the other end and tap +' : 'Aim at one end of what you want measured, then tap +'))}
+              </p>
+              <p className="ms-toast" role="status" aria-live="polite" hidden={!note}>{note}</p>
 
-          <svg className="ms-view-svg" width={view.w} height={view.h} aria-hidden="true">
-            {pointLines.map(seg => (
-              <line key={`pl${seg.key}`} x1={seg.a.x} y1={seg.a.y} x2={seg.b.x} y2={seg.b.y}
-                stroke="#fff" strokeWidth="2.5" strokeLinecap="round"
-                strokeDasharray={seg.live ? '7 7' : undefined} opacity={seg.live ? 0.85 : 1} />
-            ))}
-            {pointDots.filter(d => d.visible).map(d => (
-              <g key={`pd${d.key}`}>
-                <circle cx={d.x} cy={d.y} r="8" fill="#fff" />
-                <circle cx={d.x} cy={d.y} r="3.5" fill="rgba(0,0,0,.55)" />
-              </g>
-            ))}
-            {aiming && (
-              <g>
-                <circle cx={view.w / 2} cy={view.h / 2} r="17" fill="none"
-                  stroke="#fff" strokeWidth="2.5" opacity="0.95" />
-                <circle cx={view.w / 2} cy={view.h / 2} r="3" fill="#fff" />
-              </g>
-            )}
-            {pointLines.map(seg => {
-              if (!seg.label) return null;
-              const w = seg.label.length * 8.2 + 20;
-              const mx = (seg.a.x + seg.b.x) / 2;
-              const my = (seg.a.y + seg.b.y) / 2;
-              if (!Number.isFinite(mx) || !Number.isFinite(my)) return null;
-              return (
-                <g key={`pt${seg.key}`}>
-                  <rect x={mx - w / 2} y={my - 14} width={w} height={28} rx={14}
-                    fill="#fff" opacity={seg.live ? 0.9 : 1} />
-                  <text x={mx} y={my + 5} textAnchor="middle" className="ms-view-label">
-                    {seg.label}
-                  </text>
-                </g>
-              );
-            })}
-          </svg>
+              {aiming && !rollBad && (
+                <p className="ms-distance">
+                  <span>To the crosshair</span> {formatMeasurement(shot.distance, { spread: shot.spread }).text}
+                </p>
+              )}
+              <p className="ms-anchor-warn">
+                Measured from where you stand. Turn, don&apos;t walk.
+                {calibration?.skipped ? ' Not calibrated.' : ''}
+                {slowSensor ? ' The motion sensor is slow on this phone.' : ''}
+              </p>
 
-          <p className={`ms-tip${compass.verdict === 'bad' ? ' is-warn' : ''}`}>
-            {reading.events === 0
-              ? 'Waiting for the tilt sensor…'
-              : compass.verdict === 'bad'
-                ? compass.reason
-                : shot.reason
-                  ? shot.reason
-                  : !settled
-                    ? 'Hold still…'
-                    : pendingA
-                      ? 'Now aim at the other end and tap +'
-                      : 'Aim at one end of what you want measured, then tap +'}
-          </p>
-
-          {/* Coaching that stays until the measurement state changes — not a
-              timed notification, so it is not routed through the alert
-              system (a message that vanished while still true would be
-              worse). It was silent to screen readers: a bare <p> that
-              changed under the camera with nothing announcing it. */}
-          <p className="ms-toast" role="status" aria-live="polite" hidden={!note}>{note}</p>
-          <p className="ms-anchor-warn">Measured along the floor — turn, don&apos;t walk</p>
-
-          <div className="ms-dock">
-            <div className="ms-dock-row">
-              <button type="button" className="ms-chip" onClick={undoPoint}
-                disabled={!segments.length && !pendingA}>Undo</button>
-              <button type="button" className="ms-add" onClick={addPoint}
-                disabled={shot.distance == null || !settled}
-                aria-label={pendingA ? 'Place the far end' : 'Place the first end'}>
-                <span aria-hidden="true">+</span>
-              </button>
-              <button type="button" className="ms-chip" onClick={() => { setSegments([]); setPendingA(null); }}
-                disabled={!segments.length}>Clear</button>
-            </div>
-          </div>
-
-          {/* The list the reference apps keep: every measurement stays put
-              until it is cleared, with how it was taken and how much it can
-              be trusted, rather than one value overwriting the last. */}
-          {segments.length > 0 && (
-            <div className="ms-tape">
-              {segments.map((seg, i) => {
-                const shown = formatMeasurement(seg.metres, { spread: seg.spread });
-                return (
-                  <div className={`ms-tape-row is-${seg.grade}`} key={i}>
-                    <b>{shown.text}</b>
-                    <small>{CONFIDENCE_COPY[seg.grade].label} · tilt + gyroscope</small>
+              <div className="ms-dock">
+                {mode === 'aim' ? (
+                  <>
+                    <div className="ms-dock-row">
+                      <button type="button" className="ms-chip" onClick={undoCorner} disabled={!corners.length}>Undo</button>
+                      <button type="button" className="ms-add" onClick={addCorner}
+                        disabled={!canCaptureAim || !outlineAllowed} aria-label="Place a corner here">
+                        <span aria-hidden="true">+</span>
+                      </button>
+                      <button type="button" className="ms-chip" onClick={() => setClosed(true)} disabled={corners.length < 3 || closed}>Close</button>
+                    </div>
+                    <div className="ms-dock-row ms-dock-second">
+                      <button type="button" className="ms-chip" onClick={setCeilingFromAim}>
+                        {ceiling ? `Ceiling ${m2cm(ceiling)}` : 'Ceiling'}
+                      </button>
+                      <button type="button" className="ms-chip" onClick={() => setShowPlan(s => !s)}>{showPlan ? 'Hide plan' : 'Plan'}</button>
+                      <button type="button" className="ms-chip" onClick={reset}>Reset</button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="ms-dock-row">
+                    <button type="button" className="ms-chip" onClick={undoPoint} disabled={!segments.length && !pendingA}>Undo</button>
+                    <button type="button" className="ms-add" onClick={addPoint} disabled={!canCaptureAim}
+                      aria-label={pendingA ? 'Place the far end' : 'Place the first end'}>
+                      <span aria-hidden="true">+</span>
+                    </button>
+                    <button type="button" className="ms-chip" onClick={() => { setSegments([]); setPendingA(null); }} disabled={!segments.length}>Clear</button>
                   </div>
-                );
-              })}
-            </div>
+                )}
+              </div>
+
+              {mode === 'aim' && showPlan && (
+                <div className="ms-plan-sheet">
+                  <FloorPlan corners={corners} closed={closed} room={room} />
+                  <label className="ms-height-row">
+                    Holding height {eyeHeight.toFixed(2)} m
+                    <input type="range" min="0.8" max="2" step="0.01" value={eyeHeight}
+                      onChange={e => setEyeHeight(Number(e.target.value))}
+                      aria-label="Height you are holding the phone at, in metres" />
+                  </label>
+                </div>
+              )}
+
+              {mode === 'point' && segments.length > 0 && (
+                <div className="ms-tape">
+                  {segments.map((seg, i) => {
+                    const shown = formatMeasurement(seg.metres, { spread: seg.spread });
+                    return (
+                      <div className={`ms-tape-row is-${seg.grade}`} key={i} data-metres={seg.metres.toFixed(3)}>
+                        <b>{shown.text}</b>
+                        <small>{CONFIDENCE_COPY[seg.grade].label} · tilt + gyroscope{seg.grade !== 'high' && seg.worst ? ` · ${seg.worst}` : ''}</small>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -940,151 +967,190 @@ export default function MeasureSurface({ onUseRoom, onClose }) {
         <div className="ms-stage">
           {!photo ? (
             <>
+              <label className="ms-field">
+                Reference in the photo
+                <select value={refId} onChange={e => setRefId(e.target.value)}>
+                  {REFERENCE_RECTANGLES.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+                </select>
+              </label>
+              {reference.width === null && (
+                <div className="ms-field-row">
+                  <label className="ms-field">Its width, cm
+                    <input type="number" inputMode="decimal" min="1" value={customSize.width}
+                      onChange={e => setCustomSize(c => ({ ...c, width: e.target.value }))} />
+                  </label>
+                  <label className="ms-field">Its height, cm
+                    <input type="number" inputMode="decimal" min="1" value={customSize.height}
+                      onChange={e => setCustomSize(c => ({ ...c, height: e.target.value }))} />
+                  </label>
+                </div>
+              )}
               <div className="ms-cam">
                 <video ref={videoRef} className="ms-video" autoPlay playsInline muted />
               </div>
               <p className="ms-hint">
-                Put something you know the size of flat against the wall — a sheet
-                of A4, a bank card, a floor tile — and stand square on to it.
+                Put the reference flat on the wall you want to measure, get the whole wall
+                in the frame, and stand as square to it as you can.
               </p>
               <div className="ms-actions">
-                <button type="button" className="button button-primary" onClick={grabFrame}>
+                <button type="button" className="button button-primary" onClick={grabFrame}
+                  disabled={!(refWidth > 0 && refHeight > 0)}>
                   Take the photo
                 </button>
               </div>
             </>
           ) : (
             <>
-              <div className="ms-photo-wrap" onClick={markAt}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={photo} alt="The wall you are measuring" className="ms-photo" />
-                <svg className="ms-overlay" viewBox="0 0 1000 1000" preserveAspectRatio="none">
-                  {marks.length >= 2 && (
-                    <line x1={marks[0].x} y1={marks[0].y} x2={marks[1].x} y2={marks[1].y}
-                      stroke={VIOLET} strokeWidth="4" />
-                  )}
-                  {marks.length >= 4 && (
-                    <line x1={marks[2].x} y1={marks[2].y} x2={marks[3].x} y2={marks[3].y}
-                      stroke={GOLD} strokeWidth="4" />
-                  )}
-                  {marks.map((m, i) => (
-                    <circle key={i} cx={m.x} cy={m.y} r="9"
-                      fill="#1b1206" stroke={i < 2 ? VIOLET : GOLD} strokeWidth="4" />
-                  ))}
-                </svg>
-              </div>
-
-              <div className="ms-photo-controls">
-                <label>
-                  The thing I marked first is
-                  <select value={refObject.id}
-                    onChange={e => setRefObject(KNOWN_OBJECTS.find(o => o.id === e.target.value))}>
-                    {KNOWN_OBJECTS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-                  </select>
-                </label>
-                {refObject.metres === null && (
-                  <label>
-                    …and it is this many metres
-                    <input type="number" step="0.001" min="0.01" value={customMetres}
-                      onChange={e => setCustomMetres(e.target.value)} />
-                  </label>
-                )}
-              </div>
-
-              <p className="ms-hint">
-                {marks.length < 2
-                  ? 'Tap each end of the reference object.'
-                  : marks.length < 4
-                    ? 'Now tap each end of the wall you want measured.'
-                    : photoScale.reason || 'Tap again to start a new pair.'}
+              <p className="ms-hint" role="status" aria-live="polite">
+                {refCorners.length < 4
+                  ? `Tap the ${CORNER_NAMES[refCorners.length]} corner of the ${reference.id === 'custom' ? 'reference' : reference.label.split(' (')[0]}. Zoom in for precision; drag a dot to adjust it.`
+                  : plane && !plane.ok
+                    ? plane.reason
+                    : ends.length < 2
+                      ? `${plane?.note ? `${plane.note} ` : 'Perspective corrected. '}Now tap each end of what you want measured, on the same wall.`
+                      : 'Drag either end to adjust it.'}
               </p>
+              <div className="ms-photo-frame">
+                <div className="ms-photo-pan"
+                  style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
+                  onPointerDown={onPhotoPointerDown} onPointerMove={onPhotoPointerMove}
+                  onPointerUp={onPhotoPointerUp} onPointerCancel={() => { drag.current = null; }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img ref={imgRef} src={photo.src} alt="The wall being measured" className="ms-photo" draggable={false} />
+                  <svg className="ms-overlay" viewBox={`0 0 ${photo.width} ${photo.height}`} preserveAspectRatio="none" aria-hidden="true">
+                    {refCorners.length > 1 && (
+                      <polygon points={refCorners.map(p => `${p.x},${p.y}`).join(' ')}
+                        fill={refCorners.length === 4 ? 'rgba(123,107,217,.18)' : 'none'}
+                        stroke="#7b6bd9" strokeWidth={photo.width / 300} />
+                    )}
+                    {ends.length === 2 && (
+                      <line x1={ends[0].x} y1={ends[0].y} x2={ends[1].x} y2={ends[1].y} stroke="#f2c14e" strokeWidth={photo.width / 260} />
+                    )}
+                    {marks.map((m, i) => (
+                      <circle key={i} cx={m.x} cy={m.y} r={photo.width / 90 / zoom}
+                        fill="#1b1206" stroke={i < refCorners.length ? '#7b6bd9' : '#f2c14e'} strokeWidth={photo.width / 300 / zoom} />
+                    ))}
+                  </svg>
+                </div>
+              </div>
+              <div className="ms-photo-tools">
+                <button type="button" className="ms-chip" onClick={() => setZoom(z => Math.max(1, z / 1.5))} disabled={zoom <= 1} aria-label="Zoom out">−</button>
+                <button type="button" className="ms-chip" onClick={() => setZoom(z => Math.min(6, z * 1.5))} aria-label="Zoom in">+</button>
+                <button type="button" className="ms-chip" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} disabled={zoom === 1}>Fit</button>
+                <button type="button" className="ms-chip" onClick={undoMark} disabled={!marks.length}>Undo point</button>
+                <button type="button" className="ms-chip" onClick={resetMarks} disabled={!marks.length}>Reset</button>
+              </div>
 
-              {photoSpan.metres != null && (
-                <div className={`ms-live is-${photoSpan.trust}`}>
+              {photoSpan?.metres != null && (
+                <div className={`ms-result is-${photoSpan.trust}`} role="status">
                   <b>{m2cm(photoSpan.metres)}</b>
-                  <span>± {Math.round(photoSpan.spread * 100)} cm</span>
-                  <small>only valid in {photoScale.validIn}</small>
+                  <span>± {Math.max(1, Math.round(photoSpan.spread * 100))} cm</span>
+                  <small>Photo reference · valid only on the wall the reference is on{photoSpan.reason ? ` · ${photoSpan.reason}` : ''}</small>
                 </div>
               )}
 
               <div className="ms-actions">
-                <button type="button" className="button button-primary"
-                  disabled={photoSpan.metres == null}
-                  onClick={() => { setWalls(w => [...w, photoSpan.metres]); setPhoto(null); }}>
-                  Add this wall ({walls.length})
+                <button type="button" className="button button-primary" disabled={photoSpan?.metres == null}
+                  onClick={() => { setWalls(w => [...w, { metres: photoSpan.metres, spread: photoSpan.spread }]); setPhoto(null); }}>
+                  Accept this wall ({walls.length + 1})
                 </button>
-                <button type="button" className="button" onClick={() => setPhoto(null)}>
-                  Retake
-                </button>
+                <button type="button" className="button" onClick={() => setPhoto(null)}>Retake</button>
               </div>
-
-              {walls.length > 0 && (
-                <p className="ms-hint">
-                  Walls so far: {walls.map(w => m2cm(w)).join(' · ')}.
-                  A photo cannot see the angle between two walls, so these are
-                  assembled as right angles.
-                </p>
-              )}
             </>
           )}
 
-          {photoRoom && <FloorPlan corners={wallsToCorners(walls)} closed room={photoRoom} />}
+          {walls.length > 0 && (
+            <p className="ms-hint">
+              Walls so far, in order: {walls.map(w => m2cm(w.metres)).join(' · ')}.
+              A photo cannot see the angle between two walls, so they are joined at right angles.
+            </p>
+          )}
+          {photoRoom && <FloorPlan corners={wallsToCorners(walls.map(w => w.metres))} closed room={photoRoom} />}
         </div>
       )}
 
-      {/* ----------------------------------------------------------- TYPE */}
-      {mode === 'type' && (
+      {/* --------------------------------------------------------- MANUAL */}
+      {mode === 'manual' && (
         <div className="ms-stage ms-stage-plain">
           <p className="ms-hint">
-            A tape measure beats both camera methods on accuracy, so this is not
-            the fallback — it is the most reliable option on the screen. Use it
-            when you have a tape, or to correct a number the camera got wrong.
+            A tape measure beats every camera method on accuracy. Choose the unit you
+            measured in; it applies to all three sizes.
           </p>
-          <div className="ms-typed">
-            {[['length', 'Length'], ['width', 'Width'], ['height', 'Height (optional)']].map(([key, label]) => (
-              <label key={key}>
-                {label}, in metres
-                <input type="number" step="0.01" min="0" inputMode="decimal"
-                  value={typed[key]}
-                  onChange={e => setTyped(t => ({ ...t, [key]: e.target.value }))} />
+          <div className="ms-units" role="radiogroup" aria-label="Unit">
+            {ROOM_UNITS.map(u => (
+              <label key={u.id} className={`ms-unit${unit === u.id ? ' is-on' : ''}`}>
+                <input type="radio" name="room-unit" value={u.id} checked={unit === u.id} onChange={() => changeUnit(u.id)} />
+                <span>{u.short}</span>
               </label>
             ))}
           </div>
+          <div className="ms-typed">
+            {[['length', 'Length'], ['width', 'Width'], ['height', 'Height (optional)']].map(([key, label]) => {
+              const problem = manual.problems[key];
+              const metres = manual.metres[key];
+              return (
+                <label key={key} className={problem ? `has-${problem.level}` : ''}>
+                  {label}, in {ROOM_UNITS.find(u => u.id === unit).label}
+                  <input type="text" inputMode="decimal" autoComplete="off" value={typed[key]}
+                    aria-invalid={problem?.level === 'error' ? 'true' : undefined}
+                    aria-describedby={`typed-${key}-note`}
+                    onChange={e => { setTyped(t => ({ ...t, [key]: e.target.value })); setConfirmed(false); }} />
+                  <small id={`typed-${key}-note`} className="ms-typed-note">
+                    {problem ? problem.message : Number.isFinite(metres) && unit !== 'm' ? `= ${formatRoomLength(metres, 'm')}` : ''}
+                  </small>
+                </label>
+              );
+            })}
+          </div>
+          {manual.suggestUnit && (
+            <button type="button" className="button button-outline" onClick={() => {
+              /* The digits stay, the unit changes: this is reading the same
+                 typed numbers in the unit the person meant. */
+              setUnit(manual.suggestUnit); setConfirmed(false);
+            }}>
+              Read these as {ROOM_UNITS.find(u => u.id === manual.suggestUnit).label}
+            </button>
+          )}
+          {manual.confirmable && (
+            <label className="ms-confirm">
+              <input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />
+              These sizes are right
+            </label>
+          )}
           {typedRoom && (
             <FloorPlan
               corners={[
-                { x: 0, z: 0 }, { x: Number(typed.length), z: 0 },
-                { x: Number(typed.length), z: Number(typed.width) }, { x: 0, z: Number(typed.width) }
+                { x: 0, z: 0 }, { x: manual.metres.length, z: 0 },
+                { x: manual.metres.length, z: manual.metres.width }, { x: 0, z: manual.metres.width }
               ]}
               closed room={typedRoom} />
           )}
         </div>
       )}
 
-      {cameraError && mode !== 'type' && (
-        <p className="ms-note">The camera would not open — {cameraError}. The Type tab still works.</p>
+      {cameraError && (mode === 'photo' || ((mode === 'aim' || mode === 'point') && heightConfirmed)) && (
+        <p className="ms-note">{cameraError} Tape measure still works.</p>
       )}
 
-      <footer className="ms-foot">
-        <div className="ms-summary">
-          {activeRoom?.floorArea
-            ? <>{fmt(Math.max(activeRoom.length, activeRoom.width), 'm')} × {fmt(Math.min(activeRoom.length, activeRoom.width), 'm')} · {fmt(activeRoom.floorArea, 'm²')}</>
-            : corners.length
-              /* It said "Nothing measured yet" with eleven corners on screen,
-                 which is both untrue and unhelpful — the room is not FINISHED
-                 until the outline closes, and that is what it should say. */
-              ? <>{corners.length} corner{corners.length === 1 ? '' : 's'} — close the outline to finish</>
-              : <>Nothing measured yet</>}
-        </div>
-        <button type="button" className="button button-primary"
-          disabled={!activeRoom?.floorArea}
-          onClick={() => onUseRoom?.(activeRoom)}>
-          Use this room
-        </button>
-      </footer>
+      {mode !== 'choose' && mode !== 'point' && (
+        <footer className="ms-foot">
+          <div className="ms-summary">
+            {activeRoom?.floorArea
+              ? <>{fmt(Math.max(activeRoom.length, activeRoom.width), 'm')} × {fmt(Math.min(activeRoom.length, activeRoom.width), 'm')} · {fmt(activeRoom.floorArea, 'm²')}<small className="ms-summary-method">{METHOD_NAME[mode]}</small></>
+              : mode === 'aim' && corners.length
+                ? <>{corners.length} corner{corners.length === 1 ? '' : 's'} — close the outline to finish</>
+                : mode === 'photo' && walls.length
+                  ? <>{walls.length} wall{walls.length === 1 ? '' : 's'} — at least 3 for a room</>
+                  : <>Nothing measured yet</>}
+          </div>
+          <button type="button" className="button button-primary" disabled={!activeRoom?.floorArea}
+            onClick={() => onUseRoom?.(activeRoom)}>
+            Use this room
+          </button>
+        </footer>
+      )}
     </div>
   );
 
-  // document.body does not exist while this is server-rendered.
   return typeof document === 'undefined' ? null : createPortal(surface, document.body);
 }

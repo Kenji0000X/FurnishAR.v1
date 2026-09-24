@@ -323,14 +323,36 @@ const tapped = await page.evaluate(async () => {
   const beforeHeight = window.__furnisharScan.state.room;
   window.__furnisharScan.tapCorner({ x: 2, y: 2.5, z: 1.5 });   // the ceiling
   const room = window.__furnisharScan.state.room;
+  const firstReady = window.__furnisharScan.state.readiness?.ready;
+  const useRoomLabel = document.getElementById('use-room')?.textContent;
+
+  /* A second, independent scan confirms the first. One wildly off (40 cm
+     longer) is refused; one that agrees confirms. And a "corner" on a table
+     top 45 cm above the floor is refused, not flattened onto it. */
+  window.__furnisharScan.confirmScan();
+  window.__furnisharScan.tapCorner({ x: 0, y: 0.45, z: 0 });
+  const tableRefused = window.__furnisharScan.state.taps.corners.length === 0;
+  const off = [{ x: 0, y: 0, z: 0 }, { x: 4.4, y: 0, z: 0 }, { x: 4.4, y: 0, z: 3 }, { x: 0, y: 0, z: 3 }];
+  for (const corner of off) window.__furnisharScan.tapCorner(corner);
+  window.__furnisharScan.closeFloor();
+  const afterDisagreement = window.__furnisharScan.state.readiness?.ready;
+
+  window.__furnisharScan.confirmScan();
+  const again = [{ x: 0.01, y: 0.005, z: 0 }, { x: 4.02, y: 0, z: 0.01 }, { x: 4.01, y: -0.004, z: 3.01 }, { x: 0, y: 0, z: 2.99 }];
+  for (const corner of again) window.__furnisharScan.tapCorner(corner);
+  window.__furnisharScan.closeFloor();
+  const confirmedRoom = window.__furnisharScan.state.room;
   return {
     planesSupported: window.__furnisharScan.state.netSupport.planes,
     heightBefore: beforeHeight?.height,
     length: room?.length, width: room?.width, height: room?.height,
     area: room?.floorArea, perimeter: room?.perimeter, volume: room?.volume,
+    firstReady, useRoomLabel, tableRefused, afterDisagreement,
+    confirmedLength: confirmedRoom?.length,
     ready: window.__furnisharScan.state.readiness?.ready,
     blocking: window.__furnisharScan.state.readiness?.blocking,
-    panelLength: document.getElementById('room-length')?.textContent
+    panelLength: document.getElementById('room-length')?.textContent,
+    guidance: document.getElementById('scan-guidance')?.textContent
   };
 });
 
@@ -349,9 +371,14 @@ check('height is null until the ceiling is actually tapped', tapped.heightBefore
 check('the ceiling tap gives the height', nearTapped(tapped.height, 2.5), `${tapped.height?.toFixed(2)} m`);
 check('volume only exists once there is a height', nearTapped(tapped.volume, 30, 0.15),
   `${tapped.volume?.toFixed(2)} m3`);
-check('the room is usable without any sweep or detected walls', tapped.ready === true,
+check('one scan is not enough to use the room', tapped.firstReady === false);
+check('it offers a confirming scan instead', /Scan again to confirm/.test(tapped.useRoomLabel || ''), tapped.useRoomLabel);
+check('a corner on a table top is refused, not flattened', tapped.tableRefused === true);
+check('a second scan 40 cm off is refused', tapped.afterDisagreement === false);
+check('an agreeing second scan makes the room usable, with no sweep or walls', tapped.ready === true,
   `blocking: ${(tapped.blocking || []).join(', ')}`);
-check('and the panel shows it', tapped.panelLength === '4.00 m', tapped.panelLength);
+check('and the panel shows it', /^4\.0\d m$/.test(tapped.panelLength || ''), tapped.panelLength);
+check('it calls two agreeing scans what they are', /Two scans agree/.test(tapped.guidance || ''), tapped.guidance);
 
 /* The oversized case is covered exhaustively in tests/room.test.js against
    fitInRoom() directly; repeating it here would need a fake product in the
