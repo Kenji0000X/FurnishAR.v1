@@ -196,7 +196,15 @@ class Page:
             else:
                 r = 10 if 'rounded=1' in s else 0
                 parts.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{r}" fill="{f}" stroke="{st}"{dash}/>')
-            if s.startswith(('rounded=0;whiteSpace=wrap;html=1;fillColor=none', 'shape=note')) or 'verticalAlign=top;align=left' in s:
+            if s.startswith('shape=note'):
+                # Wrap each paragraph to the note's width, as draw.io does.
+                import textwrap
+                width = max(int((w - 20) / 5.6), 20)
+                paras = re.sub(r'<br\s*/?>', '\n', n['label']).split('\n')
+                wrapped = '<br>'.join(line for para in paras for line in (textwrap.wrap(para, width) or ['']))
+                lines = wrapped.count('<br>')
+                parts.append(text(x + 10, y + 18 + lines * 11 * 0.6, wrapped, 11, 'normal', 'start'))
+            elif s.startswith('rounded=0;whiteSpace=wrap;html=1;fillColor=none') or 'verticalAlign=top;align=left' in s:
                 parts.append(text(x + 10, y + 18, n['label'], 13 if 'fontSize=14' in s else 11, 'bold' if 'fontStyle=1' in s else 'normal', 'start'))
             elif s.startswith('text'):
                 parts.append(text(x, y + h / 2, n['label'], 12, 'bold', 'start'))
@@ -224,6 +232,7 @@ class Page:
                         ortho.append((x2, y1) if sideways else (x1, y2))
                     ortho.append((x2, y2))
                 pts = ortho
+            pts = [q for i, q in enumerate(pts) if i == 0 or abs(q[0] - pts[i - 1][0]) + abs(q[1] - pts[i - 1][1]) > 0.5]
             d = 'M' + ' L'.join(f'{x:.1f},{y:.1f}' for x, y in pts)
             s = e['style']
             marker = '' if 'endArrow=none' in s else ('url(#t)' if 'endFill=0;endSize' in s else
