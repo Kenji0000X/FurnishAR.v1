@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { initBackend, usingSupabase, supabase, backendReason, backendOutage } from '../portal/backend.js';
 import useAlert from '../alerts/useAlert.js';
 import { noticeExpiredSession } from '../alerts/sessionExpiry.js';
+import BuyerOrders from '../billing/BuyerOrders.js';
 
 /**
  * The shopper's own page — the buyer half of what /portal is for an owner.
@@ -201,6 +202,8 @@ export default function BuyerAccount() {
         </p>
       </section>
 
+      <BuyerOrders />
+
       <section className="account-card" aria-labelledby="settings-title">
         <h2 id="settings-title">Profile settings</h2>
         <p className="card-copy">Your name and town. Nothing else is kept.</p>
@@ -247,8 +250,7 @@ export default function BuyerAccount() {
           </button>
         </div>
         <p className="card-copy demo-note">
-          FurnishAR does not take orders or payments. Rooms you measure stay on your
-          device; they are not saved to your account yet.
+          Rooms you measure stay on your device; they are not saved to your account yet.
         </p>
       </section>
     </div>

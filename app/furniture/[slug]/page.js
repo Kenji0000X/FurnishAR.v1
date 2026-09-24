@@ -4,6 +4,7 @@ import { getCatalog, getProduct, getStores } from '../../../lib/catalog.mjs';
 import ProductViewer from './ProductViewer.js';
 import { modelState, MODEL_STATE } from '../../model-state.js';
 import ProductActions from './ProductActions.js';
+import PurchasePanel from './PurchasePanel.js';
 import { peso, cm } from '../../format.js';
 
 /**
@@ -85,14 +86,17 @@ export default async function ProductPage({ params }) {
         <div className="product-detail-info">
           <p className="product-store">{product.store}</p>
           <h1>{product.name}</h1>
-          <p className="detail-price">{peso(product.price)}</p>
+          <p className="detail-price">
+            {product.fulfilment === 'custom' && <span className="detail-price-from">From </span>}
+            {peso(product.price)}
+          </p>
 
           {/* Stated, not implied by an absent badge. */}
           <p className={`detail-availability${hasModel ? ' is-ar' : ''}`}>
             {hasModel
               ? 'Can be placed in your room at true scale'
               : 'No 3D model — cannot be placed in AR yet'}
-            {inStock !== null && (
+            {product.fulfilment === 'custom' ? ' · Made to order' : inStock !== null && (
               <>
                 {' · '}
                 {inStock > 0 ? `${inStock} in stock` : 'Out of stock'}
@@ -115,6 +119,8 @@ export default async function ProductPage({ params }) {
 
           {/* Which AR button to show depends on the device, which the server
               cannot know — so only this part is a client component. */}
+          <PurchasePanel product={product} />
+
           <ProductActions product={product} />
 
           {store && (

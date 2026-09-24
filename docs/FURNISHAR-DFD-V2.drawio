@@ -1,6 +1,6 @@
 <mxfile host="app.diagrams.net" modified="2026-09-24T00:00:00.000Z" agent="FurnishAR DFD v2" version="24.7.17">
 <diagram id="furnishar-dfd-v2" name="FurnishAR DFD v2">
-<mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000">
+<mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1640" pageHeight="1000">
 <root>
 <mxCell id="0"/><mxCell id="1" parent="0"/>
 <mxCell id="B" value="Buyer / Guest" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;" vertex="1" parent="1"><mxGeometry x="40" y="360" width="100" height="80" as="geometry"/></mxCell>
@@ -19,6 +19,10 @@
 <mxCell id="D2" value="D2 Catalogue / Products" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="500" y="820" width="210" height="70" as="geometry"/></mxCell>
 <mxCell id="D3" value="D3 Private 3D Assets" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="1050" y="760" width="210" height="70" as="geometry"/></mxCell>
 <mxCell id="D4" value="D4 Applications / Audit / Usage" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="1030" y="900" width="270" height="70" as="geometry"/></mxCell>
+<mxCell id="P10" value="P10 Orders &amp; Payments" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="1340" y="300" width="220" height="90" as="geometry"/></mxCell>
+<mxCell id="D5" value="D5 Orders / Payments / Fees" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="1330" y="650" width="240" height="70" as="geometry"/></mxCell>
+<mxCell id="PP" value="PayPal (shop's account)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="1340" y="120" width="220" height="70" as="geometry"/></mxCell>
+<mxCell id="EM" value="Email Service (Resend)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="1340" y="490" width="220" height="70" as="geometry"/></mxCell>
 <mxCell id="e1" value="credentials / signup" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="B" target="P1"><mxGeometry relative="1" as="geometry"/></mxCell>
 <mxCell id="e2" value="session / role" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="P1" target="B"><mxGeometry relative="1" as="geometry"/></mxCell>
 <mxCell id="e3" value="identity / role" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="P1" target="D1"><mxGeometry relative="1" as="geometry"/></mxCell>
@@ -59,6 +63,21 @@
 <mxCell id="e37" value="alerts" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="P9" target="B"><mxGeometry relative="1" as="geometry"/></mxCell>
 <mxCell id="e38" value="alerts" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="P9" target="O"><mxGeometry relative="1" as="geometry"/></mxCell>
 <mxCell id="e39" value="alerts" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="P9" target="A"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e41" value="buy / custom request / pay" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="B" target="P10"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e42" value="PayPal approval link / order status" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="P10" target="B"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e43" value="store type / payout / quote / ready / handed over" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="O" target="P10"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e44" value="incoming orders / fees owed" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="P10" target="O"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e45" value="session check" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="P10" target="P1"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e46" value="price / stock hold" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="P10" target="D2"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e47" value="orders / verified captures" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="P10" target="D5"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e48" value="amount due / order state" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="D5" target="P10"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e49" value="create / capture (payee = shop)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="P10" target="PP"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e50" value="approval / capture result" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="PP" target="P10"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e51" value="order event" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="P10" target="P9"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e52" value="order email" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="P10" target="EM"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e53" value="receipt / quote / balance due" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="EM" target="B"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e54" value="new order / deposit paid" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="EM" target="O"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e55" value="fee overview / settlements" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="P8" target="D5"><mxGeometry relative="1" as="geometry"/></mxCell>
 </root>
 </mxGraphModel>
 </diagram>

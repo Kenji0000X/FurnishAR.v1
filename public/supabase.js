@@ -329,6 +329,8 @@ export function toProduct(row) {
     storeId: row.store_slug,
     storeUuid: row.store_id,
     store: row.store_name,
+    // 0009: 'stocked' sells from the shelf, 'custom' builds to order.
+    fulfilment: row.store_fulfilment || 'stocked',
     category: row.category,
     style: row.style,
     color: row.color,
@@ -1216,4 +1218,93 @@ export async function rejectApplication(applicationId, note) {
     return data;
   }
   return restCall('rpc/reject_store_application', { method: 'POST', body });
+}
+
+/* ------------------------------------------------ orders & billing (0009) --- */
+
+/**
+ * Is online payment switched on for this deployment? Answered by the server,
+ * which alone knows whether PayPal and the payment recorder are configured.
+ * An unconfigured or unreachable backend reads as "off", never as an error.
+ */
+export async function billingConfig() {
+  try {
+    const response = await fetch('/api/sb/orders/config', { headers: { Accept: 'application/json' }, cache: 'no-store' });
+    if (!response.ok) return { payments: false, email: false, feeRate: 0.1, currency: 'PHP', depositRate: 0.5 };
+    return await response.json();
+  } catch {
+    return { payments: false, email: false, feeRate: 0.1, currency: 'PHP', depositRate: 0.5 };
+  }
+}
+
+/**
+ * One order action on the server (lib/orders.js). The body names things —
+ * a product, a quantity, an order — never an amount; the server and the
+ * database decide what is owed.
+ */
+export async function orderAction(action, payload = {}, retried = false) {
+  const current = await getSession().catch(() => null);
+  const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
+  if (current?.access_token) headers.Authorization = `Bearer ${current.access_token}`;
+  const response = await fetch(`/api/sb/orders/${action}`, {
+    method: 'POST', headers, body: JSON.stringify(payload), cache: 'no-store'
+  });
+  let body = null;
+  try { body = await response.json(); } catch { body = null; }
+  if (response.status === 401 && !retried && session?.refresh_token) {
+    const renewed = await refreshSession();
+    if (renewed) return orderAction(action, payload, true);
+  }
+  if (!response.ok) {
+    const error = new Error(body?.error || 'That could not be completed. Please try again.');
+    error.status = response.status;
+    error.code = body?.code || (response.status === 401 ? 'auth_required' : undefined);
+    throw error;
+  }
+  return body;
+}
+
+const ORDER_FIELDS = 'id,reference,kind,status,store_id,product_id,product_name,quantity,unit_price,subtotal,'
+  + 'fee_rate,platform_fee,total,deposit_amount,amount_paid,currency,request,quote_note,lead_time_days,'
+  + 'decline_reason,hold_expires_at,created_at,updated_at,paid_at,buyer_name,buyer_email,stores(name,slug)';
+
+/** The signed-in buyer's own orders (RLS decides which rows exist). */
+export async function listMyOrders() {
+  if (!session) return [];
+  return (await restCall(`orders?select=${ORDER_FIELDS}&order=created_at.desc&limit=50`)) || [];
+}
+
+/** A store's incoming orders, for its owner. */
+export async function listStoreOrders(storeUuid) {
+  return (await restCall(
+    `orders?select=${ORDER_FIELDS}&store_id=eq.${encodeURIComponent(storeUuid)}&order=created_at.desc&limit=100`
+  )) || [];
+}
+
+/** How a store is paid, what kind it is, and what it owes FurnishAR. */
+export async function storeBilling(storeUuid) {
+  const id = encodeURIComponent(storeUuid);
+  const [payout, store, fees] = await Promise.all([
+    restCall(`store_payout?store_id=eq.${id}&select=paypal_email,notify_email`),
+    restCall(`stores?id=eq.${id}&select=fulfilment`),
+    restCall('rpc/store_fee_summary', { method: 'POST', body: JSON.stringify({ p_store: storeUuid }) })
+  ]);
+  return {
+    fulfilment: store?.[0]?.fulfilment || 'stocked',
+    paypalEmail: payout?.[0]?.paypal_email || '',
+    notifyEmail: payout?.[0]?.notify_email || '',
+    fees: fees || { accrued: 0, settled: 0, outstanding: 0 }
+  };
+}
+
+/** Every store's fees — platform admin only (the function checks). */
+export async function feeOverview() {
+  return (await restCall('rpc/fee_overview', { method: 'POST', body: '{}' })) || [];
+}
+
+export async function recordFeeSettlement({ storeUuid, amount, reference, note }) {
+  return restCall('rpc/record_fee_settlement', {
+    method: 'POST',
+    body: JSON.stringify({ p_store: storeUuid, p_amount: Number(amount), p_reference: reference || null, p_note: note || null })
+  });
 }

@@ -28,6 +28,7 @@ create table if not exists auth.users (
 alter table auth.users add column if not exists email_confirmed_at timestamptz;
 alter table auth.users add column if not exists last_sign_in_at    timestamptz;
 alter table auth.users add column if not exists banned_until       timestamptz;
+alter table auth.users add column if not exists raw_user_meta_data jsonb not null default '{}'::jsonb;
 
 create or replace function auth.uid()
 returns uuid

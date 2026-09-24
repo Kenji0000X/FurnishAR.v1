@@ -12,8 +12,12 @@
  *   POST /api/sb/auth/<action>  login | signup | refresh | logout
  *   GET  /api/sb/model/<path>   redirect to a stored model, hiding the project URL
  *   POST /api/sb/storage/sign   one-time signed upload URL
+ *   GET  /api/sb/orders/config  are online payments / emails switched on?
+ *   POST /api/sb/orders/<action> checkout | pay | capture | request | cancel |
+ *                               quote | decline | ready | fulfil | store-billing
  */
 import proxy from '../../../../lib/supabase-proxy.js';
+import orders from '../../../../lib/orders.js';
 
 const {
   isConfigured, serverCredentials, proxyRest, proxyAuth, createSignedUpload, grantModelAccess
@@ -180,6 +184,19 @@ async function route(request, context) {
   */
   if (section === 'model' && request.method === 'GET') {
     const result = await grantModelAccess(asNodeRequest(request), rest.join('/'));
+    return json(result.status, result.body, { 'Cache-Control': 'private, no-store' });
+  }
+
+  /*
+    Orders and payments (DFD P10). Money never moves on the browser's word:
+    lib/orders.js checks the session, lets the 0009 functions decide what
+    this account may do, reads every amount from the database and every
+    capture from PayPal. Per person, so never cached.
+  */
+  if (section === 'orders' && rest.length === 1) {
+    const site = (process.env.SITE_URL || url.origin).replace(/\/$/, '');
+    const body = request.method === 'POST' ? await request.json().catch(() => ({})) : null;
+    const result = await orders.handleOrders(asNodeRequest(request), rest[0], body, site);
     return json(result.status, result.body, { 'Cache-Control': 'private, no-store' });
   }
 

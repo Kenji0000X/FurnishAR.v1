@@ -4886,3 +4886,63 @@ select { background-color: var(--paper-raised); color: var(--ink); }
 dialog, .drawer-panel { overscroll-behavior: contain; }
 /* Hover and focus raise contrast rather than only moving things. */
 .capsule-quiet:focus-visible, .button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* ------------------------------------------------ purchase (0009) ------ */
+
+.purchase-panel {
+  display: grid; gap: .85rem;
+  margin: 1.4rem 0 1rem; padding: 1.1rem 1.2rem;
+  border: 1px solid var(--rule); background: var(--paper-raised);
+}
+.purchase-note { color: var(--ink-muted); font-size: .8125rem; }
+.purchase-row { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; }
+.quantity-field {
+  display: grid; gap: .3rem;
+  font-family: var(--mono); font-size: var(--micro); letter-spacing: .14em;
+  text-transform: uppercase; color: var(--ink-faint);
+}
+.quantity-field select {
+  min-width: 4.5rem; min-height: 44px; padding: .45rem .6rem;
+  border: 1px solid var(--rule); background: var(--paper); color: var(--ink); font-size: 16px;
+}
+.price-breakdown { display: grid; gap: .35rem; margin: 0; font-variant-numeric: tabular-nums; }
+.price-breakdown div { display: flex; justify-content: space-between; gap: 1rem; font-size: .875rem; }
+.price-breakdown dt { color: var(--ink-muted); }
+.price-breakdown dd { margin: 0; }
+.price-breakdown .price-total { padding-top: .45rem; border-top: 1px solid var(--rule); font-weight: 600; font-size: 1rem; }
+.detail-price-from { font-size: .6em; color: var(--ink-muted); font-weight: 400; }
+.request-dialog { width: min(34rem, calc(100vw - 2rem)); }
+.request-dialog .product-form { display: grid; gap: .85rem; }
+.form-grid-3 { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 30rem) { .form-grid-3, .request-dialog .form-grid { grid-template-columns: 1fr; } }
+
+/* Orders — account, portal, console */
+.orders-list { display: grid; gap: .85rem; margin: 0; padding: 0; list-style: none; }
+.order-card {
+  display: grid; gap: .5rem; padding: 1rem 1.1rem;
+  border: 1px solid var(--rule); background: var(--paper-raised);
+}
+.order-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: .5rem; }
+.order-head h3 { font-size: 1rem; margin: 0; }
+.order-ref { font-family: var(--mono); font-size: var(--micro); letter-spacing: .1em; color: var(--ink-faint); }
+.order-meta { color: var(--ink-muted); font-size: .8125rem; font-variant-numeric: tabular-nums; }
+.order-status {
+  display: inline-block; padding: .15rem .55rem; border-radius: 999px;
+  font-family: var(--mono); font-size: var(--micro); letter-spacing: .08em; text-transform: uppercase;
+  border: 1px solid var(--rule-strong); color: var(--ink-muted);
+}
+.order-status[data-tone="action"] { border-color: var(--accent); color: var(--accent-ink); }
+.order-status[data-tone="done"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.order-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.order-quote { display: grid; gap: .6rem; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; }
+.order-quote label { display: grid; gap: .3rem; font-size: .75rem; color: var(--ink-muted); }
+.order-quote input { min-height: 44px; padding: .45rem .6rem; border: 1px solid var(--rule); background: var(--paper); color: var(--ink); font-size: 16px; }
+@media (max-width: 36rem) { .order-quote { grid-template-columns: 1fr; } }
+.billing-summary { display: flex; flex-wrap: wrap; gap: 1.5rem; font-variant-numeric: tabular-nums; }
+.billing-summary div { display: grid; gap: .15rem; }
+.billing-summary dt { font-family: var(--mono); font-size: var(--micro); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint); }
+.billing-summary dd { margin: 0; font-size: 1.1rem; }
+.billing-form { display: grid; gap: .85rem; margin-bottom: 1.2rem; }
+.billing-form fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.billing-form > .button { justify-self: start; }
+@media (max-width: 40rem) { .billing-form .form-grid { grid-template-columns: 1fr; } }

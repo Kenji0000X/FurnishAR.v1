@@ -8,6 +8,7 @@ import PasswordField from '../PasswordField.js';
 import useAlert from '../alerts/useAlert.js';
 import ConfirmDialog from '../ConfirmDialog.js';
 import { peso } from '../format.js';
+import StoreOrders from '../billing/StoreOrders.js';
 
 const FREEMIUM_LIMIT = 8;
 
@@ -645,6 +646,9 @@ export default function Portal({ initialProducts }) {
         </div>
         <PlanPanel plan={plan} used={ownProducts.length} />
       </section>
+
+      {/* Orders and billing live in the database (0009); the demo backend has neither. */}
+      {usingSupabase() && user.storeUuid && <StoreOrders storeUuid={user.storeUuid} />}
 
       <div className="inventory-table-wrap">
         <table role="table">

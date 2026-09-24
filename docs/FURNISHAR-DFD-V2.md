@@ -30,6 +30,10 @@ This is the implementation-aligned replacement for the supplied sample DFD.
 | Store owner / admin sign-in | `/login` (role resolved by `my_role()` after sign-in, not by the URL), the `/admin` gate | P1 Authentication |
 | Device check | `/diagnose` | P4 Planner / Device Check (read-only capability report; no data store) |
 | Help | `/faq` | Public content — no process, no data flow |
+| Buy / request a build | `/furniture/[slug]` (purchase panel) | P10 Orders & Payments |
+| Buyer orders, PayPal return | `/account#orders`, `/account?paypal=return` | P10 Orders & Payments |
+| Store billing and incoming orders | `/portal#orders` | P7 → P10 |
+| Platform fees | `/admin/billing` | P8 → D5 |
 
 ## Actual API boundary
 
@@ -63,6 +67,11 @@ The DFD is aligned with the current repository routes:
 | `/api/sb/model/<store>/<product>/<file>` | P5 3D Access & Authorization | D3 |
 | `/api/sb/storage/sign` | P7 Store model upload | D3 |
 | `/api/sb/status` | Health (no process data) | — |
+| `GET /api/sb/orders/config` | P10 — are payments / emails switched on (no secrets) | — |
+| `POST /api/sb/orders/checkout`, `pay`, `capture`, `request`, `cancel` | P10 Orders & Payments (buyer) | D2, D5, PayPal |
+| `POST /api/sb/orders/quote`, `decline`, `ready`, `fulfil`, `store-billing` | P10 Orders & Payments (store owner) | D5 |
+| `/api/sb/rest/orders`, `payments`, `store_payout`, `fee_settlements` (read-only) | P10 reads, per RLS | D5 |
+| `/api/sb/rest/rpc/store_fee_summary`, `fee_overview`, `record_fee_settlement` | P7 fee balance, P8 settlement | D5, D4 (audit) |
 
 The demo endpoints are the database-less mode only: no accounts exist there, so
 there is nothing to authenticate or authorize. With a database configured they
@@ -95,6 +104,14 @@ flowchart LR
 
     F -->|confirmation request| E
     E -->|confirmation link| B
+
+    PP[PayPal]
+    F -->|create / capture order, payee = shop| PP
+    PP -->|approval / capture result| F
+    B -->|pays shop directly| PP
+    F -->|order emails| E
+    E -->|receipt / quote / balance due| B
+    E -->|new order / deposit paid| O
 ```
 
 ## Level 1 system DFD
@@ -119,6 +136,10 @@ flowchart TB
     D2[(D2 Catalogue / Products)]
     D3[(D3 Private 3D Assets)]
     D4[(D4 Applications / Audit / Usage)]
+    D5[(D5 Orders / Payments / Fees)]
+    P10(Orders & Payments)
+    PP[PayPal]
+    EM[Email Service]
 
     B -->|credentials / signup data| P1
     P1 -->|session / role result| B
@@ -160,8 +181,22 @@ flowchart TB
     P8 -->|applications / audit / usage| D4
     P8 -->|console result| A
 
+    B -->|buy / custom request / pay| P10
+    P10 -->|approval link / order status| B
+    O -->|store type / payout / quote / ready| P10
+    P10 -->|incoming orders / fees owed| O
+    P10 -->|session check| P1
+    P10 -->|price / stock hold| D2
+    P10 -->|orders / verified captures| D5
+    D5 -->|amount due / order state| P10
+    P10 -->|create / capture, payee = shop| PP
+    PP -->|approval / capture result| P10
+    P10 -->|order email| EM
+    P8 -->|fee overview / settlements| D5
+
     P1 -->|auth event| P9
     P4 -->|device / tracking event| P9
+    P10 -->|order event| P9
     P5 -->|3D access event| P9
     P6 -->|profile event| P9
     P7 -->|store event| P9
@@ -207,6 +242,35 @@ flowchart LR
     N -->|human-readable alert| U
 ```
 
+## Payment flow (P10)
+
+```mermaid
+flowchart LR
+    U[Buyer]
+    PG[Product page]
+    A{Signed-in buyer?}
+    L[Auth gate]
+    C[POST /api/sb/orders/checkout]
+    DB[(create_stock_order\nprice + 10% from D2)]
+    PPc[PayPal order\npayee = shop]
+    AP[Buyer approves on PayPal]
+    R[/account?paypal=return/]
+    CAP[POST /api/sb/orders/capture]
+    V{PayPal order matches\nbegin_payment?}
+    K[PayPal capture]
+    RC[(record_capture\nserver secret + payee check)]
+    N[Alert + emails]
+
+    U --> PG --> A
+    A -->|guest / store account| L
+    A -->|buyer| C --> DB --> PPc --> AP --> R --> CAP --> V
+    V -->|no| N
+    V -->|yes| K --> RC --> N
+```
+
+Custom builds follow the same capture path in stages: `requested → quoted →
+deposit (50%) → deposit_paid → ready → balance → paid → fulfilled`.
+
 ## Process definitions
 
 ### P1 Authentication & Session
@@ -235,6 +299,19 @@ Protected model boundary. Authentication asks who the caller is; authorization a
 
 ### P9 Notifications / Alerts
 Centralized user feedback. Alerts represent actual events and do not replace the underlying operation.
+
+### P10 Orders & Payments
+Buying from a **stocked** shop (pay in full, stock held 30 minutes) and custom
+builds from a **custom** shop (request → quote → 50% deposit → balance).
+Buyers pay the shop's own PayPal account; the buyer pays the shop price plus a
+10% FurnishAR service fee, which accrues per payment in D5 and is settled by
+the shop to FurnishAR (recorded in P8). Authentication is the session check;
+authorization is the 0009 functions, run as the caller: only a shopper account
+orders, only a store's members quote or mark its orders, only the buyer pays
+their own order. Amounts come from the database, never the browser; a payment
+is recorded only after the server has captured it with PayPal and checked the
+amount and payee, and only with the server's payment-recorder secret. Emails
+(Resend) are notifications of recorded events and never block them.
 
 ## Reliability rules for the diagram
 
@@ -282,7 +359,13 @@ Where this DFD and the code disagreed, and which one moved.
 - RECOMMENDED ARCHITECTURE: listed above against their process. `/faq` is content, not a process; `/diagnose` reports device capability and touches no store.
 - REASON: every endpoint maps to a process. **DFD changed.**
 
-**6. Database state**
+**6. Orders and payments (added 2026-09-23)**
+- DFD ISSUE: the DFD had no ordering or payment process; FurnishAR did not take orders.
+- CURRENT CODE BEHAVIOR (before): browse and plan only.
+- RECOMMENDED ARCHITECTURE: P10 Orders & Payments, D5 Orders / Payments / Fees, PayPal and Email as external entities, endpoints `/api/sb/orders/*` as listed above.
+- REASON: requested feature. Added to the DFD and the code together. Also closed a hole found on the way: store owners could UPDATE every column of their store (including `plan` and `status`); 0009 limits them to the shop's own details.
+
+**7. Database state**
 - Migrations 0005 (bucket limit), 0006 (buyers, `my_role`) and 0007 (private `furniture-models` bucket, `can_view_model` policy) are applied to the live project. 0008 takes trigger functions off the RPC surface and stops anonymous calls to `can_view_model`.
 
 ## DFD artifact

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 /**
- * Six destinations, each a real URL.
+ * Seven destinations, each a real URL.
  *
  * The console's sections used to be stacked down one page with two tabs
  * switching only the application list. That meant there was no way to link
@@ -22,6 +22,7 @@ const SECTIONS = [
   ['/admin/stores', 'Stores'],
   ['/admin/models', '3D files'],
   ['/admin/usage', 'Usage'],
+  ['/admin/billing', 'Billing'],
   ['/admin/activity', 'Activity']
 ];
 
