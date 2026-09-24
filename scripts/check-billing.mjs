@@ -139,7 +139,8 @@ const supabase = createServer((req, res) => {
     }
     if (u.startsWith('/rest/v1/rpc/server_record_payment_account')) {
       const before = ownerAccount?.onboarding_status || 'NOT_CONNECTED';
-      ownerAccount = { ...ownerAccount, merchant_id: body.p_merchant_id, onboarding_status: body.p_status,
+      ownerAccount = { ...ownerAccount, merchant_id: body.p_merchant_id ?? ownerAccount?.merchant_id ?? null, onboarding_status: body.p_status,
+        status_detail: body.p_detail,
         payments_receivable: body.p_receivable, email_confirmed: body.p_email_confirmed, last_checked_at: new Date().toISOString() };
       return send(200, { found: true, store_id: STOCK_STORE, before, status: body.p_status });
     }
@@ -230,6 +231,7 @@ const supabase = createServer((req, res) => {
 
 const paypalOrders = new Map();
 const referrals = [];
+const verifyOrders = [];
 const paypal = createServer((req, res) => {
   let raw = '';
   req.on('data', chunk => { raw += chunk; });
@@ -251,6 +253,13 @@ const paypal = createServer((req, res) => {
     }
     if (req.url === '/v2/checkout/orders' && req.method === 'POST') {
       const body = JSON.parse(raw);
+      // The Merchant-ID check: PayPal refuses an order to a payee it doesn't know.
+      if (!body.payment_source) {
+        verifyOrders.push(body);
+        return body.purchase_units[0].payee.merchant_id === 'BADMERCHANT1'
+          ? send(422, { name: 'UNPROCESSABLE_ENTITY', details: [{ issue: 'PAYEE_ACCOUNT_INVALID' }] })
+          : send(201, { id: `CHECK${verifyOrders.length}`, status: 'CREATED' });
+      }
       paypalCreated.push(body);
       const id = `PPORDER${String(paypalOrders.size + 1).padStart(6, '0')}`;
       paypalOrders.set(id, { id, status: 'APPROVED', purchase_units: [{ ...body.purchase_units[0] }], payer: { email_address: 'payer@pp.test' } });
@@ -399,17 +408,27 @@ try {
   check('the PayPal card says not connected', /Not connected/i.test(await card.innerText().catch(() => '')));
   check('the one payment-setup reminder shows', await owner.locator('.payment-reminder').count() === 1);
   await shot(owner, 'portal-paypal-not-connected');
-  await card.getByRole('button', { name: 'Connect PayPal' }).click();
-  await owner.waitForURL(/paypal_onboarding=return|#billing/, { timeout: 15000 }).catch(() => {});
+  const merchantField = card.locator('input[name="merchantId"]');
+  await merchantField.fill('BADMERCHANT1');
+  await card.getByRole('button', { name: 'Verify & Connect' }).click();
+  await owner.locator('text=/does not recognise that Merchant ID/').first().waitFor({ timeout: 15000 }).catch(() => {});
+  check('an id PayPal refuses is not connected, and the owner is told why',
+    await owner.locator('text=/does not recognise that Merchant ID/').first().isVisible()
+    && !/Open — buyers can pay you/.test(await card.innerText()));
+  if (process.env.SHOTS) await card.screenshot({ path: `${process.env.SHOTS}/paypal-card-refused.png` });
+  await merchantField.fill('stockmerchant1');
+  await card.getByRole('button', { name: 'Verify & Connect' }).click();
   await owner.locator('.paypal-card .status-chip.is-success').waitFor({ timeout: 20000 }).catch(() => {});
   const connectedText = await owner.locator('.paypal-card').innerText().catch(() => '');
-  check('onboarding started with a tracking id for this store', referrals[0]?.tracking_id?.startsWith(`fa-${STOCK_STORE}-`), referrals[0]?.tracking_id);
-  check('after PayPal, the status is read from PayPal: Connected', /connected/i.test(connectedText) && !/not connected/i.test(connectedText), connectedText.replace(/\s+/g, ' ').slice(0, 160));
+  check('PayPal was asked to accept the Merchant ID as a payee, for ₱1.00',
+    verifyOrders.at(-1)?.purchase_units?.[0]?.payee?.merchant_id === 'STOCKMERCHANT1'
+    && verifyOrders.at(-1)?.purchase_units?.[0]?.amount?.value === '1.00', JSON.stringify(verifyOrders.at(-1)?.purchase_units?.[0]?.payee));
+  check('the owner was checked by the database before PayPal', serverCalls.some(c => c.fn === 'server_payment_onboarding_started'));
+  check('after PayPal accepted it, the store is Connected', /connected/i.test(connectedText) && !/not connected/i.test(connectedText), connectedText.replace(/\s+/g, ' ').slice(0, 160));
   check('the merchant id is masked', /•+ANT1/.test(connectedText) && !connectedText.includes('STOCKMERCHANT1'));
   check('checkout is shown as open', /Open — buyers can pay you/.test(connectedText));
-  check('the return address was cleaned of PayPal\'s query', !owner.url().includes('paypal_onboarding'), owner.url());
   check('the reminder is gone once connected', await owner.locator('.payment-reminder').count() === 0);
-  await shot(owner, 'portal-paypal-connected');
+  if (process.env.SHOTS) await owner.locator('.paypal-card').screenshot({ path: `${process.env.SHOTS}/paypal-card-connected.png` });
   await owner.goto(`${APP}/portal`);
   await owner.locator('#billing-title').waitFor({ timeout: 20000 }).catch(() => {});
   await shot(owner, 'portal-orders');

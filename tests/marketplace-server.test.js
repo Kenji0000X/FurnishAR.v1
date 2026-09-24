@@ -17,7 +17,7 @@ const BASE_ENV = {
   GMAIL_USER: '',
   RESEND_API_KEY: ''
 };
-const VARIABLES = ['PAYPAL_ENV', 'PAYPAL_FEE_MODE', 'PAYPAL_PARTNER_ATTRIBUTION_ID', 'PAYPAL_PLATFORM_FEE_RATE',
+const VARIABLES = ['PAYPAL_ENV', 'PAYPAL_FEE_MODE', 'PAYPAL_SELLER_ONBOARDING', 'PAYPAL_PARTNER_ATTRIBUTION_ID', 'PAYPAL_PLATFORM_FEE_RATE',
   'PAYPAL_REMINDER_COOLDOWN_HOURS', 'PAYPAL_REMINDER_MAX', 'EMAIL_FROM'];
 
 function resetEnv(extra = {}) {
@@ -102,6 +102,7 @@ test('a seller is CONNECTED only with permissions, a confirmed email and receiva
 });
 
 test('connecting a store records the attempt first, then asks PayPal for a referral link', async () => {
+  resetEnv({ PAYPAL_SELLER_ONBOARDING: 'partner_referrals' });
   routes.push(
     ['/auth/v1/user', () => reply(200, { id: 'owner-1', email: 'owner@gmail.com' })],
     ['/rpc/server_payment_onboarding_started', () => reply(200, { ok: true })],
@@ -120,6 +121,71 @@ test('connecting a store records the attempt first, then asks PayPal for a refer
   assert.match(body.tracking_id, new RegExp(`^fa-${store}-[0-9a-f]{12}$`));
   assert.equal(body.partner_config_override.return_url, 'https://furnishar.test/portal?paypal_onboarding=return#billing');
   assert.deepEqual(body.operations[0].api_integration_preference.rest_api_integration.third_party_details.features, ['PAYMENT', 'REFUND']);
+});
+
+/* ----------------------------------------------- linking by Merchant ID --- */
+
+const STORE = '11111111-2222-4333-8444-555555555555';
+const owner = { method: 'POST', headers: { authorization: 'Bearer owner-jwt' } };
+
+function linkRoutes(payee) {
+  routes.push(
+    ['/auth/v1/user', () => reply(200, { id: 'owner-1', email: 'owner@gmail.com' })],
+    ['/rpc/server_payment_onboarding_started', () => reply(200, { ok: true })],
+    ['/rpc/server_record_payment_account', body => reply(200, { found: true, store_id: STORE, before: 'NOT_CONNECTED', status: body.p_status })],
+    ['/rpc/server_store_contacts', () => reply(200, { store_id: STORE, store_name: 'Shop', store_emails: ['o@x'] })],
+    ['/rpc/server_admin_emails', () => reply(200, [])],
+    ['/v2/checkout/orders', () => payee]
+  );
+}
+
+test('Merchant-ID linking is the default and needs no partner approval', () => {
+  resetEnv({ PAYPAL_PARTNER_MERCHANT_ID: '' });
+  const config = paypal.validateConfig();
+  assert.equal(config.sellerMode, 'merchant_id');
+  assert.equal(config.onboarding, true);
+  assert.ok(!config.problems.some(p => /PARTNER_MERCHANT_ID/.test(p)));
+});
+
+test('a Merchant ID is connected only after the owner check AND PayPal accepting it as a payee', async () => {
+  linkRoutes(reply(201, { id: 'CHECKORDER1', status: 'CREATED' }));
+  const result = await payments.handlePayments(owner, 'link', { storeId: STORE, merchantId: ' 7xk2qj9lmn4pa ' }, 'https://s');
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  assert.equal(result.body.status, 'CONNECTED');
+  const started = calls.findIndex(c => c.url.includes('server_payment_onboarding_started'));
+  const check = calls.findIndex(c => c.url.endsWith('/v2/checkout/orders'));
+  const recorded = calls.findIndex(c => c.url.includes('server_record_payment_account'));
+  assert.ok(started >= 0 && started < check && check < recorded, 'owner check → PayPal check → record');
+  const order = calls[check].body;
+  assert.deepEqual(order.purchase_units[0].payee, { merchant_id: '7XK2QJ9LMN4PA' });
+  assert.equal(order.purchase_units[0].amount.value, '1.00');
+  assert.ok(!calls.some(c => c.url.includes('/capture')), 'the check is never captured');
+  assert.equal(calls[recorded].body.p_status, 'CONNECTED');
+  assert.equal(calls[recorded].body.p_merchant_id, '7XK2QJ9LMN4PA');
+  assert.equal(calls[recorded].body.p_partner_fee, false);
+});
+
+test('an id PayPal refuses as a payee is not connected, and says why', async () => {
+  linkRoutes(reply(422, { name: 'UNPROCESSABLE_ENTITY', details: [{ issue: 'PAYEE_ACCOUNT_INVALID' }] }));
+  const result = await payments.handlePayments(owner, 'link', { storeId: STORE, merchantId: 'FAKEMERCHANT1' }, 'https://s');
+  assert.equal(result.status, 400);
+  assert.equal(result.body.code, 'payee_invalid');
+  assert.match(result.body.error, /does not recognise that Merchant ID/);
+  const recorded = calls.find(c => c.url.includes('server_record_payment_account'));
+  assert.equal(recorded.body.p_status, 'ERROR');
+});
+
+test('a malformed id never reaches PayPal; partner connect is off in this mode; admin-only disconnect', async () => {
+  linkRoutes(reply(201, {}));
+  let result = await payments.handlePayments(owner, 'link', { storeId: STORE, merchantId: 'x@y.com' }, 'https://s');
+  assert.equal(result.status, 400);
+  assert.ok(!calls.some(c => c.url.includes('/v2/checkout/orders') || c.url.includes('/rpc/')));
+  result = await payments.handlePayments(owner, 'connect', { storeId: STORE }, 'https://s');
+  assert.equal(result.status, 409);
+  routes.push(['/rpc/is_platform_admin', () => reply(200, false)]);
+  result = await payments.handlePayments(owner, 'admin-unlink', { storeId: STORE }, 'https://s');
+  assert.equal(result.status, 403);
+  assert.ok(!calls.some(c => c.url.includes('server_record_payment_account')));
 });
 
 /* ------------------------------------------------------------ webhooks --- */

@@ -76,6 +76,33 @@ export default function StoreOrders({ storeUuid, onOpenCount, onPaymentStatus })
     refreshPaypal();
   }, [refreshPaypal]);
 
+  /** Merchant-ID mode: PayPal checks the id; only then is the store connected. */
+  async function linkPaypal(merchantId) {
+    setPaypalBusy('link');
+    try {
+      await supabase().paymentsAction('link', { storeId: storeUuid, merchantId });
+      alert.showSuccess('PayPal accepted your Merchant ID. Buyers can now pay you online.');
+      await load();
+    } catch (error) {
+      alert.showError(error.message);
+      await load();
+    }
+    setPaypalBusy('');
+  }
+
+  async function unlinkPaypal() {
+    if (!window.confirm('Disconnect PayPal? Buyers will not be able to pay you online until you connect again.')) return;
+    setPaypalBusy('unlink');
+    try {
+      await supabase().paymentsAction('unlink', { storeId: storeUuid });
+      alert.showSuccess('PayPal disconnected. Online checkout is closed for your shop.');
+      await load();
+    } catch (error) {
+      alert.showError(error.message);
+    }
+    setPaypalBusy('');
+  }
+
   async function connectPaypal() {
     setPaypalBusy('connect');
     try {
@@ -272,7 +299,8 @@ export default function StoreOrders({ storeUuid, onOpenCount, onPaymentStatus })
         ) : (
           <>
             <PaypalCard account={account} config={config} busy={paypalBusy}
-              onConnect={connectPaypal} onRefresh={() => refreshPaypal()} />
+              onConnect={connectPaypal} onRefresh={() => refreshPaypal()}
+              onLink={linkPaypal} onUnlink={unlinkPaypal} />
             <dl className="billing-summary">
               <div><dt>Fees Owed (Accrued)</dt><dd>{money(billing.fees.accrued)}</dd></div>
               {Number(billing.fees.collected) > 0 && (
@@ -347,16 +375,25 @@ export default function StoreOrders({ storeUuid, onOpenCount, onPaymentStatus })
 }
 
 /**
- * The shop's PayPal seller account: status from PayPal, the merchant id
- * masked, whether checkout is open, and the sandbox marker. Connecting
- * happens on PayPal's own page.
+ * The shop's PayPal seller account: its status as PayPal reported it, the
+ * merchant id masked, whether checkout is open, and the sandbox marker.
+ *
+ * Two ways to connect, chosen by the deployment (PAYPAL_SELLER_ONBOARDING):
+ *   merchant_id        the owner pastes their Merchant ID; PayPal must accept
+ *                      it as a payee before the shop is connected;
+ *   partner_referrals  the owner signs in on PayPal's own onboarding page.
  */
-function PaypalCard({ account, config, busy, onConnect, onRefresh }) {
+function PaypalCard({ account, config, busy, onConnect, onRefresh, onLink, onUnlink }) {
   const status = account?.onboarding_status || 'NOT_CONNECTED';
   const view = describeStatus(status);
   const connected = status === 'CONNECTED';
   const started = status !== 'NOT_CONNECTED';
   const canConnect = Boolean(config?.sellerOnboarding);
+  const byMerchantId = (config?.sellerMode || 'merchant_id') === 'merchant_id';
+  const [editing, setEditing] = useState(false);
+  const showForm = byMerchantId && (!connected || editing);
+  const recheckable = byMerchantId ? ['CONNECTED', 'PAYMENTS_NEED_ATTENTION'].includes(status) : started;
+
   return (
     <div className="bezel console-panel paypal-card">
       <div className="bezel-core">
@@ -366,37 +403,76 @@ function PaypalCard({ account, config, busy, onConnect, onRefresh }) {
           {config?.sandbox && <span className="status-chip is-sandbox" title="PayPal sandbox: no real money moves">PayPal Sandbox</span>}
         </div>
         <dl className="paypal-facts">
-          <div><dt>Merchant ID</dt><dd translate="no">{maskMerchantId(account?.merchant_id)}</dd></div>
+          <div><dt>Merchant ID</dt><dd translate="no">{maskMerchantId(connected ? account?.merchant_id : null)}</dd></div>
           <div><dt>Online checkout</dt><dd>{view.ready ? 'Open — buyers can pay you' : 'Closed until connected'}</dd></div>
           {account?.last_checked_at && (
             <div><dt>Last checked with PayPal</dt><dd>{new Date(account.last_checked_at).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}</dd></div>
           )}
         </dl>
         <p className="form-note">{account?.status_detail || view.help}</p>
+
+        {showForm && (
+          <form className="paypal-link" onSubmit={event => {
+            event.preventDefault();
+            const value = String(new FormData(event.currentTarget).get('merchantId') || '').trim();
+            onLink(value);
+            setEditing(false);
+          }}>
+            <label>
+              PayPal Merchant ID
+              <input name="merchantId" required autoComplete="off" spellCheck={false} inputMode="text"
+                pattern="[A-Za-z0-9]{8,20}" maxLength={20} placeholder="e.g. 7XK2QJ9LMN4PA…"
+                style={{ textTransform: 'uppercase' }} disabled={!canConnect || Boolean(busy)} />
+            </label>
+            <button className="button button-primary" type="submit" disabled={!canConnect || Boolean(busy)}
+              aria-busy={busy === 'link' || undefined}>
+              {busy === 'link' && <span className="loading-spinner" aria-hidden="true" />}Verify &amp; Connect
+            </button>
+            <p className="form-note">
+              Find it in PayPal: <b>Settings (gear) → Account Settings → Business information → PayPal Merchant ID</b>.
+              {config?.sandbox && <> Sandbox: developer.paypal.com → Sandbox Accounts → your Business account → <b>Account ID</b>.</>}
+              {' '}PayPal checks it before your shop is connected; nothing is charged.
+            </p>
+          </form>
+        )}
+
         <div className="order-actions">
-          {!connected && (
+          {!byMerchantId && !connected && (
             <button className="button button-primary" type="button" onClick={onConnect}
               disabled={!canConnect || Boolean(busy)} aria-busy={busy === 'connect' || undefined}>
               {busy === 'connect' && <span className="loading-spinner" aria-hidden="true" />}
               {started ? 'Continue PayPal Setup' : 'Connect PayPal'}
             </button>
           )}
-          {started && (
+          {recheckable && (
             <button className="button button-outline" type="button" onClick={onRefresh}
               disabled={!canConnect || Boolean(busy)} aria-busy={busy === 'refresh' || undefined}>
               {busy === 'refresh' && <span className="loading-spinner" aria-hidden="true" />}Check Status
             </button>
           )}
-          {connected && (
+          {connected && byMerchantId && !editing && (
+            <button className="button button-outline" type="button" onClick={() => setEditing(true)} disabled={Boolean(busy)}>
+              Change Merchant ID
+            </button>
+          )}
+          {connected && !byMerchantId && (
             <button className="button button-outline" type="button" onClick={onConnect} disabled={!canConnect || Boolean(busy)}>
               Connect a Different Account
             </button>
           )}
+          {connected && byMerchantId && (
+            <button className="button button-outline" type="button" onClick={onUnlink} disabled={Boolean(busy)}
+              aria-busy={busy === 'unlink' || undefined}>
+              {busy === 'unlink' && <span className="loading-spinner" aria-hidden="true" />}Disconnect
+            </button>
+          )}
         </div>
         <p className="form-note">
-          {canConnect
-            ? 'You sign in on PayPal’s own page. FurnishAR never sees your PayPal password or the buyer’s card.'
-            : 'Connecting PayPal is not switched on for this site yet. The FurnishAR team has been told.'}
+          {!canConnect
+            ? 'Connecting PayPal is not switched on for this site yet. The FurnishAR team has been told.'
+            : byMerchantId
+              ? 'A Merchant ID only lets buyers pay you. FurnishAR never sees your PayPal password or the buyer’s card.'
+              : 'You sign in on PayPal’s own page. FurnishAR never sees your PayPal password or the buyer’s card.'}
         </p>
       </div>
     </div>
