@@ -252,7 +252,7 @@ export default function ProductFormDialog({ product, session, onClose, onSaved }
               Model file (.glb)
               <input name="modelFile" type="file" accept=".glb,model/gltf-binary" />
               <small className="field-note">
-                Uploaded to your store&apos;s folder. Up to 50 MB. Leave empty to keep the current model.
+                Uploaded to your store&apos;s folder. Up to 40 MB. Leave empty to keep the current model.
               </small>
             </label>
             {/* "Preview shape" used to sit here: a picker that chose which
