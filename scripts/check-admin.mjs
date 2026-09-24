@@ -306,7 +306,7 @@ console.log('--- signing in AT /admin, which is what the portal link promises --
   /* The console is six routes now, and the queue is one of them. Following
      the nav is the check: a sub-nav whose links do not reach their sections
      is the same bug as a burger that does not open. */
-  await page.click('.admin-nav-link:has-text("Applications")');
+  await page.click('.console-link:has-text("Applications")');
   await page.waitForURL('**/admin/applications', { timeout: 10000 }).catch(() => {});
   await page.waitForSelector('.review-card', { timeout: 20000 }).catch(() => {});
   const body = await page.locator('body').innerText();
@@ -414,7 +414,7 @@ console.log('--- the superadmin ---');
 
   console.log('--- the 3D files across every store ---');
   // Their own section, reached the way an operator reaches it.
-  await page.click('.admin-nav-link:has-text("3D files")');
+  await page.click('.console-link:has-text("3D files")');
   await page.waitForURL('**/admin/models', { timeout: 10000 }).catch(() => {});
   await page.waitForTimeout(600);
   const files = await page.locator('body').innerText();
@@ -426,7 +426,7 @@ console.log('--- the superadmin ---');
     /Unmodelled Side Table/.test(files) && /no 3D model/i.test(files));
 
   console.log('--- storage usage, now that a single file can be 100 MB ---');
-  await page.click('.admin-nav-link:has-text("Usage")');
+  await page.click('.console-link:has-text("Usage")');
   await page.waitForURL('**/admin/usage', { timeout: 10000 }).catch(() => {});
   await page.waitForTimeout(600);
   const spend = await page.locator('body').innerText();
@@ -434,7 +434,7 @@ console.log('--- the superadmin ---');
     /S&C Variety Store/.test(spend) && /Usage by store/i.test(spend));
 
   // Back to the queue to approve one.
-  await page.click('.admin-nav-link:has-text("Applications")');
+  await page.click('.console-link:has-text("Applications")');
   await page.waitForURL('**/admin/applications', { timeout: 10000 }).catch(() => {});
   await page.waitForSelector('.review-card', { timeout: 20000 }).catch(() => {});
 
@@ -457,7 +457,7 @@ console.log('--- the superadmin ---');
   /* The log is its own section now, so the proof moves with it. The decision
      and the record of it are written in one database transaction, so if the
      approval reported above is real this entry must exist. */
-  await page.click('.admin-nav-link:has-text("Activity")');
+  await page.click('.console-link:has-text("Activity")');
   await page.waitForURL('**/admin/activity', { timeout: 10000 }).catch(() => {});
   await page.waitForTimeout(800);
   check('records who did it in the activity log',

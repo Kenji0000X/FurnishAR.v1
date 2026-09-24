@@ -435,7 +435,7 @@ for (const device of [PHONES[1], PHONES[3]]) {
   await page.fill('input[name="email"]', 'owner@furnishar.ph');
   await page.fill('input[name="password"]', 'furnishar');
   await page.click('form.login-form button[type="submit"]');
-  const signedIn = await page.waitForSelector('.dashboard', { timeout: 20000 }).then(() => true, () => false);
+  const signedIn = await page.waitForSelector('.console', { timeout: 20000 }).then(() => true, () => false);
 
   if (!signedIn) {
     note('P1', 'dashboard', 'could not sign in at 360px, so the dashboard was NOT audited', '');
@@ -468,7 +468,7 @@ for (const device of [PHONES[1], PHONES[3]]) {
     }
 
     // The add-product form, on a phone.
-    await page.click('button:has-text("+ Add product")');
+    await page.click('.console-head button:has-text("Add Product")');
     await page.waitForSelector('dialog.form-dialog[open]', { timeout: 10000 });
     await page.waitForTimeout(600);
     const form = await page.evaluate(() => {

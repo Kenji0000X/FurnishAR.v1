@@ -18,8 +18,8 @@ export default function AdminModels() {
   return (
     <>
       <section className="admin-intro">
-        <p className="eyebrow">Uploaded across every store</p>
-        <h1 id="console-title">3D files</h1>
+        <p className="eyebrow">Uploaded Across Every Store</p>
+        <h1 id="console-title">3D Files</h1>
         <p>
           {models.length} file{models.length === 1 ? '' : 's'}, {formatBytes(totalBytes)} in total.
         </p>
@@ -50,8 +50,8 @@ export default function AdminModels() {
         <section className="plan-section" aria-labelledby="missing-title">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Cannot be placed in a room</p>
-              <h2 id="missing-title">Listings with no 3D model</h2>
+              <p className="eyebrow">Can’t Be Placed in a Room</p>
+              <h2 id="missing-title">Listings With No 3D Model</h2>
             </div>
           </div>
           <p className="card-copy verification-warning">
@@ -59,6 +59,7 @@ export default function AdminModels() {
             attached — these cannot be placed in AR.
           </p>
           <PagedTable
+            param="missing"
             rows={missingModels}
             colSpan={3}
             empty="None."

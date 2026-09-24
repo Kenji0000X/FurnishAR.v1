@@ -328,7 +328,7 @@ for (const route of ROUTES) {
     await page.waitForTimeout(1800);
     const guarded = await page.evaluate(() => ({
       showsLogin: Boolean(document.querySelector('form.login-form')),
-      showsDashboard: Boolean(document.querySelector('.dashboard, .admin-console')),
+      showsDashboard: Boolean(document.querySelector('.console')),
       bodyText: document.body.innerText.slice(0, 120)
     }));
     report.routes.push({ route: `${route} (signed out)`, guarded });

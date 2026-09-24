@@ -227,14 +227,14 @@ export default function AdminGate({ children }) {
     }
   }
 
-  if (state === 'loading') return <p className="card-copy">Checking your access…</p>;
+  if (state === 'loading') return <p className="card-copy" role="status" aria-live="polite"><span className="loading-spinner" aria-hidden="true" /> Checking your access…</p>;
 
   if (state === 'offline') {
     return (
       <div className="login-panel">
         <div className="login-copy">
           <span className="secure-mark" aria-hidden="true">⌑</span>
-          <h1>The console needs the database.</h1>
+          <h1 id="console-title">The Console Needs the Database</h1>
           <p>Store applications live in Supabase; without it there is nothing to review.</p>
           <p className="demo-note">{reason}</p>
         </div>
@@ -247,7 +247,7 @@ export default function AdminGate({ children }) {
       <div className="login-panel">
         <div className="login-copy">
           <span className="secure-mark" aria-hidden="true">⌑</span>
-          <h1>Platform console</h1>
+          <h1 id="console-title">Platform Console</h1>
           <p>Sign in with an administrator account.</p>
           <p className="demo-note">
             This is not the store portal. Store owners sign in at{' '}
@@ -267,7 +267,7 @@ export default function AdminGate({ children }) {
           </label>
           <PasswordField autoComplete="current-password" />
           <button className="button button-primary" type="submit" disabled={busy}>
-            {busy ? <><span className="loading-spinner" aria-hidden="true" />Signing in…</> : <>Sign in <span aria-hidden="true">→</span></>}
+            {busy ? <><span className="loading-spinner" aria-hidden="true" />Signing In…</> : <>Sign In <span aria-hidden="true">→</span></>}
           </button>
           <p className="form-error" role="alert" aria-live="assertive">{loginError}</p>
         </form>
@@ -280,7 +280,7 @@ export default function AdminGate({ children }) {
       <div className="login-panel">
         <div className="login-copy">
           <span className="secure-mark" aria-hidden="true">⌑</span>
-          <h1>This account is not an administrator.</h1>
+          <h1 id="console-title">This Account Is Not an Administrator</h1>
           <p>
             You are signed in, but this account is not on the platform administrator
             list, so the review queue is not available to it.
@@ -291,9 +291,9 @@ export default function AdminGate({ children }) {
         </div>
         <div className="panel-actions">
           <button className="button button-primary" type="button" onClick={handleSignOut}>
-            Sign in as someone else
+            Sign In as Someone Else
           </button>
-          <a className="button" href="/portal">Go to the store portal</a>
+          <a className="button" href="/portal">Go to the Store Portal</a>
         </div>
       </div>
     );
@@ -307,14 +307,13 @@ export default function AdminGate({ children }) {
 
   return (
     <AdminContext.Provider value={value}>
-      <div className="admin-console">
-        <AdminNav
-          pending={applications.filter(a => a.status === 'pending').length}
-          email={email}
-          onSignOut={handleSignOut}
-        />
+      <AdminNav
+        pending={applications.filter(a => a.status === 'pending').length}
+        email={email}
+        onSignOut={handleSignOut}
+      >
         {children}
-      </div>
+      </AdminNav>
     </AdminContext.Provider>
   );
 }

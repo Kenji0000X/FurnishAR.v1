@@ -40,9 +40,9 @@ function ResendConfirmation({ email }) {
   return (
     <>
       <button className="text-button" type="button" onClick={resend} disabled={state === 'sending'}>
-        {state === 'sending' ? 'Sending…' : 'Resend confirmation email'}
+        {state === 'sending' && <span className="loading-spinner" aria-hidden="true" />}Resend Confirmation Email
       </button>
-      {state === 'error' && <span className="verification-note">Could not send it — try again shortly.</span>}
+      {state === 'error' && <span className="verification-note">Couldn’t send it. Try again in a minute.</span>}
     </>
   );
 }
@@ -125,7 +125,7 @@ export default function ApplicationCard({ application, account, onApprove, onRej
               </p>
               <button className="button button-primary" type="button" disabled={busy}
                 onClick={() => onApprove(application, slug)}>
-                {busy ? 'Approving…' : 'Yes, approve'}
+                {busy && <span className="loading-spinner" aria-hidden="true" />}Yes, Approve
               </button>
               <button className="text-button" type="button" onClick={() => setConfirming(null)}>
                 Cancel
@@ -136,7 +136,7 @@ export default function ApplicationCard({ application, account, onApprove, onRej
               <p>Reject <b>{application.store_name}</b>? They will need to apply again.</p>
               <button className="button button-outline" type="button" disabled={busy || !note.trim()}
                 onClick={() => onReject(application, note)}>
-                {busy ? 'Rejecting…' : 'Yes, reject'}
+                {busy && <span className="loading-spinner" aria-hidden="true" />}Yes, Reject
               </button>
               <button className="text-button" type="button" onClick={() => setConfirming(null)}>
                 Cancel

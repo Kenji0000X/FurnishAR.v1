@@ -144,13 +144,14 @@ await page.waitForSelector('form.login-form', { timeout: 20000 });
 await page.fill('input[name="email"]', 'admin@furnishar.ph');
 await page.fill('input[name="password"]', 'whatever');
 await page.click('form.login-form button[type="submit"]');
-await page.waitForSelector('.kpi-tile', { timeout: 20000 });
+await page.waitForSelector('.console-tile', { timeout: 20000 });
 
-/** The value printed in the tile with this label. */
+/** The value printed in the tile with this label (the number, without its unit note). */
 const tile = label => page.evaluate(want => {
-  for (const node of document.querySelectorAll('.kpi-tile')) {
-    if (node.querySelector('.kpi-label')?.textContent?.trim() === want) {
-      return node.querySelector('.kpi-value')?.textContent?.trim();
+  for (const node of document.querySelectorAll('.console-tile')) {
+    if (node.querySelector('.console-tile-label')?.textContent?.trim() === want) {
+      const value = node.querySelector('.console-tile-value');
+      return value?.firstChild?.textContent?.trim();
     }
   }
   return null;
@@ -160,13 +161,13 @@ console.log('--- the tiles count what is really there ---');
 check('Stores counts every registered store', await tile('Stores') === '12', await tile('Stores'));
 check('Listings counts modelled and unmodelled together',
   await tile('Listings') === '5', await tile('Listings'));
-check('3D files counts uploaded files', await tile('3D files') === '3', await tile('3D files'));
+check('3D Files counts uploaded files', await tile('3D Files') === '3', await tile('3D Files'));
 /* 12 + 8 + 1 = 21 MB. The arithmetic is the point: a tile that renders the
    largest file, or the count, and calls it a total is the exact failure this
    catches. */
 check('Storage adds the file sizes up', await tile('Storage') === '21 MB', await tile('Storage'));
-check('Queue says zero when nothing is waiting',
-  await tile('Queue') === '0', await tile('Queue'));
+check('the Review Queue says zero when nothing is waiting',
+  await tile('Review Queue') === '0', await tile('Review Queue'));
 
 console.log('--- the charts say the same thing as the tiles ---');
 const plans = await page.locator('.chart-card:has-text("Stores by plan") .chart-bars li')
@@ -188,7 +189,7 @@ const readyText = await page.locator('.chart-card:has-text("Listings ready for A
 check('the AR-ready share is the real share', /60% of 5 listings/.test(readyText),
   readyText.split('\n')[1]);
 check('and both parts of the whole are labelled',
-  /Ready for AR\s*3/.test(readyText) && /No 3D model\s*2/.test(readyText));
+  /Ready for AR\s*3/.test(readyText) && /No 3D Model\s*2/.test(readyText));
 
 const storageText = await page.locator('.chart-card:has-text("Storage used by store")').innerText();
 check('the storage chart totals the same 21 MB', /21 MB across the platform/.test(storageText),
@@ -226,15 +227,15 @@ console.log('--- six sections, six URLs ---');
 for (const [label, path] of [
   ['Applications', '/admin/applications'],
   ['Stores', '/admin/stores'],
-  ['3D files', '/admin/models'],
+  ['3D Files', '/admin/models'],
   ['Usage', '/admin/usage'],
   ['Activity', '/admin/activity']
 ]) {
-  await page.click(`.admin-nav-link:has-text("${label}")`);
+  await page.click(`.console-link:has-text("${label}")`);
   await page.waitForURL(`**${path}`, { timeout: 10000 }).catch(() => {});
   check(`${label} is its own route`, new URL(page.url()).pathname === path, page.url());
   check(`and ${label} marks itself current`,
-    await page.getAttribute(`.admin-nav-link:has-text("${label}")`, 'aria-current') === 'page');
+    await page.getAttribute(`.console-link:has-text("${label}")`, 'aria-current') === 'page');
 }
 
 console.log('--- the pager stops the table running away ---');
@@ -259,16 +260,16 @@ console.log('--- signing out ---');
    had to navigate to /portal to leave — on a shared machine that is the
    difference between closing the queue and leaving it open on the screen. */
 await page.goto(`http://127.0.0.1:${APP_PORT}/admin`, { waitUntil: 'domcontentloaded' });
-await page.waitForSelector('.kpi-tile', { timeout: 20000 });
+await page.waitForSelector('.console-tile', { timeout: 20000 });
 check('the console says which account is signed in',
-  /admin@furnishar\.ph/.test(await page.locator('.admin-who').innerText()));
-await page.click('.admin-signout');
+  /admin@furnishar\.ph/.test(await page.locator('.console-account').innerText()));
+await page.click('.console-signout');
 await page.waitForSelector('form.login-form', { timeout: 10000 }).catch(() => {});
 check('signing out returns to the sign-in form',
   await page.locator('form.login-form').isVisible());
 /* Thrown away, not hidden: the queue holds applicants' contact details. */
 check('and takes the console\'s data with it',
-  await page.locator('.kpi-tile').count() === 0 &&
+  await page.locator('.console-tile').count() === 0 &&
   !/Store 1\b/.test(await page.locator('body').innerText()));
 
 console.log('--- no shopper menu in the workspace ---');
@@ -293,7 +294,7 @@ await phone.waitForSelector('form.login-form', { timeout: 20000 });
 await phone.fill('input[name="email"]', 'admin@furnishar.ph');
 await phone.fill('input[name="password"]', 'whatever');
 await phone.click('form.login-form button[type="submit"]');
-await phone.waitForSelector('.kpi-tile', { timeout: 20000 });
+await phone.waitForSelector('.console-tile', { timeout: 20000 });
 await phone.waitForTimeout(600);
 
 /* The reported bug, and the reason this check signs in on the phone rather
@@ -307,27 +308,23 @@ const over = await phone.evaluate(() =>
 check('the console does not scroll sideways on a phone', over <= 0, `${over}px over`);
 check('the headings start at the left edge of the screen, not off to the right',
   await phone.evaluate(() => {
-    const box = document.querySelector('.admin-intro h1').getBoundingClientRect();
+    const box = document.querySelector('.console-main h1').getBoundingClientRect();
     return box.left >= 0 && box.right <= document.documentElement.clientWidth + 1;
   }));
 check('the shopper bottom bar is gone from the console too',
   await phone.locator('.bottom-nav').count() === 0);
 check('and Sign out is reachable without scrolling sideways',
-  await phone.locator('.admin-signout').isVisible());
+  await phone.locator('.console-signout').isVisible());
 
-console.log('--- the tiles are flash cards, not banners ---');
-const tiles = await phone.locator('.kpi-tile').evaluateAll(nodes => nodes.map(n => {
+console.log('--- the bento collapses to one column on a phone ---');
+const tiles = await phone.locator('.console-tile').evaluateAll(nodes => nodes.map(n => {
   const r = n.getBoundingClientRect();
-  return { w: Math.round(r.width), h: Math.round(r.height) };
+  return { l: Math.round(r.left), w: Math.round(r.width) };
 }));
-/* Square, within a pixel of rounding. A tile that is three times wider than
-   it is tall is the banner these replaced. */
-check('every tile is square', tiles.every(t => Math.abs(t.w - t.h) <= 2),
-  tiles.map(t => `${t.w}x${t.h}`).join(' '));
-/* And sized to their own text: the card saying "5 / registered" must not be
-   as wide as the one saying "22 MB / stored". */
-check('a tile with less to say is smaller than one with more',
-  new Set(tiles.map(t => t.w)).size > 1, tiles.map(t => t.w).join(' '));
+/* Asymmetric on a desktop; on a phone every tile is one full-width card, so
+   nothing is squeezed into a half-width column too narrow for its number. */
+check('every tile spans the column', tiles.every(t => t.l === tiles[0].l && t.w === tiles[0].w),
+  tiles.map(t => `${t.l}+${t.w}`).join(' '));
 await phone.close();
 
 check('no uncaught page errors', pageErrors.length === 0, pageErrors.slice(0, 2).join(' | '));

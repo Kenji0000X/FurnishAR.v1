@@ -82,9 +82,10 @@ function Figure({ title, note, rows, format, children }) {
       </figcaption>
 
       {rows.length === 0 ? (
-        <p className="card-copy">{EMPTY}</p>
+        <p className="card-copy chart-empty">{EMPTY}</p>
       ) : asTable ? (
         <table className="chart-table">
+          <caption className="sr-only">{title}</caption>
           <tbody>
             {rows.map(row => (
               <tr key={row.label}>
@@ -110,14 +111,18 @@ export function StoresByPlan({ stores }) {
   const order = ['Premium', 'Freemium'];
   const counts = new Map(order.map(plan => [plan, 0]));
   for (const store of stores) {
-    const plan = String(store.plan || 'Freemium');
+    /* The database stores plans lowercase ('premium'); the chart's fixed
+       order is Title Case. Normalise before counting, or every store lands in
+       a second, unlabelled-looking bar of its own. */
+    const raw = String(store.plan || 'freemium').trim().toLowerCase();
+    const plan = raw.charAt(0).toUpperCase() + raw.slice(1);
     counts.set(plan, (counts.get(plan) || 0) + 1);
   }
   const rows = [...counts].map(([label, value]) => ({ label, value }))
     .filter(row => row.value > 0 || order.includes(row.label));
 
   return (
-    <Figure title="Stores by plan" note={`${stores.length} registered`} rows={rows}>
+    <Figure title="Stores by Plan" note={`${stores.length} registered`} rows={rows}>
       <ul className="chart-bars">
         {rows.map((row, index) => (
           <li key={row.label}>
@@ -155,7 +160,7 @@ export function StorageByStore({ usage }) {
 
   return (
     <Figure
-      title="Storage used by store"
+      title="Storage Used by Store"
       note={`${formatBytes(total)} across the platform`}
       rows={rows}
       format={formatBytes}
@@ -185,12 +190,12 @@ export function ListingsReady({ models, missingModels }) {
 
   const rows = [
     { label: 'Ready for AR', value: withModel },
-    { label: 'No 3D model', value: without }
+    { label: 'No 3D Model', value: without }
   ];
 
   return (
     <Figure
-      title="Listings ready for AR"
+      title="Listings Ready for AR"
       note={total ? `${Math.round((withModel / total) * 100)}% of ${total} listings can be placed in a room` : null}
       rows={total ? rows : []}
       format={v => String(v)}

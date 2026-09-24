@@ -1,7 +1,11 @@
 'use client';
 
-import Link from 'next/link';
+import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
+import {
+  SquaresFour, Tray, Storefront, Cube, HardDrives, Receipt, ClockCounterClockwise
+} from '@phosphor-icons/react/dist/ssr';
+import ConsoleShell from '../console/ConsoleShell.js';
 
 /**
  * Seven destinations, each a real URL.
@@ -17,61 +21,39 @@ import { usePathname } from 'next/navigation';
  * applications with status 'pending', not a decoration.
  */
 const SECTIONS = [
-  ['/admin', 'Overview'],
-  ['/admin/applications', 'Applications'],
-  ['/admin/stores', 'Stores'],
-  ['/admin/models', '3D files'],
-  ['/admin/usage', 'Usage'],
-  ['/admin/billing', 'Billing'],
-  ['/admin/activity', 'Activity']
+  ['/admin', 'Overview', SquaresFour],
+  ['/admin/applications', 'Applications', Tray],
+  ['/admin/stores', 'Stores', Storefront],
+  ['/admin/models', '3D Files', Cube],
+  ['/admin/usage', 'Usage', HardDrives],
+  ['/admin/billing', 'Billing', Receipt],
+  ['/admin/activity', 'Activity', ClockCounterClockwise]
 ];
 
-export default function AdminNav({ pending = 0, email, onSignOut }) {
-  const pathname = usePathname();
+export default function AdminNav({ pending = 0, email, onSignOut, children }) {
+  const pathname = usePathname() || '/admin';
+
+  /* Exact match for the index, prefix for the rest — otherwise
+     /admin/stores would light up Overview as well as itself. */
+  const isActive = href => (href === '/admin' ? pathname === '/admin' : pathname.startsWith(href));
+  const current = SECTIONS.find(([href]) => isActive(href));
+
+  /* Every section is its own page, so every tab, history entry and bookmark
+     says which one it is. */
+  useEffect(() => {
+    if (current) document.title = `${current[1]} · Platform Console · FurnishAR`;
+  }, [current]);
+
+  const items = SECTIONS.map(([href, label, icon]) => ({
+    href, label, icon,
+    current: isActive(href),
+    count: href === '/admin/applications' ? pending : 0,
+    countLabel: 'awaiting review'
+  }));
 
   return (
-    <div className="admin-bar">
-      <nav className="admin-nav" aria-label="Console sections">
-        <ul>
-        {SECTIONS.map(([href, label]) => {
-          /* Exact match for the index, prefix for the rest — otherwise
-             /admin/stores would light up Overview as well as itself. */
-          const active = href === '/admin' ? pathname === '/admin' : pathname.startsWith(href);
-          return (
-            <li key={href}>
-              <Link
-                href={href}
-                className={`admin-nav-link${active ? ' is-active' : ''}`}
-                aria-current={active ? 'page' : undefined}
-              >
-                {label}
-                {href === '/admin/applications' && pending > 0 && (
-                  <span className="admin-nav-count" aria-label={`${pending} awaiting review`}>
-                    {pending}
-                  </span>
-                )}
-              </Link>
-            </li>
-          );
-        })}
-        </ul>
-      </nav>
-
-      {/*
-          Signing out of the console.
-
-          There was no way to do it from here at all. The portal has had a
-          Sign out button since it was built, but an admin who finished
-          reviewing applications had to navigate to /portal to leave — on a
-          shared or borrowed machine that is the difference between closing
-          the queue and leaving every applicant's email address open on it.
-      */}
-      <div className="admin-who">
-        {email && <span className="admin-who-email" title={email}>{email}</span>}
-        <button className="button button-outline admin-signout" type="button" onClick={onSignOut}>
-          Sign out
-        </button>
-      </div>
-    </div>
+    <ConsoleShell kicker="Platform Console" org="FurnishAR" items={items} email={email} onSignOut={onSignOut}>
+      {children}
+    </ConsoleShell>
   );
 }

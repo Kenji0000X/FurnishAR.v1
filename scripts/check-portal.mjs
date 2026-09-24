@@ -36,11 +36,11 @@ console.log('--- sign in ---');
 await page.fill('input[name="email"]', 'owner@furnishar.ph');
 await page.fill('input[name="password"]', 'furnishar');
 await page.click('form.login-form button[type="submit"]');
-await page.waitForSelector('.dashboard', { timeout: 20000 }).catch(() => {});
-check('dashboard appears after sign-in', await page.locator('.dashboard').isVisible());
+await page.waitForSelector('.console', { timeout: 20000 }).catch(() => {});
+check('dashboard appears after sign-in', await page.locator('.console').isVisible());
 check(
   'store name is shown',
-  (await page.locator('.dashboard-top .eyebrow').textContent().catch(() => '') || '').includes('Variety')
+  (await page.locator('.console-eyebrow').textContent().catch(() => '') || '').includes('Variety')
 );
 
 const rowsBefore = await page.locator('.inventory-table-wrap tbody tr').count();
@@ -48,7 +48,7 @@ console.log(`  (${rowsBefore} row(s) before)`);
 
 console.log('--- add a product ---');
 const NAME = `Check Bench ${Date.now()}`;
-await page.click('button:has-text("+ Add product")');
+await page.click('.console-head button:has-text("Add Product")');
 await page.waitForSelector('dialog.form-dialog[open]', { timeout: 10000 });
 await page.fill('input[name="name"]', NAME);
 await page.fill('input[name="price"]', '1234');
@@ -98,7 +98,7 @@ check('cancelling keeps the product', (await page.locator(`text=${NAME}`).count(
 
 await page.locator('tr', { hasText: NAME }).locator('button:has-text("Delete")').click();
 await page.waitForSelector('dialog.confirm-dialog[open]', { timeout: 10000 });
-await page.click('dialog.confirm-dialog button:has-text("Delete product")');
+await page.click('dialog.confirm-dialog button:has-text("Delete Product")');
 await page.waitForTimeout(2500);
 check('the product is gone', (await page.locator(`text=${NAME}`).count()) === 0);
 check(
@@ -107,7 +107,7 @@ check(
 );
 
 console.log('--- sign out ---');
-await page.click('button:has-text("Sign out")');
+await page.click('.console-signout');
 await page.waitForSelector('form.login-form', { timeout: 10000 }).catch(() => {});
 check('the login form is back', await page.locator('form.login-form').isVisible());
 
