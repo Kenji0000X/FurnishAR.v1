@@ -333,6 +333,10 @@ export function toProduct(row) {
     store: row.store_name,
     // 0009: 'stocked' sells from the shelf, 'custom' builds to order.
     fulfilment: row.store_fulfilment || 'stocked',
+    // 0011: a CONNECTED PayPal seller account. Older views lack the column;
+    // undefined then reads as "unknown", and the server decides at checkout.
+    paymentsReady: row.store_payments_ready ?? null,
+    storeContact: row.store_contact_number || null,
     category: row.category,
     style: row.style,
     color: row.color,
@@ -1239,18 +1243,28 @@ export async function billingConfig() {
  * a product, a quantity, an order — never an amount; the server and the
  * database decide what is owed.
  */
-export async function orderAction(action, payload = {}, retried = false) {
+export async function orderAction(action, payload = {}) {
+  return serverAction('orders', action, payload);
+}
+
+/**
+ * One call to this app's own server endpoints (/api/sb/<section>/<action>)
+ * as the signed-in user: orders, account onboarding, the shop's PayPal
+ * connection. POST with a body, or GET without one.
+ */
+async function serverAction(section, action, payload = null, retried = false) {
   const current = await getSession().catch(() => null);
-  const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
+  const headers = { Accept: 'application/json' };
+  if (payload) headers['Content-Type'] = 'application/json';
   if (current?.access_token) headers.Authorization = `Bearer ${current.access_token}`;
-  const response = await fetch(`/api/sb/orders/${action}`, {
-    method: 'POST', headers, body: JSON.stringify(payload), cache: 'no-store'
+  const response = await fetch(`/api/sb/${section}/${action}`, {
+    method: payload ? 'POST' : 'GET', headers, body: payload ? JSON.stringify(payload) : undefined, cache: 'no-store'
   });
   let body = null;
   try { body = await response.json(); } catch { body = null; }
   if (response.status === 401 && !retried && session?.refresh_token) {
     const renewed = await refreshSession();
-    if (renewed) return orderAction(action, payload, true);
+    if (renewed) return serverAction(section, action, payload, true);
   }
   if (!response.ok) {
     const error = new Error(body?.error || 'That could not be completed. Please try again.');
@@ -1259,6 +1273,65 @@ export async function orderAction(action, payload = {}, retried = false) {
     throw error;
   }
   return body;
+}
+
+/* ---------------------------------------------- Google sign-in (0011) --- */
+
+/**
+ * Where "Continue with Google" goes. A plain navigation to this app's own
+ * server, which keeps the PKCE verifier in an httpOnly cookie and sends the
+ * browser to Google. `next` is re-checked on the server.
+ */
+export function googleSignInUrl({ next, intent } = {}) {
+  const query = new URLSearchParams();
+  if (next) query.set('next', next);
+  if (intent) query.set('intent', intent);
+  const tail = query.toString();
+  return `/api/sb/auth/google${tail ? `?${tail}` : ''}`;
+}
+
+/**
+ * Finishes Google sign-in on /auth/callback: the server trades the one-time
+ * code for a session (without Google's own tokens) and this tab keeps it
+ * exactly like a password sign-in. Returns { next, intent } from the flow.
+ */
+export async function completeGoogleSignIn(code) {
+  const response = await fetch('/api/sb/auth/exchange', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ code }),
+    cache: 'no-store',
+    credentials: 'same-origin'
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body?.session?.access_token) {
+    const error = new Error('Google sign-in could not be completed.');
+    error.code = body?.code || (response.status >= 500 ? 'provider_unavailable' : 'failed');
+    error.status = response.status;
+    throw error;
+  }
+  storeSession(body.session);
+  return { next: body.next || null, intent: body.intent || null };
+}
+
+/** The signed-in account's role and what onboarding still needs. */
+export function accountState() {
+  return serverAction('account', 'state');
+}
+
+/** Onboarding: 'buyer' ({ municipality, fullName? }) or 'apply' ({ storeName, phone, message }). */
+export function accountAction(action, payload) {
+  return serverAction('account', action, payload || {});
+}
+
+/** The shop's PayPal seller connection: 'connect' | 'refresh'. */
+export function paymentsAction(action, payload) {
+  return serverAction('payments', action, payload || {});
+}
+
+/** The deployment's PayPal configuration and its problems — admins only. */
+export function adminPaymentsConfig() {
+  return serverAction('payments', 'admin');
 }
 
 const ORDER_FIELDS = 'id,reference,kind,status,store_id,product_id,product_name,quantity,unit_price,subtotal,'
@@ -1295,12 +1368,17 @@ export async function listStoreOrders(storeUuid) {
 /** How a store is paid, what kind it is, and what it owes FurnishAR. */
 export async function storeBilling(storeUuid) {
   const id = encodeURIComponent(storeUuid);
-  const [payout, store, fees] = await Promise.all([
+  const [payout, store, fees, accounts] = await Promise.all([
     restCall(`store_payout?store_id=eq.${id}&select=paypal_email,notify_email,delivery_days,pickup_days`),
     restCall(`stores?id=eq.${id}&select=fulfilment`),
-    restCall('rpc/store_fee_summary', { method: 'POST', body: JSON.stringify({ p_store: storeUuid }) })
+    restCall('rpc/store_fee_summary', { method: 'POST', body: JSON.stringify({ p_store: storeUuid }) }),
+    // 0011. Read under RLS: this store's members and admins only.
+    restCall(`store_payment_accounts?store_id=eq.${id}&select=environment,merchant_id,onboarding_status,`
+      + 'payments_receivable,email_confirmed,partner_fee_granted,status_detail,connected_at,last_checked_at,updated_at'
+      + '&order=updated_at.desc').catch(() => [])
   ]);
   return {
+    paymentAccounts: accounts || [],
     fulfilment: store?.[0]?.fulfilment || 'stocked',
     deliveryDays: payout?.[0]?.delivery_days ?? 3,
     pickupDays: payout?.[0]?.pickup_days ?? 1,

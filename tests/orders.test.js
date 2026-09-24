@@ -14,9 +14,14 @@ process.env.SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_test000000000000000';
 process.env.PAYPAL_CLIENT_ID = 'client-id';
 process.env.PAYPAL_CLIENT_SECRET = 'client-secret';
 process.env.PAYMENT_RECORDER_SECRET = 'x'.repeat(40);
+delete process.env.PAYPAL_ENV;
+delete process.env.PAYPAL_FEE_MODE;
+delete process.env.PAYPAL_PARTNER_MERCHANT_ID;
+delete process.env.PAYPAL_PARTNER_ATTRIBUTION_ID;
 delete process.env.RESEND_API_KEY;
+delete process.env.GMAIL_USER;
 
-const { handleOrders } = require('../lib/orders.js');
+const { handleOrders, feeModeFor } = require('../lib/orders.js');
 
 const ORDER = '11111111-2222-4333-8444-555555555555';
 const PRODUCT = '99999999-2222-4333-8444-555555555555';
@@ -26,6 +31,7 @@ const SITE = 'https://furnishar.test';
 let calls;
 let paypalOrder;
 let due;
+let attempt;
 
 function reply(status, body) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -33,12 +39,14 @@ function reply(status, body) {
 
 test.beforeEach(() => {
   calls = [];
-  due = { order_id: ORDER, reference: 'ABC123', stage: 'full', amount: 2200, currency: 'PHP',
-          payee_email: 'shop@pay.ph', store_name: 'Shop', product_name: 'Chair' };
+  due = { order_id: ORDER, reference: 'ABC123', stage: 'full', amount: 2200, currency: 'PHP', platform_fee: 200,
+          merchant_id: 'SHOPMERCHANT1', partner_fee_granted: false, store_name: 'Shop', product_name: 'Chair' };
+  attempt = { order_id: ORDER, stage: 'full', amount: 2200, currency: 'PHP', platform_fee: 200, fee_mode: 'accrual',
+              payee_merchant_id: 'SHOPMERCHANT1', environment: 'sandbox' };
   paypalOrder = {
     id: 'PAYPALORDER123', status: 'APPROVED',
     purchase_units: [{ custom_id: `${ORDER}:full`, amount: { currency_code: 'PHP', value: '2200.00' },
-                       payee: { email_address: 'shop@pay.ph' } }],
+                       payee: { merchant_id: 'SHOPMERCHANT1' } }],
     payer: { email_address: 'buyer@pp.ph' }
   };
   global.fetch = async (url, options = {}) => {
@@ -48,7 +56,14 @@ test.beforeEach(() => {
     if (u.endsWith('/auth/v1/user')) return reply(200, { id: 'user-1', email: 'buyer@x.ph' });
     if (u.includes('/rest/v1/rpc/begin_payment')) return reply(200, due);
     if (u.includes('/rest/v1/rpc/create_stock_order')) return reply(200, { order_id: ORDER, reference: 'ABC123' });
-    if (u.includes('/rest/v1/rpc/record_capture')) return reply(200, { order_id: ORDER, status: 'paid', applied: true, duplicate: false });
+    if (u.includes('/rest/v1/rpc/server_record_payment_attempt')) return reply(200, { ok: true });
+    if (u.includes('/rest/v1/rpc/server_payment_attempt')) return reply(200, attempt);
+    if (u.includes('/rest/v1/rpc/server_update_payment_attempt')) return reply(200, { ok: true });
+    if (u.includes('/rest/v1/rpc/server_admin_emails')) return reply(200, ['admin@furnishar.ph']);
+    if (u.includes('/rest/v1/rpc/record_capture')) {
+      return reply(200, { order_id: ORDER, status: 'paid', applied: true, duplicate: false, platform_fee: 200,
+                          fee_mode: body.p_fee_collected === 200 ? 'platform_split' : 'accrual' });
+    }
     if (u.includes('/rest/v1/rpc/order_contacts')) return reply(200, { reference: 'ABC123', buyer_email: 'b@x.ph', store_emails: ['s@x.ph'] });
     if (u.includes('/rest/v1/rpc/cancel_order')) return reply(200, { status: 'cancelled' });
     if (u.endsWith('/v1/oauth2/token')) return reply(200, { access_token: 'pp-token', expires_in: 3600 });
@@ -56,9 +71,11 @@ test.beforeEach(() => {
       return reply(201, { id: 'PAYPALORDER123', links: [{ rel: 'payer-action', href: 'https://paypal.test/approve' }] });
     }
     if (u.endsWith('/capture')) {
+      const breakdown = attempt.fee_mode === 'platform_split'
+        ? { seller_receivable_breakdown: { platform_fees: [{ amount: { currency_code: 'PHP', value: '200.00' } }] } } : {};
       return reply(201, { ...paypalOrder, status: 'COMPLETED', purchase_units: [{ ...paypalOrder.purchase_units[0],
         payments: { captures: [{ id: 'CAPTURE1', status: 'COMPLETED', custom_id: `${ORDER}:full`,
-                                 amount: { currency_code: 'PHP', value: '2200.00' } }] } }] });
+                                 amount: { currency_code: 'PHP', value: '2200.00' }, ...breakdown }] } }] });
     }
     if (u.includes('/v2/checkout/orders/')) return reply(200, paypalOrder);
     return reply(404, {});
@@ -72,9 +89,9 @@ test('no session, no order', async () => {
   assert.equal(calls.length, 0);
 });
 
-test('checkout sends the product and quantity, never a price, and pays the shop', async () => {
+test('checkout sends the product and quantity, never a price, and pays the shop\'s merchant id', async () => {
   const delivery = { method: 'delivery', address: 'Purok 3, Poblacion', municipality: 'Mamburao', phone: '0917 123 4567', notes: null };
-  const result = await handleOrders(req, 'checkout', { productId: PRODUCT, quantity: 2, price: 1, total: 1, delivery }, SITE);
+  const result = await handleOrders(req, 'checkout', { productId: PRODUCT, quantity: 2, price: 1, total: 1, merchantId: 'EVIL', delivery }, SITE);
   assert.equal(result.status, 200);
   assert.equal(result.body.approveUrl, 'https://paypal.test/approve');
   const create = calls.find(c => c.url.includes('create_stock_order'));
@@ -82,10 +99,52 @@ test('checkout sends the product and quantity, never a price, and pays the shop'
     p_product: PRODUCT, p_quantity: 2, p_method: 'delivery', p_address: 'Purok 3, Poblacion',
     p_municipality: 'Mamburao', p_phone: '0917 123 4567', p_notes: null
   });
+  assert.equal(calls.find(c => c.url.includes('begin_payment')).body.p_env, 'sandbox');   // sandbox unless told otherwise
   const pp = calls.find(c => c.url.endsWith('/v2/checkout/orders'));
-  assert.equal(pp.body.purchase_units[0].amount.value, '2200.00');      // from begin_payment
-  assert.equal(pp.body.purchase_units[0].payee.email_address, 'shop@pay.ph');
+  const unit = pp.body.purchase_units[0];
+  assert.equal(unit.amount.value, '2200.00');      // from begin_payment
+  assert.deepEqual(unit.payee, { merchant_id: 'SHOPMERCHANT1' });
+  assert.equal(unit.payment_instruction, undefined);   // accrual: no split is claimed
   assert.equal(pp.body.payment_source.paypal.experience_context.return_url, `${SITE}/account?paypal=return`);
+  const recorded = calls.find(c => c.url.includes('server_record_payment_attempt'));
+  assert.equal(recorded.body.p_secret, 'x'.repeat(40));
+  assert.equal(recorded.body.p_fee_mode, 'accrual');
+  assert.equal(recorded.body.p_merchant, 'SHOPMERCHANT1');
+  assert.equal(recorded.body.p_platform_fee, 200);
+});
+
+test('a shop without a connected seller account is refused before PayPal', async () => {
+  due.merchant_id = null;
+  const result = await handleOrders(req, 'pay', { orderId: ORDER }, SITE);
+  assert.equal(result.status, 409);
+  assert.equal(result.body.code, 'seller_not_connected');
+  assert.ok(!calls.some(c => c.url.endsWith('/v2/checkout/orders')));
+});
+
+test('platform_split only when configured AND the seller granted the partner fee', async () => {
+  assert.equal(feeModeFor({ partner_fee_granted: true, platform_fee: 200 }, { feeMode: 'accrual' }), 'accrual');
+  assert.equal(feeModeFor({ partner_fee_granted: false, platform_fee: 200 }, { feeMode: 'platform_split' }), 'accrual');
+  assert.equal(feeModeFor({ partner_fee_granted: true, platform_fee: 0 }, { feeMode: 'platform_split' }), 'accrual');
+  assert.equal(feeModeFor({ partner_fee_granted: true, platform_fee: 200 }, { feeMode: 'platform_split' }), 'platform_split');
+
+  // Asked for split without the partner ids: the deployment falls back.
+  process.env.PAYPAL_FEE_MODE = 'platform_split';
+  due.partner_fee_granted = true;
+  await handleOrders(req, 'pay', { orderId: ORDER }, SITE);
+  assert.equal(calls.find(c => c.url.endsWith('/v2/checkout/orders')).body.purchase_units[0].payment_instruction, undefined);
+
+  calls.length = 0;
+  process.env.PAYPAL_PARTNER_MERCHANT_ID = 'PARTNER123';
+  process.env.PAYPAL_PARTNER_ATTRIBUTION_ID = 'FurnishAR_SP';
+  await handleOrders(req, 'pay', { orderId: ORDER }, SITE);
+  const pp = calls.find(c => c.url.endsWith('/v2/checkout/orders'));
+  assert.deepEqual(pp.body.purchase_units[0].payment_instruction.platform_fees,
+    [{ amount: { currency_code: 'PHP', value: '200.00' } }]);
+  assert.equal(pp.headers['PayPal-Partner-Attribution-Id'], 'FurnishAR_SP');
+  assert.equal(calls.find(c => c.url.includes('server_record_payment_attempt')).body.p_fee_mode, 'platform_split');
+  delete process.env.PAYPAL_FEE_MODE;
+  delete process.env.PAYPAL_PARTNER_MERCHANT_ID;
+  delete process.env.PAYPAL_PARTNER_ATTRIBUTION_ID;
 });
 
 test('a capture is recorded with the server secret and PayPal\'s own figures', async () => {
@@ -96,7 +155,19 @@ test('a capture is recorded with the server secret and PayPal\'s own figures', a
   assert.equal(record.body.p_secret, 'x'.repeat(40));
   assert.equal(record.body.p_amount, 2200);
   assert.equal(record.body.p_capture, 'CAPTURE1');
+  assert.equal(record.body.p_payee_merchant, 'SHOPMERCHANT1');
+  assert.equal(record.body.p_fee_collected, null);                    // PayPal reported no platform fee
   assert.equal(record.headers.Authorization, 'Bearer user-jwt');       // as the buyer, not a service key
+});
+
+test('a split is "collected" only from PayPal\'s capture breakdown', async () => {
+  attempt.fee_mode = 'platform_split';
+  paypalOrder.purchase_units[0].payment_instruction = { platform_fees: [{ amount: { currency_code: 'PHP', value: '200.00' } }] };
+  const result = await handleOrders(req, 'capture', { paypalOrderId: 'PAYPALORDER123' }, SITE);
+  assert.equal(result.status, 200);
+  const record = calls.find(c => c.url.includes('record_capture'));
+  assert.equal(record.body.p_fee_mode, 'platform_split');
+  assert.equal(record.body.p_fee_collected, 200);
 });
 
 test('a PayPal payment that no longer matches what is owed is never captured', async () => {
@@ -106,10 +177,32 @@ test('a PayPal payment that no longer matches what is owed is never captured', a
   assert.ok(!calls.some(c => c.url.endsWith('/capture')));
 
   paypalOrder.purchase_units[0].amount.value = '2200.00';
-  paypalOrder.purchase_units[0].payee.email_address = 'thief@pay.ph';
+  paypalOrder.purchase_units[0].payee = { merchant_id: 'THIEFMERCHANT' };
   result = await handleOrders(req, 'capture', { paypalOrderId: 'PAYPALORDER123' }, SITE);
   assert.equal(result.status, 409);
   assert.ok(!calls.some(c => c.url.endsWith('/capture')));
+
+  // A split order whose fee is not the recorded one.
+  paypalOrder.purchase_units[0].payee = { merchant_id: 'SHOPMERCHANT1' };
+  attempt.fee_mode = 'platform_split';
+  paypalOrder.purchase_units[0].payment_instruction = { platform_fees: [{ amount: { currency_code: 'PHP', value: '1.00' } }] };
+  result = await handleOrders(req, 'capture', { paypalOrderId: 'PAYPALORDER123' }, SITE);
+  assert.equal(result.status, 409);
+  assert.ok(!calls.some(c => c.url.endsWith('/capture')));
+});
+
+test('a capture PayPal leaves pending is not recorded as paid', async () => {
+  global.fetch = (inner => async (url, options) => {
+    if (String(url).endsWith('/capture')) {
+      return reply(201, { ...paypalOrder, status: 'COMPLETED', purchase_units: [{ ...paypalOrder.purchase_units[0],
+        payments: { captures: [{ id: 'CAPTUREP', status: 'PENDING', amount: { currency_code: 'PHP', value: '2200.00' } }] } }] });
+    }
+    return inner(url, options);
+  })(global.fetch);
+  const result = await handleOrders(req, 'capture', { paypalOrderId: 'PAYPALORDER123' }, SITE);
+  assert.equal(result.body.pending, true);
+  assert.ok(!calls.some(c => c.url.includes('record_capture')));
+  assert.equal(calls.find(c => c.url.includes('server_update_payment_attempt')).body.p_status, 'PENDING');
 });
 
 test('a PayPal order that is not ours is refused', async () => {

@@ -240,3 +240,10 @@ This is where money is recorded, so every step checks something.
 
 - **Flow — Protected 3D Access** and **Flow — Checkout & Custom-Build Stages** are step-by-step flowcharts, with decisions, of the same processes. They are useful for explaining the order of events. They are not DFD levels.
 - **Use Case Diagram** shows what each actor can do, in UML notation.
+
+
+## Added with migration 0011 (2026-09-24)
+
+**Level 2 — 1.0 Google Sign-in & Onboarding.** 1.6 starts a PKCE flow (verifier in an httpOnly cookie, identity scopes only); 1.7 trades the one-time code for a D1.1 session and discards Google's provider tokens; 1.3 resolves the role from D1.2 exactly as for a password sign-in; 1.8 onboards an account with no role — a buyers row (D1.2) or a store application linked by account id (D4). Balances with Level 1: the Buyer/Owner ↔ 1.0 flows gained "Continue with Google" and the onboarding choice; Google is a new external entity of 1.0 only. No flow from 1.0 reaches platform_admins.
+
+**Level 2 — 10.9–10.13 PayPal Seller, Webhooks & Reminders.** 10.9 records the onboarding attempt (member check, tracking id) in D5.4 and asks PayPal for a referral; 10.10 reads the seller's status from PayPal only and records it; 10.11 verifies each PayPal webhook, claims it once in D5.5 and records captures/refunds in D5.2 and seller changes in D5.4; 10.12 reports the fee mode and configuration to the admin from D5.3; 10.13 emails not-connected shops on a schedule with a cooldown. Balances with Level 1: the Store Owner → 7.0 → PayPal "connect PayPal" flow, PayPal → 10.0 "signed webhooks", and 10.0 → Email "reminders" added there.

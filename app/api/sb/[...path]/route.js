@@ -12,12 +12,21 @@
  *   POST /api/sb/auth/<action>  login | signup | refresh | logout
  *   GET  /api/sb/model/<path>   redirect to a stored model, hiding the project URL
  *   POST /api/sb/storage/sign   one-time signed upload URL
+ *   GET  /api/sb/auth/google    start Sign in with Google (PKCE, server-held verifier)
+ *   POST /api/sb/auth/exchange  finish it: code → session (no provider tokens)
+ *   GET  /api/sb/account/state  the caller's role and onboarding needs
+ *   POST /api/sb/account/<action> buyer | apply
  *   GET  /api/sb/orders/config  are online payments / emails switched on?
  *   POST /api/sb/orders/<action> checkout | pay | capture | request | cancel |
  *                               quote | decline | ready | fulfil | delivery | store-billing
+ *   POST /api/sb/payments/<action> connect | refresh   (the shop's PayPal seller account)
+ *   GET  /api/sb/payments/admin PayPal configuration and problems, admins only
  */
 import proxy from '../../../../lib/supabase-proxy.js';
 import orders from '../../../../lib/orders.js';
+import payments from '../../../../lib/payments.js';
+import account from '../../../../lib/account.js';
+import oauth from '../../../../lib/oauth.js';
 
 const {
   isConfigured, serverCredentials, proxyRest, proxyAuth, createSignedUpload, grantModelAccess
@@ -147,11 +156,37 @@ async function route(request, context) {
     return json(503, { error: 'This deployment has no Supabase backend configured.' });
   }
 
+  /* The origin PayPal and Google send people back to. SITE_URL when set, so
+     a preview deployment cannot register itself as a return address. */
+  const site = (process.env.SITE_URL || url.origin).replace(/\/$/, '');
+
+  /*
+    Sign in with Google (P1). Authentication only: the session says who this
+    is; my_role() and the database decide what they may do.
+  */
+  if (section === 'auth' && rest[0] === 'google' && rest.length === 1 && request.method === 'GET') {
+    const result = await oauth.startGoogle({
+      site, next: url.searchParams.get('next'), intent: url.searchParams.get('intent')
+    });
+    const headers = { Location: result.location, 'Cache-Control': 'no-store' };
+    if (result.cookie) headers['Set-Cookie'] = result.cookie;
+    return new Response(null, { status: result.status, headers });
+  }
+  if (section === 'auth' && rest[0] === 'exchange' && rest.length === 1 && request.method === 'POST') {
+    const payload = await request.json().catch(() => ({}));
+    const result = await oauth.exchangeCode({ code: payload.code, cookieHeader: request.headers.get('cookie'), site });
+    return json(result.status, result.body, { 'Set-Cookie': result.cookie, 'Cache-Control': 'no-store' });
+  }
+
   if (section === 'rest') {
     // The query string is part of what PostgREST is being asked for.
     const target = rest.join('/') + (url.search || '');
     const body = ['GET', 'HEAD'].includes(request.method) ? null : await request.text();
     const result = await proxyRest(asNodeRequest(request), target, body);
+    // An admin's approve / reject went through: tell the applicant. The
+    // database's own answer carries who to tell; nothing from the browser.
+    const decided = /^rpc\/(approve_store_application|reject_store_application)$/.exec(rest.join('/'));
+    if (decided && result.status === 200) await account.announceDecision(decided[1], result.body, site);
     const headers = {};
     if (result.headers?.['content-range']) headers['Content-Range'] = result.headers['content-range'];
     return json(result.status, result.body, headers);
@@ -194,9 +229,22 @@ async function route(request, context) {
     capture from PayPal. Per person, so never cached.
   */
   if (section === 'orders' && rest.length === 1) {
-    const site = (process.env.SITE_URL || url.origin).replace(/\/$/, '');
     const body = request.method === 'POST' ? await request.json().catch(() => ({})) : null;
     const result = await orders.handleOrders(asNodeRequest(request), rest[0], body, site);
+    return json(result.status, result.body, { 'Cache-Control': 'private, no-store' });
+  }
+
+  /* The shop's PayPal seller connection (P7 → P10). */
+  if (section === 'payments' && rest.length === 1) {
+    const body = request.method === 'POST' ? await request.json().catch(() => ({})) : null;
+    const result = await payments.handlePayments(asNodeRequest(request), rest[0], body, site);
+    return json(result.status, result.body, { 'Cache-Control': 'private, no-store' });
+  }
+
+  /* Onboarding after sign-in: choose buyer or store (P1 → D1 / D4). */
+  if (section === 'account' && rest.length === 1) {
+    const body = request.method === 'POST' ? await request.json().catch(() => ({})) : null;
+    const result = await account.handleAccount(asNodeRequest(request), rest[0], body, site);
     return json(result.status, result.body, { 'Cache-Control': 'private, no-store' });
   }
 

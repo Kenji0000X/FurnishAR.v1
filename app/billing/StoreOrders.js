@@ -5,14 +5,18 @@ import { supabase } from '../portal/backend.js';
 import useAlert from '../alerts/useAlert.js';
 import { ConsoleSection } from '../console/ConsoleShell.js';
 import OrderCard, { money } from './OrderCard.js';
+import { describeStatus, maskMerchantId, currentAccount } from './payment-status.mjs';
 
 /**
  * A store's incoming orders, its billing settings and its fee balance.
  *                                                             DFD: P7 → P10
  *
  * The owner chooses what kind of shop this is — selling from stock, or
- * building to order — and which PayPal account buyers pay. Buyers pay that
- * account directly; FurnishAR's 10% is tallied here and settled separately.
+ * building to order — and connects the PayPal SELLER account buyers pay
+ * (Partner Referrals, 0011). The status shown is what PayPal told the
+ * server, never what this page assumes. FurnishAR's 10% is either taken by
+ * PayPal at capture (platform_split, only when PayPal reports it) or owed
+ * and settled separately (accrual) — the page says which.
  *
  * Every button reflects the request it started (spinner, same label), and
  * declining a request — the one thing here a buyer is told about and cannot
@@ -20,9 +24,11 @@ import OrderCard, { money } from './OrderCard.js';
  */
 const CLOSED = ['fulfilled', 'declined', 'cancelled', 'expired'];
 
-export default function StoreOrders({ storeUuid, onOpenCount }) {
+export default function StoreOrders({ storeUuid, onOpenCount, onPaymentStatus }) {
   const alert = useAlert();
   const [billing, setBilling] = useState(undefined);   // undefined = loading, null = failed
+  const [config, setConfig] = useState(null);           // /api/sb/orders/config (no secrets)
+  const [paypalBusy, setPaypalBusy] = useState('');     // 'connect' | 'refresh'
   const [orders, setOrders] = useState(null);
   const [busy, setBusy] = useState('');                 // `${orderId}:${action}` or 'settings'
   const [quoting, setQuoting] = useState(null);
@@ -31,15 +37,56 @@ export default function StoreOrders({ storeUuid, onOpenCount }) {
 
   const load = useCallback(async () => {
     const sb = supabase();
-    const [settings, list] = await Promise.all([
+    const [settings, list, cfg] = await Promise.all([
       sb.storeBilling(storeUuid).catch(() => null),
-      sb.listStoreOrders(storeUuid).catch(() => null)
+      sb.listStoreOrders(storeUuid).catch(() => null),
+      sb.billingConfig()
     ]);
     setBilling(settings);
     setOrders(list);
+    setConfig(cfg);
   }, [storeUuid]);
 
   useEffect(() => { load(); }, [load]);
+
+  const account = billing ? currentAccount(billing.paymentAccounts, config?.environment || 'sandbox') : null;
+  useEffect(() => { if (account) onPaymentStatus?.(account.onboarding_status); }, [account?.onboarding_status, onPaymentStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const refreshPaypal = useCallback(async ({ quiet = false } = {}) => {
+    setPaypalBusy('refresh');
+    try {
+      const result = await supabase().paymentsAction('refresh', { storeId: storeUuid });
+      if (!quiet || result.ready) {
+        if (result.ready) alert.showSuccess('PayPal is connected. Buyers can pay you online.');
+        else alert.showInfo(describeStatus(result.status).help);
+      }
+      await load();
+    } catch (error) {
+      alert.showError(error.message);
+    }
+    setPaypalBusy('');
+  }, [storeUuid, alert, load]);
+
+  /* Back from PayPal's onboarding page: ask the server to read the status
+     from PayPal. The query string PayPal added is not trusted for anything. */
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    if (query.get('paypal_onboarding') !== 'return') return;
+    window.history.replaceState(null, '', `/portal${window.location.hash || '#billing'}`);
+    refreshPaypal();
+  }, [refreshPaypal]);
+
+  async function connectPaypal() {
+    setPaypalBusy('connect');
+    try {
+      const { actionUrl } = await supabase().paymentsAction('connect', { storeId: storeUuid });
+      // PayPal's own page: the owner signs in there, never here.
+      window.location.assign(actionUrl);
+    } catch (error) {
+      alert.showError(error.message);
+      setPaypalBusy('');
+    }
+  }
 
   const open = (orders || []).filter(o => !CLOSED.includes(o.status));
   const past = (orders || []).filter(o => CLOSED.includes(o.status));
@@ -115,7 +162,7 @@ export default function StoreOrders({ storeUuid, onOpenCount }) {
       <ConsoleSection
         id="orders"
         title={`Orders${open.length ? ` · ${open.length} Open` : ''}`}
-        note="New and in-progress orders first. Buyers pay your PayPal directly; move each one along as you prepare it."
+        note="New and in-progress orders first. Buyers pay your PayPal seller account directly; move each one along as you prepare it."
       >
         {orders === null ? (
           <div className="bezel"><div className="bezel-core console-empty">
@@ -212,7 +259,9 @@ export default function StoreOrders({ storeUuid, onOpenCount }) {
       <ConsoleSection
         id="billing"
         title="Billing & Store Type"
-        note="Buyers pay your PayPal account directly: your price plus FurnishAR’s 10% service fee, which you settle separately."
+        note={config?.feeMode === 'platform_split'
+          ? 'Buyers pay your price plus FurnishAR’s 10% service fee. When your PayPal account allows it, PayPal takes the 10% at checkout and reports it; otherwise it is owed and settled separately.'
+          : 'Buyers pay your price plus FurnishAR’s 10% service fee into your PayPal account; you settle the 10% with FurnishAR separately.'}
       >
         {billing === null ? (
           <div className="bezel"><div className="bezel-core console-empty">
@@ -222,8 +271,13 @@ export default function StoreOrders({ storeUuid, onOpenCount }) {
           </div></div>
         ) : (
           <>
+            <PaypalCard account={account} config={config} busy={paypalBusy}
+              onConnect={connectPaypal} onRefresh={() => refreshPaypal()} />
             <dl className="billing-summary">
-              <div><dt>Fees Accrued</dt><dd>{money(billing.fees.accrued)}</dd></div>
+              <div><dt>Fees Owed (Accrued)</dt><dd>{money(billing.fees.accrued)}</dd></div>
+              {Number(billing.fees.collected) > 0 && (
+                <div><dt>Collected by PayPal</dt><dd>{money(billing.fees.collected)}</dd></div>
+              )}
               <div><dt>Settled</dt><dd>{money(billing.fees.settled)}</dd></div>
               <div><dt>Owed to FurnishAR</dt><dd>{money(billing.fees.outstanding)}</dd></div>
             </dl>
@@ -240,9 +294,13 @@ export default function StoreOrders({ storeUuid, onOpenCount }) {
                       </select>
                     </label>
                     <label>
-                      PayPal email (you are paid here)
-                      <input name="paypalEmail" type="email" defaultValue={billing.paypalEmail} required
-                        autoComplete="email" spellCheck={false} placeholder="payments@yourshop.ph…" />
+                      PayPal email (your records only)
+                      <input name="paypalEmail" type="email" defaultValue={billing.paypalEmail}
+                        autoComplete="email" spellCheck={false} placeholder="payments@yourshop.ph…"
+                        aria-describedby="paypal-email-note" />
+                      <small id="paypal-email-note" className="form-note">
+                        Optional. Buyers pay the PayPal account you connect above, not this address.
+                      </small>
                     </label>
                     <label>
                       Order notification email
@@ -285,6 +343,63 @@ export default function StoreOrders({ storeUuid, onOpenCount }) {
         />
       )}
     </>
+  );
+}
+
+/**
+ * The shop's PayPal seller account: status from PayPal, the merchant id
+ * masked, whether checkout is open, and the sandbox marker. Connecting
+ * happens on PayPal's own page.
+ */
+function PaypalCard({ account, config, busy, onConnect, onRefresh }) {
+  const status = account?.onboarding_status || 'NOT_CONNECTED';
+  const view = describeStatus(status);
+  const connected = status === 'CONNECTED';
+  const started = status !== 'NOT_CONNECTED';
+  const canConnect = Boolean(config?.sellerOnboarding);
+  return (
+    <div className="bezel console-panel paypal-card">
+      <div className="bezel-core">
+        <div className="paypal-card-head">
+          <h3>PayPal Seller Account</h3>
+          <span className={`status-chip is-${view.tone}`}>{view.label}</span>
+          {config?.sandbox && <span className="status-chip is-sandbox" title="PayPal sandbox: no real money moves">PayPal Sandbox</span>}
+        </div>
+        <dl className="paypal-facts">
+          <div><dt>Merchant ID</dt><dd translate="no">{maskMerchantId(account?.merchant_id)}</dd></div>
+          <div><dt>Online checkout</dt><dd>{view.ready ? 'Open — buyers can pay you' : 'Closed until connected'}</dd></div>
+          {account?.last_checked_at && (
+            <div><dt>Last checked with PayPal</dt><dd>{new Date(account.last_checked_at).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}</dd></div>
+          )}
+        </dl>
+        <p className="form-note">{account?.status_detail || view.help}</p>
+        <div className="order-actions">
+          {!connected && (
+            <button className="button button-primary" type="button" onClick={onConnect}
+              disabled={!canConnect || Boolean(busy)} aria-busy={busy === 'connect' || undefined}>
+              {busy === 'connect' && <span className="loading-spinner" aria-hidden="true" />}
+              {started ? 'Continue PayPal Setup' : 'Connect PayPal'}
+            </button>
+          )}
+          {started && (
+            <button className="button button-outline" type="button" onClick={onRefresh}
+              disabled={!canConnect || Boolean(busy)} aria-busy={busy === 'refresh' || undefined}>
+              {busy === 'refresh' && <span className="loading-spinner" aria-hidden="true" />}Check Status
+            </button>
+          )}
+          {connected && (
+            <button className="button button-outline" type="button" onClick={onConnect} disabled={!canConnect || Boolean(busy)}>
+              Connect a Different Account
+            </button>
+          )}
+        </div>
+        <p className="form-note">
+          {canConnect
+            ? 'You sign in on PayPal’s own page. FurnishAR never sees your PayPal password or the buyer’s card.'
+            : 'Connecting PayPal is not switched on for this site yet. The FurnishAR team has been told.'}
+        </p>
+      </div>
+    </div>
   );
 }
 

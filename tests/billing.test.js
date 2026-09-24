@@ -96,13 +96,24 @@ test.after(() => {
   if (available) psql(`drop database if exists ${DB}`, 'postgres');
 });
 
-const capture = (userId, order, stage, amount, { secret = SECRET, payee = 'pay-a@shop.ph', captureId } = {}) =>
-  as(userId, `select public.record_capture('${secret}', '${order}', '${stage}', 'PP-${stage}',
-    '${captureId || `CAP-${order}-${stage}`}', ${amount}, 'PHP', '${payee}', 'payer@example.ph')::text`);
+/* The server's two steps: record the PayPal order it created (0011's
+   payment_attempts), then the capture PayPal confirmed, paid to the store's
+   connected merchant. */
+const capture = (userId, order, stage, amount, { secret = SECRET, merchant = 'MERCHANTA1', captureId } = {}) => {
+  const providerOrder = `PP-${order.slice(0, 8)}-${stage}-${captureId || 'x'}`;
+  const fee = psql(`select public.stage_platform_fee('${order}', '${stage}')`);
+  as(userId, `select public.server_record_payment_attempt('${SECRET}', '${order}', '${stage}', 'sandbox',
+    '${providerOrder}', ${amount}, ${fee}, 'accrual', '${merchant}')`);
+  return as(userId, `select public.record_capture('${secret}', '${order}', '${stage}', '${providerOrder}',
+    '${captureId || `CAP-${order}-${stage}`}', ${amount}, 'PHP', null, 'payer@example.ph', '${merchant}')::text`);
+};
 
-it('a shop without a PayPal account cannot take an order', () => {
+const connect = (store, merchant) => psql(`select public.server_record_payment_account('${SECRET}', 'sandbox',
+  '${store}', null, '${merchant}', 'CONNECTED', true, true, false, null)`);
+
+it('a shop without a connected PayPal seller account cannot take an order', () => {
   const error = refused(ids.buyer, `select public.create_stock_order('${ids.product}', 1, 'delivery', 'Purok 3, Brgy. Poblacion', 'Mamburao', '0917 123 4567', null)`);
-  assert.match(error, /not taking online payments/);
+  assert.match(error, /finishing its PayPal setup/);
 });
 
 it('only the store owner sets where the store is paid', () => {
@@ -111,6 +122,14 @@ it('only the store owner sets where the store is paid', () => {
   as(ids.ownerA, `select public.save_store_billing('${ids.storeA}', 'stocked', 'Pay-A@Shop.ph', null, 3, 1)`);
   assert.equal(psql(`select paypal_email from public.store_payout where store_id = '${ids.storeA}'`), 'pay-a@shop.ph');
   assert.equal(as(ids.otherBuyer, `select count(*) from public.store_payout`), '0');
+  // A typed email is a record only (0011): checkout still needs the connection.
+  assert.match(refused(ids.buyer, `select public.create_stock_order('${ids.product}', 1, 'pickup', null, null, '0917 123 4567', null)`),
+    /finishing its PayPal setup/);
+  // Only the server, with its secret, records a PayPal connection.
+  assert.match(refused(ids.ownerA, `select public.server_record_payment_account('guess', 'sandbox', '${ids.storeA}', null,
+    'MERCHANTA1', 'CONNECTED', true, true, false, null)`), /Only the FurnishAR server/);
+  connect(ids.storeA, 'MERCHANTA1');
+  connect(ids.storeB, 'MERCHANTB1');
 });
 
 it('an owner can no longer upgrade their own plan or unsuspend their store', () => {
@@ -151,19 +170,26 @@ it('what is due comes from the database, to the shop\'s own account', () => {
   const due = JSON.parse(as(ids.buyer, `select public.begin_payment('${ids.stockOrder}')::text`));
   assert.equal(due.stage, 'full');
   assert.equal(Number(due.amount), 2200);
-  assert.equal(due.payee_email, 'pay-a@shop.ph');
+  assert.equal(Number(due.platform_fee), 200);
+  assert.equal(due.merchant_id, 'MERCHANTA1');
+  assert.equal(due.payee_email, undefined);
+  // A live checkout never pays a sandbox seller.
+  assert.match(refused(ids.buyer, `select public.begin_payment('${ids.stockOrder}', 'live')`), /finishing its PayPal setup/);
 });
 
 it('a payment without the server secret, to the wrong payee, or short is not applied', () => {
   assert.match(refused(ids.buyer, `select public.record_capture('guess', '${ids.stockOrder}', 'full', 'PP', 'CAP-X', 2200, 'PHP', 'pay-a@shop.ph', null)`),
-    /recorded by the server only/);
+    /Only the FurnishAR server/);
   assert.match(refused(ids.buyer, `select public.record_capture(null, '${ids.stockOrder}', 'full', 'PP', 'CAP-X', 2200, 'PHP', 'pay-a@shop.ph', null)`),
-    /recorded by the server only/);
+    /Only the FurnishAR server/);
+  // No recorded attempt and not the legacy email: refused.
   assert.match(refused(ids.buyer, `select * from billing_private.secrets`), /permission denied/);
   assert.match(refused(ids.buyer, `select public.record_capture('${SECRET}', '${ids.stockOrder}', 'full', 'PP', 'CAP-X', 2200, 'PHP', 'thief@x.ph', null)`),
     /wrong account/);
   assert.match(refused(ids.otherBuyer, `select public.record_capture('${SECRET}', '${ids.stockOrder}', 'full', 'PP', 'CAP-X', 2200, 'PHP', 'pay-a@shop.ph', null)`),
     /not yours/);
+  // An attempt for store A's merchant, captured to another merchant: refused.
+  assert.throws(() => capture(ids.buyer, ids.stockOrder, 'full', 2200, { merchant: 'MERCHANTB1', captureId: 'CAP-WRONG' }));
   const short = JSON.parse(capture(ids.buyer, ids.stockOrder, 'full', 100, { captureId: 'CAP-SHORT' }));
   assert.equal(short.applied, false);
   assert.equal(psql(`select status from public.orders where id = '${ids.stockOrder}'`), 'pending_payment');
@@ -227,7 +253,7 @@ it('a custom build: request, quote, deposit, ready, balance, handed over', () =>
   const due = JSON.parse(as(ids.buyer, `select public.begin_payment('${order}')::text`));
   assert.equal(due.stage, 'deposit');
   assert.equal(Number(due.amount), 2750);
-  const deposit = JSON.parse(capture(ids.buyer, order, 'deposit', 2750, { payee: 'pay-b@shop.ph' }));
+  const deposit = JSON.parse(capture(ids.buyer, order, 'deposit', 2750, { merchant: 'MERCHANTB1' }));
   assert.equal(deposit.status, 'deposit_paid');
   // Delivery days (3) plus the quoted lead time (14), from the day the deposit landed.
   assert.equal(psql(`select estimated_arrival::text from public.orders where id = '${order}'`),
@@ -239,7 +265,7 @@ it('a custom build: request, quote, deposit, ready, balance, handed over', () =>
   const balance = JSON.parse(as(ids.buyer, `select public.begin_payment('${order}')::text`));
   assert.equal(balance.stage, 'balance');
   assert.equal(Number(balance.amount), 2750);
-  assert.equal(JSON.parse(capture(ids.buyer, order, 'balance', 2750, { payee: 'pay-b@shop.ph' })).status, 'paid');
+  assert.equal(JSON.parse(capture(ids.buyer, order, 'balance', 2750, { merchant: 'MERCHANTB1' })).status, 'paid');
 
   const summary = JSON.parse(as(ids.ownerB, `select public.store_fee_summary('${ids.storeB}')::text`));
   assert.equal(Number(summary.accrued), 500);        // 10% of the 5,000 quote

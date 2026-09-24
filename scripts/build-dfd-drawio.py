@@ -273,7 +273,8 @@ def level0():
     p.node('SYS', '0<br>FurnishAR System', SYSTEM, 580, 330, 240, 240)
     p.node('B', 'Buyer / Guest', EXTERNAL, 40, 415, 180, 70)
     p.node('E', 'Email Service<br>(Gmail / Resend)', EXTERNAL, 140, 110, 200, 70)
-    p.node('PP', 'PayPal<br>(shop\'s own account)', EXTERNAL, 1100, 110, 200, 70)
+    p.node('PP', 'PayPal<br>(shop\'s seller account)', EXTERNAL, 1100, 110, 200, 70)
+    p.node('G', 'Google<br>(identity, via Supabase Auth)', EXTERNAL, 590, 110, 220, 64)
     p.node('X', 'Supabase<br>(Auth / Postgres / Storage)', EXTERNAL, 1140, 415, 220, 70)
     p.node('O', 'Store Owner', EXTERNAL, 140, 740, 200, 70)
     p.node('A', 'Platform Admin', EXTERNAL, 1100, 740, 200, 70)
@@ -295,8 +296,10 @@ def level0():
     p.edge('SYS', 'X', 'auth, RLS queries,<br>signed asset requests', S, exit=(1, 0.4), entry=(0, 0.3))
     p.edge('X', 'SYS', 'sessions, rows,<br>authorization, signed URLs', S, exit=(0, 0.7), entry=(1, 0.6))
 
-    p.edge('SYS', 'PP', 'create / capture order<br>(payee = shop)', S, exit=(0.8, 0.1), entry=(0, 0.6), label_pos=-0.35)
-    p.edge('PP', 'SYS', 'approval / capture result', S, exit=(0.2, 1), entry=(0.93, 0.25), label_pos=-0.3)
+    p.edge('SYS', 'G', 'sign-in request<br>(identity scopes only)', S, exit=(0.3, 0.05), entry=(0.3, 1), label_pos=0.45)
+    p.edge('G', 'SYS', 'identity', S, exit=(0.7, 1), entry=(0.7, 0.05), label_pos=0.35)
+    p.edge('SYS', 'PP', 'seller onboarding; create / capture<br>(payee = shop merchant id)', S, exit=(0.8, 0.1), entry=(0, 0.6), label_pos=-0.35)
+    p.edge('PP', 'SYS', 'capture result, seller status,<br>signed webhooks', S, exit=(0.2, 1), entry=(0.93, 0.25), label_pos=-0.3)
     p.edge('B', 'PP', 'approves & pays the shop directly', EDGE_ORTHO, exit=(0.1, 0), entry=(0.5, 0),
            points=[(58, 60), (1200, 60)])
 
@@ -654,6 +657,80 @@ def level2_auth():
     return p
 
 
+def level2_google():
+    p = Page('dfd-2-google', 'Level 2 — 1.0 Google Sign-in & Onboarding', 1500, 880)
+    p.node('title', 'Level 2 DFD — 1.0 Google Sign-in &amp; Onboarding (authentication only)', TITLE, 40, 10, 900, 30)
+    ext(p, 'U', 'Buyer / Store Owner', 40, 80, 180, 600)
+    ext(p, 'G', 'Google<br>(through Supabase Auth)', 900, 80, 200, 64)
+    ext(p, 'EM', 'Email Service', 1300, 740, 170, 64)
+    proc(p, 'P16', '1.6', 'Start Google Sign-in (PKCE)', 420, 80)
+    proc(p, 'P17', '1.7', 'Exchange Code<br>(drop provider tokens)', 420, 240)
+    ref(p, 'R13', '1.3', 'Resolve Role (my_role)', 430, 420)
+    proc(p, 'P18', '1.8', 'Onboard: Buyer or<br>Store Application', 420, 600)
+    store(p, 'D11', 'D1.1', 'Auth Users &amp; Sessions (GoTrue)', 900, 330, 320, 50)
+    store(p, 'D12', 'D1.2', 'Roles: buyers · store_members · platform_admins', 900, 430, 400, 50)
+    store(p, 'D4', 'D4', 'Store Applications (applicant_user_id)', 900, 620, 340, 50)
+
+    p.edge('U', 'P16', 'Continue with Google (safe next, intent)', D, exit=(1, 0.05), entry=(0, 0.5))
+    p.edge('P16', 'G', 'authorize: PKCE challenge,<br>identity scopes', S, exit=(1, 0.5), entry=(0, 0.5))
+    p.edge('G', 'P17', 'one-time code (/auth/callback)', O, exit=(0.5, 1), entry=(1, 0.5), points=[(1000, 272)])
+    p.edge('P17', 'D11', 'code + server-held verifier', O, exit=(1, 0.85), entry=(0, 0.3), points=[(780, 294.4), (780, 345)], label_pos=0.5)
+    p.edge('P17', 'U', 'session (no Google tokens), safe next', S, exit=(0, 0.5), entry=(1, 0.32))
+    p.edge('P17', 'R13', 'access token', O, exit=(0.5, 1), entry=(0.5, 0))
+    p.edge('D12', 'R13', 'role rows', S, exit=(0, 0.5), entry=(1, 0.55))
+    p.edge('R13', 'U', 'destination; no role → /onboarding', S, exit=(0, 0.55), entry=(1, 0.62))
+    p.edge('R13', 'P18', 'role = onboarding', O, exit=(0.5, 1), entry=(0.5, 0))
+    p.edge('U', 'P18', 'municipality / store application', D, exit=(1, 0.92), entry=(0, 0.5))
+    p.edge('P18', 'D12', 'buyers row', O, exit=(1, 0.3), entry=(0.285, 1), points=[(1014, 619.2)])
+    p.edge('P18', 'D4', 'application by account id', S, exit=(1, 0.7), entry=(0, 0.5))
+    p.edge('P18', 'EM', 'welcome / application emails', O, exit=(0.5, 1), entry=(0, 0.5), points=[(540, 772)])
+    p.node('note', '<b>Never here:</b> admin rights (only platform_admins), Google tokens, passwords.<br>'
+                   'A Google account is identity only; PayPal is a separate account system (10.9).',
+           NOTE, 1130, 160, 340, 90)
+    return p
+
+
+def level2_paypal():
+    p = Page('dfd-2-paypal', 'Level 2 — 10.9–10.13 PayPal Seller, Webhooks & Reminders', 1620, 980)
+    p.node('title', 'Level 2 DFD — PayPal seller connection, webhooks, reminders and fee mode', TITLE, 40, 10, 900, 30)
+    ext(p, 'O', 'Store Owner', 40, 80, 170, 220)
+    ext(p, 'A', 'Platform Admin', 40, 600, 170, 64)
+    ext(p, 'SCH', 'Scheduler<br>(Vercel Cron)', 40, 800, 170, 64)
+    ext(p, 'PP', 'PayPal', 1400, 240, 180, 330)
+    ext(p, 'EM', 'Email Service', 1400, 800, 180, 64)
+    proc(p, 'P109', '10.9', 'Start Seller Onboarding', 420, 80)
+    proc(p, 'P1010', '10.10', 'Verify Seller Status<br>(from PayPal only)', 420, 250)
+    proc(p, 'P1011', '10.11', 'Process Webhook<br>(verified, once per event)', 420, 430)
+    proc(p, 'P1012', '10.12', 'Report Fee Mode &amp; Config', 420, 600)
+    proc(p, 'P1013', '10.13', 'Payment-Setup Reminders<br>(cooldown, cap)', 420, 800)
+    store(p, 'D54', 'D5.4', 'store_payment_accounts', 880, 160, 320, 50)
+    store(p, 'D55', 'D5.5', 'payment_webhook_events', 880, 385, 320, 44)
+    store(p, 'D52', 'D5.2', 'payments · payment_attempts · payment_refunds', 880, 560, 400, 44)
+    store(p, 'D53', 'D5.3', 'fee settlements / fee overview', 880, 640, 320, 44)
+
+    p.edge('O', 'P109', 'Connect PayPal', D, exit=(1, 0.14), entry=(0, 0.5))
+    p.edge('P109', 'D54', 'member check + tracking id', O, exit=(1, 0.7), entry=(0, 0.3), points=[(740, 124.8), (740, 175)])
+    p.edge('P109', 'PP', 'partner referral (tracking id)', O, exit=(0.5, 0), entry=(0.5, 0), points=[(540, 40), (1490, 40)])
+    p.edge('O', 'P1010', 'return from PayPal / Check status', D, exit=(1, 0.8), entry=(0, 0.5), points=[(300, 256), (300, 282)])
+    p.edge('P1010', 'PP', 'merchant for OUR tracking id;<br>merchant integration', S, exit=(1, 0.3), entry=(0, 0.1))
+    p.edge('P1010', 'D54', 'status: CONNECTED / PENDING / ERROR…', O, exit=(1, 0.1), entry=(0.1, 1), points=[(912, 256.4)])
+    p.edge('PP', 'P1011', 'signed events: capture, refund,<br>seller, consent', S, exit=(0, 0.66), entry=(1, 0.5))
+    p.edge('P1011', 'PP', 'verify signature; re-read order', S, exit=(1, 0.9), entry=(0, 0.83))
+    p.edge('P1011', 'D55', 'claim / finish event', O, exit=(1, 0.1), entry=(0, 0.5), points=[(770, 436.4), (770, 407)])
+    p.edge('P1011', 'D52', 'capture (vs attempt), refund portions', O, exit=(0.9, 1), entry=(0, 0.5), points=[(636, 582)])
+    p.edge('P1011', 'D54', 'seller status changes', O, exit=(0.8, 0), entry=(0.3, 1), points=[(612, 350), (976, 350)])
+    p.edge('A', 'P1012', 'open billing', D, exit=(1, 0.5), entry=(0, 0.5))
+    p.edge('D53', 'P1012', 'accrued / collected / settled', S, exit=(0, 0.5), entry=(1, 0.6))
+    p.edge('SCH', 'P1013', 'daily, with CRON_SECRET', S, exit=(1, 0.5), entry=(0, 0.5))
+    p.edge('D54', 'P1013', 'not connected, due', O, exit=(1, 0.5), entry=(1, 0.5), points=[(1330, 185), (1330, 760), (700, 760), (700, 832)])
+    p.edge('P1013', 'EM', 'paypal_connection_required', S, exit=(1, 0.7), entry=(0, 0.7))
+    p.edge('P1011', 'EM', 'paid / refund / problem emails', O, exit=(0.3, 1), entry=(0, 0.3), points=[(492, 540), (360, 540), (360, 740), (1360, 740), (1360, 819.2)])
+    p.node('note', '<b>Truthful fee mode:</b> accrual unless PAYPAL_FEE_MODE=platform_split, the partner ids are set and the seller granted '
+                   'the partner fee; "collected" only when PayPal\'s capture reports it. Sandbox unless PAYPAL_ENV=live.',
+           NOTE, 880, 880, 560, 70)
+    return p
+
+
 def level2_access():
     p = Page('dfd-2-3d', 'Level 2 — 5.0 3D Access & Authorization', 1500, 820)
     p.node('title', 'Level 2 DFD — Process 5.0 3D Access &amp; Authorization', TITLE, 40, 10, 800, 30)
@@ -853,7 +930,7 @@ def level3_capture():
 
 
 def main():
-    pages = [level0(), level1(), level2_auth(), level2_access(), level2_orders(),
+    pages = [level0(), level1(), level2_auth(), level2_google(), level2_access(), level2_orders(), level2_paypal(),
              level3_authz(), level3_capture(), access3d(), payments(), usecases()]
     DRAWIO.write_text('<mxfile host="app.diagrams.net" modified="2026-09-24T00:00:00.000Z" '
                       f'agent="FurnishAR DFD v2" version="24.7.17" pages="{len(pages)}">\n'
