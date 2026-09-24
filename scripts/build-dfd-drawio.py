@@ -74,8 +74,31 @@ class Page:
         self.edges.append(dict(src=src, tgt=tgt, label=label, style=style, exit=exit, entry=entry,
                                points=list(points), label_pos=label_pos))
 
+    def align(self):
+        """Straighten flows whose two ends face each other.
+
+        A flow with no waypoints that leaves one node sideways and enters the
+        next sideways (or top-to-bottom) is snapped so the entry sits exactly
+        level with the exit, when that point is on the target's edge. Without
+        this a few pixels of rounding draw a small hook at the arrowhead.
+        """
+        for e in self.edges:
+            if e['points'] or not e['exit'] or not e['entry']:
+                continue
+            a, b = self.nodes[e['src']], self.nodes[e['tgt']]
+            (ex, ey), (nx, ny) = e['exit'], e['entry']
+            if ex in (0, 1) and nx in (0, 1):
+                y = a['y'] + ey * a['h']
+                if b['y'] <= y <= b['y'] + b['h']:
+                    e['entry'] = (nx, round((y - b['y']) / b['h'], 4))
+            elif ey in (0, 1) and ny in (0, 1):
+                x = a['x'] + ex * a['w']
+                if b['x'] <= x <= b['x'] + b['w']:
+                    e['entry'] = (round((x - b['x']) / b['w'], 4), ny)
+
     # ---------------------------------------------------------------- draw.io
     def xml(self):
+        self.align()
         out = [f'<diagram id="{self.pid}" name="{escape(self.name)}">',
                f'<mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" '
                f'arrows="1" fold="1" page="1" pageScale="1" pageWidth="{self.width}" pageHeight="{self.height}">',
@@ -118,6 +141,7 @@ class Page:
         return cx + dx * s, cy + dy * s
 
     def svg(self):
+        self.align()
         def text(x, y, label, size=12, weight='normal', anchor='middle', italic=False):
             lines = re.sub(r'<br\s*/?>', '\n', label).split('\n')
             lines = [unescape(re.sub('<[^>]+>', '', l)) for l in lines]
@@ -268,7 +292,7 @@ def level0():
            points=[(58, 60), (1200, 60)])
 
     p.edge('SYS', 'E', 'confirmation / order<br>email requests', S, exit=(0.15, 0.15), entry=(1, 0.6))
-    p.edge('E', 'B', 'confirmation link, receipt,<br>quote, balance due', EDGE_ORTHO, exit=(0.2, 1), entry=(0.9, 0))
+    p.edge('E', 'B', 'confirmation link, receipt,<br>quote, balance due', EDGE_ORTHO, exit=(0.31, 1), entry=(0.9, 0))
     p.edge('E', 'O', 'new order /<br>deposit paid', EDGE_ORTHO, exit=(0.9, 1), entry=(0.9, 0), label_pos=0.55)
 
     p.node('legend', '<b>Notation</b><br>Blue box = external entity<br>Circle = the whole system (process 0)<br>'
@@ -568,8 +592,8 @@ def level1():
     for pid in ('P1', 'P2', 'P3', 'P4', 'P6', 'P10', 'P7', 'P8'):
         n = p.nodes[pid]
         y = n['y'] + n['h'] * 0.97
-        p.edge(pid, 'P9', 'events' if pid == 'P8' else '', O, exit=(1, 0.97), entry=(0.45, 0), points=[(705, y), (705, 1215)])
-    p.edge('P5', 'P9', '', O, exit=(0, 0.95), entry=(0.45, 0), points=[(705, 509.5), (705, 1215)])
+        p.edge(pid, 'P9', 'events' if pid == 'P8' else '', O, exit=(1, 0.97), entry=(0.4597, 0), points=[(705, y), (705, 1215)])
+    p.edge('P5', 'P9', '', O, exit=(0, 0.95), entry=(0.4597, 0), points=[(705, 509.5), (705, 1215)])
     for eid, entry in (('B', (1, 0.97)), ('O', (1, 0.95)), ('A', (1, 0.9))):
         n = p.nodes[eid]
         p.edge('P9', eid, 'alerts' if eid == 'A' else '', O, exit=(0, 0.5), entry=entry, points=[(300, 1247), (300, n['y'] + n['h'] * entry[1])])
@@ -694,7 +718,7 @@ def level2_orders():
     # 10.1
     p.edge('P101', 'R1', 'session check', O, exit=(0.3, 0), entry=(1, 0.5), points=[(369, 88)])
     p.edge('D2', 'P101', 'price, stock', O, exit=(0, 0.3), entry=(1, 0.36))
-    p.edge('P101', 'D2', 'stock hold / release', O, exit=(1, 0.7), entry=(0, 0.8))
+    p.edge('P101', 'D2', 'stock hold / release', O, exit=(1, 0.55), entry=(0, 0.8))
     p.edge('P101', 'D51', 'new order', O, exit=(0.9, 1), entry=(0, 0.024), points=[(507, 310)])
     # 10.3 and 10.4 with PayPal (four lanes between the processes and the stores)
     p.edge('P103', 'PP', 'create order (payee = shop) / approval link', O + DIALOG, exit=(1, 0.3), entry=(0, 0.3),
@@ -803,7 +827,7 @@ def level3_capture():
     p.edge('P3', 'B', 'mismatch / declined / pending', O, exit=(0.2, 1), entry=(1, 0.659), points=[(828, 410)],
            label_pos=-0.55)
     p.edge('P3', 'P4', 'capture facts + server secret', O, exit=(0.5, 1), entry=(0.5, 0))
-    p.edge('D54', 'P4', 'SHA-256 of secret', O)
+    p.edge('D54', 'P4', 'SHA-256 of secret', O, exit=(0, 0.5), entry=(1, 0.5))
     p.edge('P4', 'P5', 'verified capture', O, exit=(0.5, 1), entry=(0.5, 0))
     p.edge('D52', 'P5', 'capture already recorded?', O, exit=(0, 0.2), entry=(1, 0.15))
     p.edge('P5', 'D52', 'payment + 10% fee share', O, exit=(1, 0.5), entry=(0, 0.75))
