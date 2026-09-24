@@ -450,7 +450,13 @@ Where this DFD and the code disagreed, and which one moved.
 - RECOMMENDED ARCHITECTURE: Google as an external entity of P1 (identity only); `/onboarding` as the P1 → P6/P7 branch; PayPal Partner Referrals as a P7 → PayPal flow writing `store_payment_accounts` (D5); P10 pays the connected merchant, records `payment_attempts`, receives verified PayPal webhooks, records refunds; the scheduler → P10 → Email for reminders. Authentication (P1) and payments (P10) stay separate processes: a Google account is never a PayPal account and never an admin.
 - REASON: requested feature. **DFD and code changed together** (migration 0011, `lib/oauth.js`, `lib/account.js`, `lib/payments.js`, `lib/paypal.js`, the drawio). Setup: `GOOGLE-PAYPAL-SETUP.md`.
 
-**11. Database state**
+**11. Shops connect by Merchant ID (added 2026-09-25)**
+- DFD ISSUE: 10.9 depended on PayPal Partner Referrals. PayPal refused it for this app (`403 NOT_AUTHORIZED`), so no shop could connect.
+- CURRENT CODE BEHAVIOR (before): Connect PayPal failed for every shop.
+- RECOMMENDED ARCHITECTURE: 10.9 "Link Seller" by default (`PAYPAL_SELLER_ONBOARDING=merchant_id`). The owner enters a Merchant ID. The member check runs in D5.4, then PayPal must accept the ID as a payee (a ₱1 order, never captured), then the store is recorded as CONNECTED in D5.4. Owner and admin can disconnect. Partner Referrals stays available as `partner_referrals` and is switched on when PayPal enables it. The flows are the same as before (Store Owner → 10.9 → PayPal → 10.9 → D5.4); only what crosses them changed.
+- REASON: requested. **Code and DFD changed** (`lib/payments.js` link / unlink / admin-unlink, `lib/paypal.js` verifyPayee, the drawio 10.9 label).
+
+**12. Database state**
 - Migrations 0005 (bucket limit), 0006 (buyers, `my_role`) and 0007 (private `furniture-models` bucket, `can_view_model` policy) are applied to the live project. 0008 takes trigger functions off the RPC surface and stops anonymous calls to `can_view_model`.
 
 ## DFD artifact

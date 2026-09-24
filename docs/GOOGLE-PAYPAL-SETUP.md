@@ -24,7 +24,8 @@ These are server-only (Vercel → Settings → Environment Variables). Never use
 | `SITE_URL` | yes | For example `https://furnisharv1.vercel.app`. This is where Google and PayPal send people back. |
 | `PAYPAL_ENV` | no | Defaults to `sandbox`. Only the exact value `live` makes it live; any other value is sandbox and shows up as a configuration problem. |
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | yes | The **partner** REST app's credentials. |
-| `PAYPAL_PARTNER_MERCHANT_ID` | for onboarding | FurnishAR's own PayPal merchant id. Without it, shops cannot connect. |
+| `PAYPAL_SELLER_ONBOARDING` | no | `merchant_id` (default) or `partner_referrals`. See §3. |
+| `PAYPAL_PARTNER_MERCHANT_ID` | for `partner_referrals` only | FurnishAR's own PayPal merchant id. |
 | `PAYPAL_PARTNER_ATTRIBUTION_ID` | for `platform_split` | The BN code PayPal gives a partner. |
 | `PAYPAL_FEE_MODE` | no | `accrual` (the default) or `platform_split`. |
 | `PAYPAL_PLATFORM_FEE_RATE` | no | Must be `0.10`. The database's `platform_fee_rate()` is what is charged, and any other value is reported as a problem. |
@@ -111,6 +112,19 @@ In developer.paypal.com → Sandbox:
    - The owner signs in on PayPal's page and returns to `/portal?paypal_onboarding=return#billing`.
    - The server then asks PayPal for the merchant id behind **our** tracking id and reads that merchant's integration. The query string PayPal appended is not trusted.
 3. **Buyer accounts.** Personal sandbox accounts, used only on PayPal's checkout page.
+
+### How a shop connects: `PAYPAL_SELLER_ONBOARDING`
+
+| Mode | How it works | Needs from PayPal |
+|---|---|---|
+| **`merchant_id`** (default) | In Portal → Billing, the owner pastes their **PayPal Merchant ID** (PayPal → Account Settings → Business information; in the sandbox it's the Business account's **Account ID**). The server first checks the owner through the database. Then it asks PayPal to create a ₱1.00 order payable to that ID; the order is never approved or captured, so nothing is charged. PayPal refuses an ID that doesn't exist or can't receive money, and the shop is then told why. Only an accepted ID becomes `CONNECTED`. **Check Status** re-runs the check. The owner can **Disconnect**, and an admin can disconnect any shop from `/admin/billing`. | Nothing beyond a normal REST app |
+| `partner_referrals` | PayPal-hosted seller onboarding (Connect PayPal → sign in on PayPal → back). The status is read from PayPal's merchant-integration API. | PayPal must enable Partner Referrals for the app. Without it, the call returns `403 NOT_AUTHORIZED`. |
+
+Trade-offs of `merchant_id`:
+- **No `platform_split`.** Only a seller who went through Partner Referrals can grant the partner fee, so the 10% always accrues.
+- **No automatic seller-status updates.** A PayPal restriction shows up at the next Check Status or as a failed capture. The admin can disconnect a shop.
+
+`PAYPAL_PARTNER_MERCHANT_ID` is needed only for `partner_referrals`.
 
 ### Seller status (`store_payment_accounts.onboarding_status`)
 

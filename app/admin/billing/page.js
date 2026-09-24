@@ -39,6 +39,18 @@ export default function AdminBilling() {
 
   useEffect(() => { load(); }, [load]);
 
+  /** Disconnect a shop's PayPal account: its online checkout closes at once. */
+  async function disconnect(row) {
+    if (!window.confirm(`Disconnect ${row.store_name}'s PayPal account? Buyers won't be able to pay that shop online until it connects again.`)) return;
+    try {
+      await supabase().paymentsAction('admin-unlink', { storeId: row.store_id });
+      alert.showSuccess(`${row.store_name} is disconnected from PayPal.`);
+      await load();
+    } catch (error) {
+      alert.showError(error.message);
+    }
+  }
+
   async function settle(event) {
     event.preventDefault();
     const v = Object.fromEntries(new FormData(event.currentTarget));
@@ -153,6 +165,10 @@ export default function AdminBilling() {
               <td>
                 <button className="icon-button" type="button" onClick={() => setSettling(row)}
                   aria-label={`Record a payment from ${row.store_name}`}>Record Payment…</button>
+                {row.payment_status === 'CONNECTED' && (
+                  <button className="icon-button" type="button" onClick={() => disconnect(row)}
+                    aria-label={`Disconnect ${row.store_name} from PayPal`}>Disconnect</button>
+                )}
               </td>
             </tr>
           );

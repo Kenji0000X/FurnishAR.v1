@@ -5534,3 +5534,9 @@ td .status-chip { margin-inline-start: 0; }
   .button-google { width: 100%; min-width: 0; }
   .payment-reminder-actions { width: 100%; justify-content: space-between; }
 }
+.paypal-link { display: grid; grid-template-columns: minmax(0, 18rem) auto; align-items: end; gap: .6rem .75rem; }
+.paypal-link label { display: grid; gap: .3rem; font-size: .75rem; color: var(--ink-muted); }
+.paypal-link input { min-height: var(--tap); padding: .45rem .6rem; border: 1px solid var(--rule-strong); border-radius: var(--radius-sm); background: var(--paper); color: var(--ink); font-size: 16px; font-family: var(--mono); letter-spacing: .04em; }
+.paypal-link .form-note { grid-column: 1 / -1; margin: 0; }
+@media (max-width: 40rem) { .paypal-link { grid-template-columns: 1fr; } }
+.paypal-link .button { justify-self: start; }
