@@ -1,25 +1,22 @@
 /**
- * Drives /diagnose against a fake AR device, in a real browser.
+ * Drives /diagnose against fake devices, in a real browser.
  *
- * There is no way to test this page honestly on a laptop: it asks a phone
- * questions only a phone can answer. But the bug it had was not about phones.
- * The page never set a base layer on its XRSession, and an XRSession with no
- * base layer never calls a requestAnimationFrame callback — so the six-second
- * loop that watches for planes, depth and hit-test results simply did not run,
- * and the page printed the initial values ('no', 'no', 0) as if they were
- * findings. It told people their phone could not measure a room without ever
- * having looked.
+ * Nothing here can test a phone's camera. What it can test is the page's
+ * contract with the WebXR API and with the person reading it:
  *
- * That behaviour IS reproducible on a laptop, because it is a property of the
- * API contract rather than of the hardware. So this installs a fake
- * navigator.xr whose one strict rule is the real one:
- *
- *     requestAnimationFrame does nothing until updateRenderState has been
- *     given a baseLayer.
- *
- * Against the old page the fake device runs zero frames. Against the fixed
- * page it runs many. Run it with the old file restored and every assertion
- * below fails — which is the only reason to trust them.
+ *   - frames are only requested once a base layer is set (the spec's rule;
+ *     the page once broke it and reported defaults as findings);
+ *   - ONE session request per tap, the same minimal request the planner
+ *     makes: hit-test required, depth never. The old page walked five
+ *     configurations from one tap and read every later refusal — made
+ *     without the tap's user activation — as a missing feature;
+ *   - a refusal is reported as a refusal: what was observed, possible
+ *     causes as possible, what to do. Never "Google Play Services for AR is
+ *     missing" as a fact;
+ *   - a simpler request is offered only as a second, separate tap;
+ *   - Messenger's browser is told to open the page elsewhere, before any AR;
+ *   - sensors are counted from real readings, and the report carries no
+ *     hardware identifiers.
  *
  *   node scripts/check-diagnose.mjs [baseUrl]
  */
@@ -34,273 +31,172 @@ const check = (label, ok, detail = '') => {
   if (!ok) problems.push(label);
 };
 
-const page = await browser.newPage({ viewport: { width: 390, height: 780 } });
-const pageErrors = [];
-page.on('pageerror', e => pageErrors.push(e.message));
-
-await page.addInitScript(() => {
-  // Counts the page's behaviour, read back at the end.
-  const log = { rafBeforeLayer: 0, rafAfterLayer: 0, layerSet: false, configs: [], overlayRoot: null };
-  window.__fakeXR = log;
-
-  class FakeXRWebGLLayer {
-    constructor(session, gl) { this.session = session; this.context = gl; }
-  }
-  window.XRWebGLLayer = FakeXRWebGLLayer;
-
-  /* The page legitimately awaits gl.makeXRCompatible(). Chromium ships it,
-     but with no XR device attached it rejects with InvalidStateError, which
-     would abort the run before the base layer is ever set — a failure of the
-     fake rig, not of the page. On the fake device it resolves, as it does on
-     a phone that is about to enter AR. */
-  for (const proto of [window.WebGLRenderingContext?.prototype, window.WebGL2RenderingContext?.prototype]) {
-    if (proto) proto.makeXRCompatible = function () { return Promise.resolve(); };
-  }
-
-  const makeFrame = session => ({
-    // Three planes and a hit every frame: a phone that can see the room.
-    detectedPlanes: new Set([{}, {}, {}]),
-    getHitTestResults: () => [{}],
-    getViewerPose: () => ({ views: [] }),
-    session
-  });
-
-  class FakeSession {
-    constructor(features) {
-      this.enabledFeatures = features;
-      this.hasLayer = false;
-      this.ended = false;
+/** A fake WebXR device. `behaviour` decides what requestSession does. */
+function fakeXR(behaviour) {
+  return ({ behaviour }) => {
+    const log = { rafBeforeLayer: 0, rafAfterLayer: 0, layerSet: false, requests: [], overlayRoot: null };
+    window.__fakeXR = log;
+    window.XRWebGLLayer = class { constructor(session, gl) { this.session = session; this.context = gl; } };
+    for (const proto of [window.WebGLRenderingContext?.prototype, window.WebGL2RenderingContext?.prototype]) {
+      if (proto) proto.makeXRCompatible = function () { return Promise.resolve(); };
     }
-    updateRenderState(state) {
-      // The rule the page was breaking.
-      if (state?.baseLayer) { this.hasLayer = true; log.layerSet = true; }
-    }
-    requestAnimationFrame(cb) {
-      if (!this.hasLayer) { log.rafBeforeLayer += 1; return 0; }   // dropped, exactly as the spec says
-      log.rafAfterLayer += 1;
-      if (this.ended) return 0;
-      return setTimeout(() => cb(performance.now(), makeFrame(this)), 16);
-    }
-    requestReferenceSpace(kind) {
-      if (kind === 'local' || kind === 'viewer' || kind === 'local-floor') return Promise.resolve({ kind });
-      return Promise.reject(new DOMException('no such space', 'NotSupportedError'));
-    }
-    requestHitTestSource() { return Promise.resolve({ fake: true }); }
-    end() { this.ended = true; return Promise.resolve(); }
-    addEventListener() {}
-    removeEventListener() {}
-  }
-
-  /* Assigning navigator.xr silently does nothing: it is an accessor on
-     Navigator.prototype with a getter and no setter, so in sloppy mode the
-     write is discarded without an error and the page keeps talking to the
-     real (absent) WebXR. Define an own property over it instead. */
-  Object.defineProperty(navigator, 'xr', { configurable: true, value: {
-    isSessionSupported: mode => Promise.resolve(mode === 'immersive-ar'),
-    requestSession: (mode, init) => {
-      log.configs.push(Object.keys(init || {}));
-      // A phone that refuses the depth dict but accepts the next rung down —
-      // the exact shape that made the scanner look broken.
-      if (init?.depthSensing) {
-        return Promise.reject(new DOMException(
-          'The specified session configuration is not supported.', 'NotSupportedError'));
+    const makeFrame = session => ({
+      detectedPlanes: new Set(),                     // no planes: like the Infinix
+      getHitTestResults: () => (behaviour === 'no-hits' ? [] : [{}]),
+      getViewerPose: () => ({ views: [] }),
+      session
+    });
+    class FakeSession {
+      constructor(features) { this.enabledFeatures = features; this.hasLayer = false; this.ended = false; }
+      updateRenderState(state) { if (state?.baseLayer) { this.hasLayer = true; log.layerSet = true; } }
+      requestAnimationFrame(cb) {
+        if (!this.hasLayer) { log.rafBeforeLayer += 1; return 0; }
+        log.rafAfterLayer += 1;
+        if (this.ended) return 0;
+        return setTimeout(() => cb(performance.now(), makeFrame(this)), 16);
       }
-      if (init?.domOverlay?.root) log.overlayRoot = init.domOverlay.root.className || 'unnamed';
-      return Promise.resolve(new FakeSession(
-        (init?.requiredFeatures || []).concat(init?.optionalFeatures || [])));
+      requestReferenceSpace(kind) { return Promise.resolve({ kind }); }
+      requestHitTestSource() { return Promise.resolve({ fake: true }); }
+      end() { this.ended = true; return Promise.resolve(); }
+      addEventListener() {}
+      removeEventListener() {}
     }
-  } });
-});
-
-console.log('--- the page loads and answers the cheap questions ---');
-await page.goto(`${BASE}/diagnose`, { waitUntil: 'domcontentloaded' });
-await page.waitForSelector('.diag-row', { timeout: 10000 });
-check('the basic checks ran', await page.locator('.diag-row').count() >= 5,
-  `${await page.locator('.diag-row').count()} rows`);
-check('and it offers the deep check when AR is available',
-  await page.locator('.diag-deep button:has-text("Run the AR check")').isVisible());
-
-console.log('--- the deep check, against a device that can see the room ---');
-await page.click('.diag-deep button:has-text("Run the AR check")');
-/* Six seconds of fake frames plus teardown. Tolerated rather than awaited:
-   with the old page restored there is no verdict element at all, and a hard
-   timeout here would crash the run instead of reporting which assertions the
-   old code fails — which is the whole point of being able to run it. */
-await page.waitForSelector('.diag-verdict', { timeout: 20000 })
-  .catch(() => page.waitForTimeout(12000));
-
-const fake = await page.evaluate(() => window.__fakeXR);
-
-/* The heart of it. Frames must have been requested AFTER a base layer was
-   set; any frame requested before one is a frame the real browser throws
-   away. The old page had rafAfterLayer === 0 and layerSet === false. */
-check('the page set a base layer on the session', fake.layerSet === true);
-check('and only asked for frames once it had', fake.rafBeforeLayer === 0,
-  `${fake.rafBeforeLayer} frame(s) requested with no layer`);
-check('frames actually ran', fake.rafAfterLayer > 10, `${fake.rafAfterLayer} frames`);
-
-/* The engine passes a DOM overlay root. A check that asks for 'dom-overlay'
-   without one is asking a different question than the scanner asks, and can
-   fail for a reason that has nothing to do with the phone. */
-check('it asked for dom-overlay with a real root, like the scanner does',
-  fake.overlayRoot !== null, fake.overlayRoot || 'no root passed');
-
-console.log('--- what it reported ---');
-const rows = await page.evaluate(() =>
-  [...document.querySelectorAll('.diag-row')].map(r => ({
-    q: r.querySelector('.diag-q').textContent,
-    a: r.querySelector('.diag-a b').textContent,
-    d: r.querySelector('.diag-a small')?.textContent || ''
-  })));
-const row = needle => rows.find(r => r.q.toLowerCase().includes(needle));
-
-for (const [needle, label] of [
-  ['frames actually ran', 'frames'],
-  ['hit-test', 'hit-test'],
-  ['found a real surface', 'a real surface'],
-  ['plane detection', 'planes']
-]) {
-  const r = row(needle);
-  check(`it reports "${label}" as Yes`, r?.a === 'Yes', r ? `${r.a} — ${r.d}` : 'row missing');
+    Object.defineProperty(navigator, 'xr', { configurable: true, value: {
+      isSessionSupported: mode => Promise.resolve(mode === 'immersive-ar'),
+      requestSession: (mode, init) => {
+        log.requests.push(init || {});
+        if (init?.domOverlay?.root) log.overlayRoot = init.domOverlay.root.className || 'unnamed';
+        if (behaviour === 'refuse' || (behaviour === 'refuse-first' && log.requests.length === 1)) {
+          return Promise.reject(new DOMException('The specified session configuration is not supported.', 'NotSupportedError'));
+        }
+        // Planes and depth are NOT granted, like the tested Infinix HOT 60i.
+        return Promise.resolve(new FakeSession(['hit-test', 'local-floor', 'dom-overlay']));
+      }
+    } });
+  };
 }
 
-const framesDetail = row('frames actually ran')?.d || '';
-check('and says how many frames, so a zero-frame run is visible',
-  /\d+ frames/.test(framesDetail), framesDetail);
+async function open(behaviour, { userAgent } = {}) {
+  const context = await browser.newContext({ viewport: { width: 390, height: 780 }, ...(userAgent ? { userAgent } : {}) });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.addInitScript(fakeXR(behaviour), { behaviour });
+  await page.goto(`${BASE}/diagnose`, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.diag-row', { timeout: 15000 });
+  return { page, errors, context };
+}
 
-const planes = row('plane detection');
-check('plane count is a real count, not a default', /Planes seen: 3/.test(planes?.d || ''), planes?.d);
+const rowText = async (page, label) => page.locator(`.diag-row:has(.diag-q:text-is("${label}")) .diag-a`).textContent().catch(() => '');
 
-console.log('--- the headline verdict ---');
-const verdict = await page.locator('.diag-verdict').textContent().catch(() => '');
-check('it answers the question in one sentence', /Can this phone measure a room\?/.test(verdict));
-check('and the answer is Yes for a device that found surfaces',
-  /Yes\./.test(verdict), verdict.slice(0, 120));
-check('the verdict is marked as good', await page.locator('.diag-verdict.is-ok').count() === 1);
+console.log('--- a phone that tracks and finds the floor, with no planes and no depth ---');
+{
+  const { page, errors, context } = await open('works');
+  check('it reads as a health check, with the six rows', await page.locator('.diag-row').count() === 6);
+  check('before the check, tracked AR is "not checked", not "yes"',
+    /Not checked/.test(await rowText(page, 'Tracked AR')), await rowText(page, 'Tracked AR'));
+  await page.click('button:has-text("Run the AR check")');
+  await page.waitForFunction(() => /Available/.test(document.querySelector('.diag-row')?.textContent || ''), null, { timeout: 20000 }).catch(() => {});
+  await page.waitForTimeout(300);
+  const fake = await page.evaluate(() => window.__fakeXR);
+  check('one tap, one session request', fake.requests.length === 1, `${fake.requests.length} requests`);
+  check('hit-test required, depth never asked for',
+    JSON.stringify(fake.requests[0].requiredFeatures) === '["hit-test"]' && !('depthSensing' in fake.requests[0])
+    && !(fake.requests[0].optionalFeatures || []).includes('depth-sensing'), JSON.stringify(fake.requests[0]));
+  check('frames only after a base layer', fake.layerSet && fake.rafBeforeLayer === 0 && fake.rafAfterLayer > 10,
+    `${fake.rafAfterLayer} frames, ${fake.rafBeforeLayer} before the layer`);
+  check('dom-overlay is asked for with a real root', fake.overlayRoot !== null);
+  check('tracked AR: available', /Available/.test(await rowText(page, 'Tracked AR')), await rowText(page, 'Tracked AR'));
+  check('hit testing: available', /Available/.test(await rowText(page, 'Hit testing')));
+  check('floor tracking: found, with the frame count', /Available.*surface was found in \d+ of \d+ frames/.test(await rowText(page, 'Floor tracking')),
+    await rowText(page, 'Floor tracking'));
+  const summary = await page.locator('.diag-summary').textContent();
+  check('the summary says tracked AR works', /Tracked AR works on this phone/.test(summary), summary.slice(0, 80));
+  check('recommended mode: tracked AR', /Recommended FurnishAR mode\s*Tracked AR/.test(summary));
+  await page.click('.diag-ua summary');
+  const report = await page.locator('.diag-report').textContent();
+  check('the technical report has the session facts', /"hitFrames": \d+/.test(report) && /"sessionFeatures"/.test(report));
+  check('and no private identifiers', !/imei|serial|iccid|meid|mac/i.test(report));
+  check('no page errors', errors.length === 0, errors.join(' | '));
+  await context.close();
+}
 
-console.log('--- the configuration ladder is reported honestly ---');
-const config = row('session configuration');
-check('it names the rung this device accepted', /no depth config/.test(config?.d || ''), config?.d);
-check('and says the depth config was refused first', /refused first/.test(config?.d || ''), config?.d);
-check('the first attempt really did carry a depth dict',
-  fake.configs[0]?.includes('depthSensing'), JSON.stringify(fake.configs[0]));
+console.log('--- a phone that says yes and then refuses the session (TECNO / vivo class) ---');
+{
+  const { page, errors, context } = await open('refuse-first');
+  await page.click('button:has-text("Run the AR check")');
+  await page.waitForSelector('button:has-text("Try a simpler AR session")', { timeout: 15000 }).catch(() => {});
+  let fake = await page.evaluate(() => window.__fakeXR);
+  check('still one request per tap after a refusal', fake.requests.length === 1, `${fake.requests.length} requests`);
+  const summary = await page.locator('.diag-summary').textContent();
+  check('it reports a refused session, not a verdict on the phone', /The AR session did not start/.test(summary), summary.slice(0, 90));
+  check('Play Services is a POSSIBLE cause, not a stated fact',
+    /Possible causes/.test(summary) && /Which one is not known/.test(summary), summary.slice(0, 400));
+  check('it never says the phone does not support AR', !/does not support AR|not good enough/i.test(summary));
+  check('photo and tape are still offered',
+    /Tape measure/.test(await page.locator('.diag-methods').textContent().catch(() => '')));
+  await page.click('button:has-text("Try a simpler AR session")');
+  await page.waitForFunction(() => window.__fakeXR.requests.length === 2, null, { timeout: 5000 }).catch(() => {});
+  await page.waitForTimeout(7500);
+  fake = await page.evaluate(() => window.__fakeXR);
+  check('the simpler session is a second tap, and minimal', fake.requests.length === 2
+    && JSON.stringify(fake.requests[1]) === '{"requiredFeatures":["hit-test"]}', JSON.stringify(fake.requests[1]));
+  check('and when it opens, tracked AR is confirmed', /Available/.test(await rowText(page, 'Tracked AR')), await rowText(page, 'Tracked AR'));
+  check('no page errors', errors.length === 0, errors.join(' | '));
+  await context.close();
+}
 
-check('no uncaught page errors', pageErrors.length === 0, pageErrors.slice(0, 2).join(' | '));
+console.log('--- a session that opens but never finds a surface ---');
+{
+  const { page, context } = await open('no-hits');
+  await page.click('button:has-text("Run the AR check")');
+  await page.waitForTimeout(8000);
+  check('floor tracking needs attention, not "unavailable"', /Needs attention/.test(await rowText(page, 'Floor tracking')), await rowText(page, 'Floor tracking'));
+  const summary = await page.locator('.diag-summary').textContent();
+  check('it blames the conditions, not the phone', /no surface found yet/i.test(summary) && /light/.test(summary), summary.slice(0, 160));
+  await context.close();
+}
 
-/*
-   The other device: the one this was actually run on.
+console.log('--- Messenger\'s in-app browser ---');
+{
+  const ua = 'Mozilla/5.0 (Linux; Android 14; Infinix X6728 Build/UP1A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/129.0.0.0 Mobile Safari/537.36 [FB_IAB/Orca-Android;FBAV/480.0.0.0;]';
+  const { page, context } = await open('works', { userAgent: ua });
+  const callout = await page.locator('.diag-callout').textContent().catch(() => '');
+  check('it says to open FurnishAR in the browser', /Open FurnishAR in your browser for camera tracking/.test(callout), callout.slice(0, 80));
+  check('and that this says nothing about the phone', /nothing about your phone/.test(callout));
+  const href = await page.locator('.diag-callout a').getAttribute('href').catch(() => '');
+  check('with an Open in Chrome hand-off', /^intent:\/\/.*package=com\.android\.chrome/.test(href || ''), href);
+  check('and no AR check is attempted in the webview', await page.locator('button:has-text("Run the AR check")').count() === 0);
+  const fake = await page.evaluate(() => window.__fakeXR);
+  check('not a single session was requested', fake.requests.length === 0);
+  await context.close();
+}
 
-   isSessionSupported says yes, and then every configuration is refused with
-   NotSupportedError — including the last rung, which requires no features at
-   all. That is not a phone too old to do AR; a phone too old answers no to
-   the first question. It is a phone whose AR runtime is missing. The page
-   must say so, because "No" plus five identical errors reads as "your phone
-   is not good enough" and sends someone off to buy a new one.
-*/
-console.log('\n--- a device that says yes and then refuses everything ---');
-const refusing = await browser.newPage({ viewport: { width: 390, height: 780 } });
-await refusing.addInitScript(() => {
-  Object.defineProperty(navigator, 'xr', { configurable: true, value: {
-    isSessionSupported: () => Promise.resolve(true),
-    requestSession: () => Promise.reject(new DOMException(
-      'The specified session configuration is not supported.', 'NotSupportedError'))
-  } });
-});
-await refusing.goto(`${BASE}/diagnose`, { waitUntil: 'domcontentloaded' });
-await refusing.waitForSelector('.diag-deep button:has-text("Run the AR check")', { timeout: 10000 });
-await refusing.click('.diag-deep button:has-text("Run the AR check")');
-await refusing.waitForSelector('.diag-verdict', { timeout: 10000 }).catch(() => {});
-
-const refusedText = await refusing.locator('.diag-verdict').textContent().catch(() => '');
-check('it does not blame the phone outright', !/^Can this phone measure a room\? No\.\s*$/.test(refusedText.trim()));
-check('it names the AR runtime as the likely cause',
-  /Google Play Services for AR/.test(refusedText), refusedText.slice(0, 160));
-check('and says where to get it', /Play Store/.test(refusedText));
-
-const advice = await refusing.locator('.diag-row:has-text("What to try next")').count();
-check('the advice gets its own row, above the error dump', advice === 1);
-
-const dump = await refusing.locator('.diag-row:has-text("Error while testing") small').textContent().catch(() => '');
-check('the raw errors keep the message, not just the name',
-  /NotSupportedError: The specified session configuration is not supported/.test(dump),
-  dump.slice(0, 120));
-check('all five rungs are reported', (dump.match(/NotSupportedError/g) || []).length === 5,
-  `${(dump.match(/NotSupportedError/g) || []).length} rungs`);
-
-/*
-   The no-ARCore path.
-
-   A phone that is not on ARCore's supported list will never run WebXR AR,
-   and a native app would sit on the same ARCore, so "install the runtime"
-   is not always the answer. What is left has to be measured too — and
-   'ondeviceorientation' in window is true on plenty of phones whose sensors
-   then report nothing, which is the same shape of lie as a feature list
-   promising planes it never sends. So the page must count readings that
-   carry a real angle, not ask whether the event exists.
-*/
-console.log('\n--- what is left when ARCore is not an option ---');
-
-const withSensors = async (fire) => {
-  const p = await browser.newPage({ viewport: { width: 390, height: 780 } });
-  await p.addInitScript(fire);
-  await p.goto(`${BASE}/diagnose`, { waitUntil: 'domcontentloaded' });
-  await p.waitForSelector('.diag-deep button:has-text("tilt sensor")', { timeout: 10000 });
-  await p.click('.diag-deep button:has-text("tilt sensor")');
-  await p.waitForSelector('.diag-verdict', { timeout: 15000 }).catch(() => {});
-  return p;
-};
-
-// A phone with a working camera and a real tilt sensor.
-const good = await withSensors(() => {
-  navigator.mediaDevices.getUserMedia = () => Promise.resolve({
-    getVideoTracks: () => [{ getSettings: () => ({ width: 1920, height: 1080 }) }],
-    getTracks: () => [{ stop() {} }]
+console.log('--- camera and motion sensors ---');
+{
+  const context = await browser.newContext({ viewport: { width: 390, height: 780 } });
+  const page = await context.newPage();
+  await page.addInitScript(() => {
+    navigator.mediaDevices.getUserMedia = () => Promise.resolve({
+      getVideoTracks: () => [{ getSettings: () => ({ width: 1920, height: 1080 }) }],
+      getTracks: () => [{ stop() {} }]
+    });
+    let alpha = 0;
+    setInterval(() => {
+      alpha = (alpha + 1.5) % 360;   // turning slowly
+      window.dispatchEvent(Object.assign(new Event('deviceorientation'), { alpha, beta: 70, gamma: 0, absolute: false }));
+    }, 30);
   });
-  let beta = 10;
-  setInterval(() => {
-    beta += 3;
-    window.dispatchEvent(Object.assign(new Event('deviceorientation'), {
-      alpha: 0, beta, gamma: 0, absolute: true
-    }));
-    window.dispatchEvent(Object.assign(new Event('devicemotion'), {
-      accelerationIncludingGravity: { x: 0.1, y: 9.8, z: 0.2 }
-    }));
-  }, 50);
-});
-const goodVerdict = await good.locator('.diag-verdict').last().textContent().catch(() => '');
-check('a phone with a tilt sensor is told it can measure without AR',
-  /Yes\./.test(goodVerdict) && /aiming/.test(goodVerdict), goodVerdict.slice(0, 140));
-const tilt = await good.locator('.diag-row:has-text("Tilt sensor") small').textContent().catch(() => '');
-check('and the readings are counted, not assumed', /\d+ readings/.test(tilt), tilt);
-check('the angle range is reported, so a dead sensor stuck at one value shows',
-  /range/.test(tilt), tilt);
-const cam = await good.locator('.diag-row:has-text("Rear camera") small').textContent().catch(() => '');
-check('the camera reports its real resolution', /1920x1080/.test(cam), cam);
-await good.close();
-
-/* The trap: the events fire, but every reading is null. This is a phone with
-   no gyroscope, and the old shape of this check ("is the event supported?")
-   would have called it a Yes. */
-const hollow = await withSensors(() => {
-  navigator.mediaDevices.getUserMedia = () => Promise.resolve({
-    getVideoTracks: () => [{ getSettings: () => ({ width: 640, height: 480 }) }],
-    getTracks: () => [{ stop() {} }]
-  });
-  setInterval(() => {
-    window.dispatchEvent(Object.assign(new Event('deviceorientation'), {
-      alpha: null, beta: null, gamma: null, absolute: false
-    }));
-  }, 50);
-});
-const hollowVerdict = await hollow.locator('.diag-verdict').last().textContent().catch(() => '');
-check('a phone whose sensor fires only nulls is NOT called working',
-  !/Yes\./.test(hollowVerdict), hollowVerdict.slice(0, 140));
-check('it is offered the photo method instead',
-  /known size|A4|bank card/.test(hollowVerdict), hollowVerdict.slice(0, 200));
-check('and told typing the numbers in is more accurate',
-  /accurate/.test(hollowVerdict));
-await hollow.close();
+  await page.goto(`${BASE}/diagnose`, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.diag-row');
+  await page.click('button:has-text("Check the camera and motion sensors")');
+  await page.waitForFunction(() => !/Checking/.test(document.body.textContent), null, { timeout: 12000 }).catch(() => {});
+  check('the camera row gives the real resolution', /1920x1080/.test(await rowText(page, 'Camera')), await rowText(page, 'Camera'));
+  check('the motion row counts readings and their rate', /\d+ readings, about [\d.]+ per second/.test(await rowText(page, 'Motion sensor')), await rowText(page, 'Motion sensor'));
+  check('heading quality is judged from the readings', /Available|Needs attention/.test(await rowText(page, 'Heading quality')), await rowText(page, 'Heading quality'));
+  await context.close();
+}
 
 await browser.close();
-console.log(problems.length ? `\nFAILED: ${problems.join('; ')}` : '\nthe device check actually checks the device');
+console.log(problems.length ? `\nFAILED: ${problems.join('; ')}` : '\nthe device check reports what it observed, and no more');
 process.exit(problems.length ? 1 : 0);

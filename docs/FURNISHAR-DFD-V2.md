@@ -378,7 +378,13 @@ Where this DFD and the code disagreed, and which one moved.
 - RECOMMENDED ARCHITECTURE: one physical size. P7 validates the model locally (read, measure, compare proportions within 3%) before the existing signed upload; D2 keeps `width_cm / depth_cm / height_cm`; `bounds_*` stay in the schema for compatibility but are no longer written, so the catalogue view falls back to the dimensions. P4 and the portal preview use the same transform (`lib/spatial/model-transform.mjs`): one uniform factor, floored, centred, re-measured.
 - REASON: requested feature; a piece of furniture has one size. **Code changed; no flow, endpoint, process or store added**, so the drawio is unchanged. P5 is untouched: private bucket, `/api/sb/model` authorization and signed URLs all stay as they were, and the portal preview of a stored model goes through the same signed-URL path.
 
-**9. Database state**
+**9. Capability routing and honest measurement (added 2026-09-24)**
+- DFD ISSUE: P4 treated "AR supported" as one boolean from `isSessionSupported`, so every failure fell into an untracked preview presented as AR, and /diagnose stated one possible cause as fact.
+- CURRENT CODE BEHAVIOR (before): five session requests per tap (depth first); flatness from any plane in the session; single-frame room corners; tilt from `beta` alone; two-point photo scale; metres-only manual entry; a coral overlay over the camera.
+- RECOMMENDED ARCHITECTURE: inside P4, one capability router (`lib/spatial/capabilities.mjs`) decides the experience from observed facts; one minimal session request per tap; capture from a sampling window; orientation from the full rotation; photo by homography; manual input with units and sanity checks. `/diagnose` reports observed / likely / action and a copyable report with no hardware identifiers.
+- REASON: field testing on four phones and in Messenger. **No flow, endpoint, process or store added** (all on the device, inside P4); P5 unchanged. Camera frames and room data never leave the phone (`docs/PRIVACY-AR.md`).
+
+**10. Database state**
 - Migrations 0005 (bucket limit), 0006 (buyers, `my_role`) and 0007 (private `furniture-models` bucket, `can_view_model` policy) are applied to the live project. 0008 takes trigger functions off the RPC surface and stops anonymous calls to `can_view_model`.
 
 ## DFD artifact

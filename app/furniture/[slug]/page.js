@@ -5,6 +5,7 @@ import ProductViewer from './ProductViewer.js';
 import { modelState, MODEL_STATE } from '../../model-state.js';
 import ProductActions from './ProductActions.js';
 import PurchasePanel from './PurchasePanel.js';
+import { formatDimensions } from '../../../lib/spatial/units.mjs';
 import { peso, cm } from '../../format.js';
 
 /**
@@ -29,7 +30,9 @@ export async function generateMetadata({ params }) {
   const product = await getProduct(slug);
   if (!product) return { title: 'Piece not found' };
 
-  const size = `${product.dimensions.width} × ${product.dimensions.depth} × ${product.dimensions.height} cm`;
+  /* One formatter for every place a piece's size is written: this page, the
+     planner card, the AR header and the chip over the model (lib/spatial/units.mjs). */
+  const size = formatDimensions(product.dimensions, 'cm');
   return {
     title: product.name,
     description: product.description || `${product.name} from ${product.store}, ${size}.`,
@@ -107,7 +110,7 @@ export default async function ProductPage({ params }) {
           {product.description && <p className="detail-description">{product.description}</p>}
 
           <dl className="detail-specs">
-            <div><dt>Size</dt><dd>{cm(product.dimensions.width)} × {cm(product.dimensions.depth)} × {cm(product.dimensions.height)}</dd></div>
+            <div><dt>Size</dt><dd>{formatDimensions(product.dimensions, 'cm')} <span className="dims-key">W × D × H</span></dd></div>
             <div><dt>Category</dt><dd>{product.category}</dd></div>
             {product.style && <div><dt>Style</dt><dd>{product.style}</dd></div>}
             {product.color && <div><dt>Colour</dt><dd>{product.color}</dd></div>}

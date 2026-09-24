@@ -21,7 +21,7 @@
 
 import { SCALE_STATUS } from '../../lib/spatial/model-scale.mjs';
 import { normalizeModel } from '../../lib/spatial/model-transform.mjs';
-import { formatDimensions, FURNITURE_UNITS } from '../../lib/spatial/units.mjs';
+import { formatDimensions, formatFootprint, FURNITURE_UNITS } from '../../lib/spatial/units.mjs';
 import { OneEuroFilter, Steadiness, displayPrecision } from '../../lib/spatial/smoothing.mjs';
 import { roomDimensions, fitInRoom, minimumAreaRectangle } from '../../lib/spatial/room.mjs';
 import { SweepCoverage, scanReadiness } from '../../lib/spatial/coverage.mjs';
@@ -29,6 +29,14 @@ import { assessPlacement, snapInsideRoom } from '../../lib/spatial/placement.mjs
 import { createXrayNet } from './xray-net.js';
 import { notify, dismiss } from '../../lib/alerts/store.mjs';
 import { catalog } from '../../lib/alerts/messages.mjs';
+import {
+  browserContext, browserHandoff, sessionInit, minimalSessionInit, classifyRefusal, DIAG, DIAG_COPY
+} from '../../lib/spatial/capabilities.mjs';
+import {
+  HitSampler, evaluateTarget, FloorReference, roomAcceptance, compareScans,
+  normalFromOrientation, TARGET
+} from '../../lib/spatial/hit-sampler.mjs';
+import { isSimplePolygon } from '../../public/geometry.js';
 
 /**
  * Wires the planner up to the DOM the page has already rendered.
@@ -122,6 +130,18 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
   const sweep = new SweepCoverage();
   let xrayNet = null;
 
+  /* Tracked capture. A corner, a placement or a floor-area point is taken
+     from a short window of hits (hit-sampler.mjs), never from the one frame
+     the thumb lands on, and the floor height is established once and every
+     later corner checked against it. */
+  const hitSampler = new HitSampler();
+  const floorRef = new FloorReference();
+  /* How this browser context should be treated, read once. The in-app
+     check runs before any AR is attempted. */
+  const context = typeof navigator === 'undefined'
+    ? { platform: 'other', inAppBrowser: null }
+    : browserContext(navigator.userAgent, { maxTouchPoints: navigator.maxTouchPoints, platform: navigator.platform });
+
   /* ===== Planner state and DOM helpers ===== */
   const state = {
     products: [],
@@ -176,6 +196,19 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     // Floor corners tapped by hand, and the optional ceiling tap. This is the
     // measurement path that works without plane detection.
     roomTaps: { corners: [], ceilingY: null, closed: false },
+    // Completed tapped scans of this room. The room is used only once a
+    // second, independent scan agrees with the first (repeatability).
+    roomScans: [],
+    roomConfirmed: false,
+    // The current reticle verdict, from evaluateTarget(): the one thing that
+    // gates placing and capturing.
+    target: { state: 'searching', reason: null },
+    estimate: null,
+    // Set when the last tracked-AR attempt was refused. The next tap on the
+    // AR button tries the minimal configuration: a new request from a new
+    // gesture, never a second request inside the first one's handler.
+    retryMinimal: false,
+    floorOrigin: false,
     areaPoints: [],
     membership: null,
     unsubscribeCatalog: null
@@ -190,15 +223,18 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     <video id="camera-feed" autoplay playsinline muted></video>
     <canvas id="xr-canvas"></canvas>
     <div id="fallback-product" class="ar-stage"></div>
-    <div id="ar-reticle" class="ar-reticle" aria-hidden="true"><span></span></div>
+    <!-- The reticle is the ONLY thing that changes colour to say whether the
+         target is good: white searching, green a valid floor, amber not yet
+         certain, red not a floor. The room is never tinted. -->
+    <div id="ar-reticle" class="ar-reticle" data-state="searching" aria-hidden="true"><span></span></div>
     <div id="ar-anchor-chip" class="ar-anchor-chip glass" hidden><b id="anchor-primary"></b><i id="anchor-secondary"></i></div>
     <header class="ar-bar">
+      <button id="exit-ar" class="ar-chip glass ar-chip-button" aria-label="Close the camera">Close</button>
       <div class="ar-title glass">
         <strong id="ar-product-name"></strong>
         <span id="ar-product-dims"></span>
       </div>
-      <span id="ar-mode-indicator" class="ar-chip glass" aria-label="Tracking mode"></span>
-      <button id="exit-ar" class="ar-chip glass ar-chip-button" aria-label="Close AR view">Close</button>
+      <span id="ar-mode-indicator" class="ar-chip glass ar-tracking" role="status" aria-live="polite" data-state="searching">Searching</span>
     </header>
     <div id="live-measurement" class="ar-measure glass" hidden>
       <b id="live-m">0.00 m</b>
@@ -271,7 +307,9 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       <button id="use-room" class="ar-outline-button glass" disabled>Use this room</button>
     </section>
     <div class="ar-dock">
-    <p id="ar-mode-label" class="ar-hint glass"></p>
+    <!-- One instruction at a time. Troubleshooting lives on /diagnose, not
+         in a paragraph over the camera. -->
+    <p id="ar-mode-label" class="ar-hint glass" role="status" aria-live="polite"></p>
     <!-- Finishing a two-point or floor-area measurement had no control of its
          own: the only way out was "Close" in the top-right corner, which is
          both the hardest place on the screen to reach one-handed and a word
@@ -280,7 +318,9 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
          happened rather than performing it. -->
     <button id="use-measurement" class="ar-outline-button glass" hidden disabled>Use this measurement</button>
     <button id="close-outline" class="ar-outline-button glass" hidden>Close outline</button>
-    <div id="ar-tray" class="ar-tray glass" role="group" aria-label="Model controls">
+    <!-- Revealed only after the piece is placed. Before that, the only
+         control is Place. -->
+    <div id="ar-tray" class="ar-tray glass" role="group" aria-label="Adjust the placed piece" hidden>
       <div class="tray-cluster" data-cluster="move">
         <span class="tray-label">Move</span>
         <div class="tray-pad">
@@ -294,7 +334,6 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
         <span class="tray-label">Rotate <i id="yaw-value">0°</i></span>
         <div class="tray-row">
           <button class="tray-btn" data-step="rotate" data-dir="-1" aria-label="Rotate left">↺</button>
-          <button class="tray-btn tray-toggle" id="spin-toggle" aria-pressed="false" aria-label="Spin 360 degrees">360°</button>
           <button class="tray-btn" data-step="rotate" data-dir="1" aria-label="Rotate right">↻</button>
         </div>
       </div>
@@ -302,14 +341,18 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       <div class="tray-cluster" data-cluster="view">
         <span class="tray-label">View</span>
         <div class="tray-row">
-          <button class="tray-btn tray-wide" id="toggle-occlusion" aria-pressed="true"
-            aria-label="Hide furniture behind real walls">Occlusion</button>
-          <button class="tray-btn tray-wide" id="reset-model" aria-label="Reset model">Reset</button>
+          <button class="tray-btn tray-wide" id="reset-model" aria-label="Reset: pick the piece up and place it again">Reset</button>
           <button class="tray-btn" id="dimension-unit" aria-label="Sizes in centimetres. Switch unit">cm</button>
+          <!-- Only shown when the device reports walls or depth to occlude with. -->
+          <button class="tray-btn tray-wide" id="toggle-occlusion" aria-pressed="true" hidden
+            aria-label="Hide furniture behind real walls">Occlusion</button>
         </div>
       </div>
-      <button id="place-button" class="ar-place" aria-label="Confirm placement" disabled><span></span></button>
     </div>
+    <!-- The one primary action in the thumb zone: Place, or Add corner /
+         Add point while measuring. Enabled only when the target under the
+         reticle is a valid floor, held still. -->
+    <button id="place-button" class="ar-place" aria-label="Place" disabled><span></span></button>
     </div>
   </div>`;
 
@@ -399,12 +442,6 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     const release = () => { held?.classList.remove('is-active'); held = null; };
     ['pointerup', 'pointercancel', 'pointerleave'].forEach(type => tray.addEventListener(type, release));
 
-    $('#spin-toggle').addEventListener('click', () => {
-      arTransform.spinning = !arTransform.spinning;
-      $('#spin-toggle').setAttribute('aria-pressed', String(arTransform.spinning));
-      $('#spin-toggle').classList.toggle('is-on', arTransform.spinning);
-    });
-
     /* cm → in → ft → cm. Changes how the size chip is written, nothing else:
        the piece in the room stays exactly the size it was. */
     const UNIT_NAMES = { cm: 'centimetres', in: 'inches', ft: 'feet' };
@@ -421,14 +458,38 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     state.arMode = mode;
     const indicator = $('#ar-mode-indicator');
     if (!indicator) return;
-    const modes = { 'native-ar': 'Tracking', 'camera-preview': 'Preview', 'illustration-only': 'No camera' };
-    indicator.textContent = modes[mode] || '';
     indicator.dataset.mode = mode;
+    /* Only tracked AR has a tracking state. The camera preview is labelled
+       for what it is, every time it is on screen: not anchored, not to scale
+       in the room, not a fit check. */
+    if (mode === 'camera-preview') { indicator.textContent = 'Untracked preview'; indicator.dataset.state = 'untracked'; }
+    else if (mode === 'illustration-only') { indicator.textContent = 'No camera'; indicator.dataset.state = 'untracked'; }
+    else setTracking('acquiring', true);
   }
 
-  function setHint(text) {
+  /* One line of instruction, rewritten at most a few times a second. The
+     frame loop runs at the session's rate; a sentence that changes 60 times
+     a second cannot be read and costs a layout each time. */
+  let lastHintAt = 0;
+  let pendingHint = null;
+  function setHint(text, { urgent = true } = {}) {
     const hint = $('#ar-mode-label');
-    if (hint && hint.textContent !== text) hint.textContent = text;
+    if (!hint || hint.textContent === text) { pendingHint = null; return; }
+    const now = performance.now();
+    if (!urgent && now - lastHintAt < 250) { pendingHint = text; return; }
+    hint.textContent = text;
+    lastHintAt = now;
+    pendingHint = null;
+  }
+  /* Called from the frame loop: lets a throttled hint land once its turn comes. */
+  function flushHint() {
+    if (pendingHint !== null && performance.now() - lastHintAt >= 250) setHint(pendingHint);
+  }
+
+  /* The reticle carries the target's state; nothing else is recoloured. */
+  function setReticleState(targetState) {
+    const reticle = $('#ar-reticle');
+    if (reticle && reticle.dataset.state !== targetState) reticle.dataset.state = targetState;
   }
 
   /* =================== the guided room scan ===================
@@ -477,12 +538,17 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
    * The word carries the meaning and the colour only reinforces it, so this
    * is readable to somebody who cannot tell the three tints apart.
    */
-  const TRACKING_WORDS = { stable: 'Stable', acquiring: 'Acquiring', lost: 'Tracking lost' };
-  function setTracking(nextState) {
-    const node = $('#scan-tracking');
-    if (!node || node.dataset.state === nextState) return;
-    node.dataset.state = nextState;
-    node.textContent = TRACKING_WORDS[nextState] || '';
+  /* Searching until a valid floor is under the reticle, "Floor found" only
+     then: a hit somewhere is not a floor. */
+  const TRACKING_WORDS = { stable: 'Floor found', acquiring: 'Searching', lost: 'Tracking lost' };
+  function setTracking(nextState, force = false) {
+    for (const node of [$('#scan-tracking'), $('#ar-mode-indicator')]) {
+      if (!node) continue;
+      if (node === $('#ar-mode-indicator') && !force && state.arMode !== 'native-ar') continue;
+      if (node.dataset.state === nextState && !force) continue;
+      node.dataset.state = nextState;
+      node.textContent = TRACKING_WORDS[nextState] || '';
+    }
   }
 
   /**
@@ -631,12 +697,25 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
        are how volume and area are said whatever the lengths are shown in. */
     set('#room-p', room?.perimeter ? metres(room.perimeter) : '—');
 
-    set('#scan-guidance', tapping
-      ? (taps.closed
-        ? (room?.height ? 'Room measured.' : 'Floor measured. Tap the ceiling for the height, or use the room as it is.')
-        : `${taps.corners.length} corner${taps.corners.length === 1 ? '' : 's'} tapped. Walk to the next one.`)
-      : (state.netSupport.planes ? sweep.guidance() : 'Tap each corner where the floor meets a wall.'));
+    /* ONE instruction: the next thing to do, nothing else. */
+    const scanNumber = (state.roomScans?.length || 0) + (taps.closed ? 0 : 1);
+    // The target's own reason wins while it is not usable: that is the
+    // instruction that matters right now, and there is only one line.
+    const targetReason = state.arMode === 'native-ar' && !taps.closed && !state.roomConfirmed
+      && state.target && state.target.state !== TARGET.VALID ? state.target.reason : null;
+    set('#scan-guidance', targetReason ? targetReason : state.roomConfirmed
+      ? 'Two scans agree. Use this room.'
+      : tapping
+        ? (taps.closed
+          ? (readiness?.firstScanDone ? 'Tap the ceiling for the height, or scan again to confirm.' : 'Close the outline.')
+          : `Scan ${scanNumber}: corner ${taps.corners.length} placed. Turn to the next corner, hold still, tap.`)
+        : readiness?.firstScanDone
+          ? 'Scan 2: tap the same corners again, in the same order.'
+          : (state.netSupport.planes ? sweep.guidance() : 'Move slowly until the floor is found, then aim at corner 1.'));
     renderSweepArc(sweep);
+    // The sweep only means something where planes are detected.
+    const planesLive = String(Boolean(state.netSupport.planes));
+    if (panel.dataset.planes !== planesLive) panel.dataset.planes = planesLive;
 
     // What the device cannot do is said once, plainly, rather than left for
     // somebody to infer from a panel that never fills in.
@@ -659,11 +738,19 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     const useRoom = $('#use-room');
     if (useRoom) {
       const ready = Boolean(readiness?.ready);
-      if (useRoom.disabled === ready) useRoom.disabled = !ready;
+      /* A tapped room has two stages: the first accepted scan offers "Scan
+         again to confirm"; only an agreeing second scan offers "Use this
+         room". Enough points is never enough on its own. */
+      const confirmStep = readiness?.method === 'tap' && readiness.firstScanDone && !ready && taps.closed;
+      const enabled = ready || confirmStep;
+      if (useRoom.disabled === enabled) useRoom.disabled = !enabled;
       const label = ready
         ? 'Use this room'
-        : `Keep scanning — ${(readiness?.blocking || []).join(', ') || 'looking'}`;
+        : confirmStep
+          ? 'Scan again to confirm'
+          : readiness?.reason && tapping ? readiness.reason : 'Use this room';
       if (useRoom.textContent !== label) useRoom.textContent = label;
+      useRoom.dataset.action = ready ? 'use' : confirmStep ? 'confirm' : 'none';
     }
   }
 
@@ -692,9 +779,21 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     set('#room-result-area', `${room.floorArea.toFixed(1)} m²`);
 
     const notes = [];
+    /* Which method produced these numbers, and what agreement between two
+       scans does and does not mean. */
+    const METHOD_NOTE = {
+      'webxr-hit-test': 'Measured by tracked AR, tapping the corners.',
+      'manual': 'Typed in from a tape measure.',
+      'aim': 'Measured by aiming the phone (tilt sensor and compass).',
+      'photo': 'Measured from photos with a reference of known size.'
+    };
+    if (METHOD_NOTE[room.method]) notes.push(METHOD_NOTE[room.method]);
+    if (room.repeatability) {
+      notes.push(`Two scans agreed within ${Math.round(room.repeatability.worstMetres * 100)} cm. That shows the scan is repeatable, not that it matches a tape measure.`);
+    }
     if (!room.height) notes.push('Wall height could not be determined — scan again including the walls to get it.');
     else if (room.heightSource === 'wall-extent') notes.push('Height measured to the top of the tallest wall scanned, which may be short of the ceiling.');
-    if (room.walls < 4) notes.push(`${room.walls} of the room's walls were detected, so the floor may extend further than measured.`);
+    if (!room.method && room.walls < 4) notes.push(`${room.walls} of the room's walls were detected, so the floor may extend further than measured.`);
     set('#room-result-note', notes.join(' ') || 'Measured from the detected floor, walls and ceiling.');
   }
 
@@ -750,11 +849,15 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
      it, still runs and still draws the net; it is an enhancement now rather
      than the foundation.
   */
-  const FLOOR_TOLERANCE = 0.25;   // how far below/above the first tap still counts as floor
   const MIN_CEILING_RISE = 1.5;   // a "ceiling" tap must clear the floor by this much
 
-  function resetRoomTaps() {
-    state.roomTaps = { corners: [], ceilingY: null, closed: false };
+  function resetRoomTaps({ keepScans = false } = {}) {
+    state.roomTaps = { corners: [], ceilingY: keepScans ? state.roomTaps?.ceilingY ?? null : null, closed: false };
+    if (!keepScans) {
+      state.roomScans = [];
+      state.roomConfirmed = false;
+      floorRef.reset();
+    }
     syncRoomTapControls();
   }
 
@@ -764,7 +867,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     const undo = $('#undo-corner');
     if (close) {
       close.hidden = !taps || taps.closed || taps.corners.length < 3;
-      close.textContent = 'Close the floor';
+      close.textContent = 'Close the outline';
     }
     if (undo) undo.hidden = !taps || taps.closed || taps.corners.length === 0;
     const found = $('#found-floor');
@@ -772,8 +875,13 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
   }
 
   /* A tap during a room scan. Floor corners first, then one optional tap at
-     the ceiling for the height. */
-  function captureRoomCorner(point) {
+     the ceiling for the height.
+
+     `point` is the robust estimate from the sampling window, never one
+     frame's pose, and `spread` is how much that window moved. The seam in
+     window.__furnisharScan passes points straight in, so a check can walk a
+     room the way a person does. */
+  function captureRoomCorner(point, spread = 0) {
     const taps = state.roomTaps;
     if (!taps) return;
 
@@ -783,35 +891,37 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
          is why height is optional rather than required: a room with an
          unmeasured height still reports its length, width, area and
          perimeter, and says the height is unknown instead of guessing one. */
-      const floorY = Math.min(...taps.corners.map(corner => corner.y));
-      if (point.y - floorY < MIN_CEILING_RISE) {
-        toast('That is not the ceiling — aim higher and tap again.', 'warning');
+      const floorY = floorRef.estimatedFloorY;
+      if (floorY === null || point.y - floorY < MIN_CEILING_RISE) {
+        toast('That is not the ceiling. Aim higher and tap again.', 'warning');
         return;
       }
       taps.ceilingY = point.y;
       buildTappedRoom();
-      setHint(`Height ${metres(point.y - floorY)}. The room is measured.`);
-      toast(`Height ${metres(point.y - floorY)}.`, 'success');
+      setHint(`Height ${metres(point.y - floorY)}.`);
       return;
     }
 
-    /* A corner well above the floor is somebody tapping a table or a shelf,
-       not the corner of the room. Caught here rather than silently shrinking
-       the floor polygon around it. */
-    if (taps.corners.length) {
-      const floorY = Math.min(...taps.corners.map(corner => corner.y));
-      if (Math.abs(point.y - floorY) > FLOOR_TOLERANCE) {
-        toast('That point is not on the floor. Aim at the base of the wall.', 'warning');
-        return;
-      }
+    /* Every corner after the first is checked against the floor the first
+       one established. A table top, a bed, a shelf is refused with how far
+       above the floor it is — not flattened onto the floor to make the
+       outline close. */
+    const check = floorRef.check(point);
+    if (!check.ok) {
+      toast(check.reason, 'warning');
+      setHint(check.reason);
+      return;
     }
 
-    taps.corners.push({ x: point.x, y: point.y, z: point.z });
+    floorRef.accept(point);
+    taps.corners.push({ x: point.x, y: point.y, z: point.z, spread });
     syncRoomTapControls();
     const count = taps.corners.length;
+    const scanNumber = state.roomScans.length + 1;
     setHint(count < 3
-      ? `Corner ${count} of 3. Walk to the next corner of the floor and tap it.`
-      : `${count} corners. Tap the remaining corners, or close the floor to read the room.`);
+      ? `Corner ${count}. Turn to corner ${count + 1}, hold still, then tap.`
+      : `${count} corners. Tap the next corner, or close the outline.`);
+    if (scanNumber === 2 && count === 1) setHint('Confirming: tap the same corners again, in the same order.');
     if (count >= 3) buildTappedRoom();
   }
 
@@ -820,14 +930,61 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     if (!taps || taps.corners.length < 3) { toast('Tap at least three floor corners first.', 'warning'); return; }
     taps.closed = true;
     buildTappedRoom();
+    const acceptance = tappedAcceptance();
+    if (!acceptance.ready) {
+      // Not usable as it stands; reopen so the person can undo and retap.
+      taps.closed = false;
+      buildTappedRoom();
+      syncRoomTapControls();
+      toast(acceptance.reason, 'warning');
+      setHint(acceptance.reason);
+      return;
+    }
     syncRoomTapControls();
-    setHint('Floor measured. Aim at the ceiling and tap once for the height, or use the room as it is.');
+
+    /* A second scan confirms the first. Two scans agreeing is REPEATABILITY
+       — the same hand, the same tracker — and is reported as that, never as
+       accuracy against a tape measure. */
+    if (state.roomScans.length === 0) {
+      state.roomScans.push(state.room);
+      setHint(`First scan ${metres(state.room.length)} × ${metres(state.room.width)}. Tap the ceiling for the height, or scan again to confirm.`);
+    } else {
+      /* Which earlier scan was right is not known when two disagree, so a
+         new scan confirms if it agrees with ANY of them; the closest match
+         is the one reported. */
+      const comparisons = state.roomScans.map(earlier => compareScans(earlier, state.room));
+      const comparison = comparisons.reduce((best, c) => (c.worst < best.worst ? c : best));
+      if (!comparison.agrees) {
+        toast(comparison.reason, 'warning');
+        setHint(comparison.reason);
+        state.roomScans = [...state.roomScans, state.room].slice(-3);
+        state.roomConfirmed = false;
+      } else {
+        state.roomConfirmed = true;
+        state.repeatability = comparison;
+        setHint(`Confirmed: two scans agree within ${Math.round(comparison.worstMetres * 100)} cm. Use this room.`);
+      }
+    }
+    state.scanReadiness = tappedReadiness();
+    renderScanPanel();
+  }
+
+  /* "Scan again to confirm": the first scan is kept, the corners cleared,
+     the floor height and any ceiling kept. */
+  function startConfirmationScan() {
+    if (!state.roomScans.length) return;
+    resetRoomTaps({ keepScans: true });
+    state.room = null;
+    setHint('Confirming: tap the same corners again, in the same order.');
+    state.scanReadiness = tappedReadiness();
+    renderScanPanel();
   }
 
   function undoTappedCorner() {
     const taps = state.roomTaps;
     if (!taps || !taps.corners.length) return;
     taps.corners.pop();
+    floorRef.remove();
     buildTappedRoom();
     syncRoomTapControls();
     setHint(`${taps.corners.length} corner${taps.corners.length === 1 ? '' : 's'}. Tap the next one.`);
@@ -836,7 +993,8 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
   /* The tapped points, turned into the same shape the plane path produced, so
      everything downstream — the panel, the fit verdict, the plan view,
      placement — is fed from one kind of room object and does not care which
-     way it was measured. */
+     way it was measured. The floor is the ESTABLISHED floor height (the
+     median of the accepted corners), not the lowest tap. */
   function buildTappedRoom() {
     const taps = state.roomTaps;
     if (!taps || taps.corners.length < 3) {
@@ -846,7 +1004,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       return;
     }
 
-    const floorY = Math.min(...taps.corners.map(corner => corner.y));
+    const floorY = floorRef.estimatedFloorY ?? taps.corners[0].y;
     const surfaces = [{
       id: 'tapped-floor',
       orientation: 'horizontal',
@@ -854,8 +1012,6 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     }];
 
     if (taps.ceilingY !== null) {
-      // A ceiling plane spanning the same footprint, so roomDimensions reads
-      // the height from a ceiling the way it does on a plane-detection device.
       surfaces.push({
         id: 'tapped-ceiling',
         orientation: 'horizontal',
@@ -867,31 +1023,40 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
        planes but wrong here: these points were deliberately placed by a
        person, so a genuinely small room must not be discarded as noise. */
     state.room = roomDimensions(surfaces, { minFloorArea: 0.5 });
+    if (state.room) state.room.method = 'webxr-hit-test';
     state.detectedSurfaces = surfaces;
     state.scanReadiness = tappedReadiness();
     renderScanPanel();
   }
 
-  /* Readiness for a tapped room.
-
-     scanReadiness() asks for two detected walls and a 75% sweep, neither of
-     which a tap-measured room produces — nothing is walking the walls and
-     nothing needs a half-circle of coverage. What makes a tapped room usable
-     is simply a closed floor with a rectangle fitted to it. Height stays
-     optional and is reported as unknown when it was not taken. */
-  function tappedReadiness() {
+  function tappedAcceptance() {
     const taps = state.roomTaps || { corners: [], closed: false };
-    const hasFloor = Boolean(state.room?.rectangle);
+    const corners2d = taps.corners.map(c => ({ x: c.x, y: 0, z: c.z }));
+    return roomAcceptance({
+      corners: taps.corners,
+      closed: taps.closed,
+      simple: taps.corners.length < 4 || isSimplePolygon(corners2d),
+      room: state.room,
+      floor: floorRef
+    });
+  }
+
+  /* Readiness for a tapped room: every acceptance check, plus a second scan
+     that agrees with the first. Height stays optional. */
+  function tappedReadiness() {
+    const acceptance = tappedAcceptance();
+    const hasFirst = state.roomScans.length > 0;
     const checks = [
-      { key: 'corners', ok: taps.corners.length >= 3, label: 'Corners' },
-      { key: 'floor', ok: hasFloor, label: 'Floor' },
-      { key: 'closed', ok: Boolean(taps.closed), label: 'Closed' }
+      ...acceptance.checks.map(check => ({ key: check.key, ok: check.ok, label: check.reason })),
+      { key: 'confirmed', ok: state.roomConfirmed, label: hasFirst ? 'scan again to confirm' : 'two scans that agree' }
     ];
     const blocking = checks.filter(check => !check.ok).map(check => check.key);
     return {
-      ready: blocking.length === 0,
+      ready: state.roomConfirmed && Boolean(state.room?.rectangle),
+      firstScanDone: hasFirst,
       blocking,
       checks,
+      reason: acceptance.reason,
       progress: checks.filter(check => check.ok).length / checks.length,
       // Named so the panel can say which way this room was measured, and so
       // nothing downstream has to guess.
@@ -902,6 +1067,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
   function useScannedRoom() {
     const room = state.room;
     if (!room?.rectangle) return;
+    if (state.roomConfirmed && state.repeatability) room.repeatability = state.repeatability;
     state.scannedRoom = room;
 
     /*
@@ -1012,7 +1178,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
 
   /* Pins the size chip to the top of the model and keeps its numbers honest as
      the tray rescales it. */
-  function updatePlacementChip(model, camera, product) {
+  function updatePlacementChip(model, camera, product, { untracked = false } = {}) {
     if (!THREE || !model) return positionAnchorChip(null);
     const box = new THREE.Box3().setFromObject(model);
     const top = new THREE.Vector3((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2);
@@ -1022,7 +1188,9 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     positionAnchorChip(
       projectToScreen(top, camera),
       formatDimensions(product.dimensions, state.dimensionUnit),
-      `W × D × H · ${product.name}`
+      // In the untracked preview the numbers are the listing, not what the
+      // picture shows: the picture has no scale in the room.
+      untracked ? 'Listed size · not to scale here' : `W × D × H · ${product.name}`
     );
   }
 
@@ -1043,6 +1211,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
      measured is a button that lies about what it will do. */
   function armUseMeasurement() {
     const button = $('#use-measurement');
+    if (button && state.arPurpose === 'measurement') button.hidden = false;
     if (button && button.disabled) button.disabled = false;
   }
 
@@ -1106,28 +1275,28 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     $('#ar-experience')?.remove();
   }
 
-  function setModelSurfaceState(modelRoot, blocked) {
-    if (!modelRoot || !THREE) return;
-    modelRoot.traverse(child => {
-      if (!(child instanceof THREE.Mesh) || !child.material) return;
-      if (!child.userData.normalMaterial) child.userData.normalMaterial = child.material;
-      if (blocked) {
-        child.userData.warningMaterial ||= new THREE.MeshBasicMaterial({ color: 0xff6b5a, transparent: true, opacity: 0.66 });
-        child.material = child.userData.warningMaterial;
-      } else {
-        child.material = child.userData.normalMaterial;
-      }
-    });
-    $('#ar-reticle')?.classList.toggle('is-blocked', !!blocked);
-  }
+  /*
+     There used to be a setModelSurfaceState() here that swapped every mesh
+     of the piece for a coral, 66% opaque material whenever the surface was
+     not trusted. On a phone that is most of the screen painted over the very
+     floor the person is trying to find (it showed in every field recording).
+     The piece now always draws in its own materials, and the verdict lives
+     on the reticle alone.
+  */
 
+  const CAPTURE_LABEL = { placement: 'Place', scan: 'Add corner', measurement: 'Add point' };
   function setPlacementButtonState(blocked, confirmed = false) {
     const button = $('#place-button');
     if (!button) return;
-    button.disabled = blocked || confirmed;
-    button.classList.toggle('is-blocked', blocked);
+    const disabled = blocked || confirmed;
+    if (button.disabled !== disabled) button.disabled = disabled;
     button.classList.toggle('is-confirmed', confirmed);
-    button.setAttribute('aria-label', confirmed ? 'Placed' : 'Confirm placement');
+    const label = confirmed ? 'Placed' : (CAPTURE_LABEL[state.arPurpose] || 'Place');
+    if (button.getAttribute('aria-label') !== label) button.setAttribute('aria-label', label);
+    if (button.dataset.label !== label) button.dataset.label = label;
+    // Once placed, the adjustments appear; before, they are not offered.
+    const tray = $('#ar-tray');
+    if (tray && state.arPurpose === 'placement') tray.hidden = !confirmed;
   }
 
 
@@ -1291,7 +1460,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
             <span class="planner-choice-text">
               <b>${escapeHtml(item.name)}</b>
               <small>${escapeHtml(item.store)}</small>
-              <small>${item.dimensions.width} W × ${item.dimensions.depth} D × ${item.dimensions.height} H</small>
+              <small>${escapeHtml(formatDimensions(item.dimensions, 'cm'))} <span class="dims-key">W × D × H</span></small>
             </span>
           </button>`;
         }).join('')}
@@ -1620,7 +1789,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     piece.classList.toggle('is-over', tooWide || tooDeep);
     // Below about a third of the space the label no longer fits inside the piece.
     piece.classList.toggle('is-tiny', widthShare < 34 || depthShare < 28);
-    $('#fit-plan-piece-label').textContent = `${product.dimensions.width} × ${product.dimensions.depth} cm`;
+    $('#fit-plan-piece-label').textContent = formatFootprint(product.dimensions, 'cm');
   }
 
 
@@ -1724,24 +1893,52 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
 
 
   /* ===== The AR engine ===== */
+  /* The line under the button, and the hand-off out of an embedded browser.
+     Written as markup because the hand-off is a real link. */
+  function showInAppNotice() {
+    const status = $('#ar-status');
+    if (!status) return;
+    const handoff = browserHandoff(context, window.location.href);
+    const copy = DIAG_COPY[DIAG.IN_APP_BROWSER];
+    status.innerHTML = `<b>${escapeHtml(copy.title)}.</b> ${escapeHtml(`You are in ${context.inAppName}'s built-in browser, which does not provide camera tracking. That says nothing about your phone.`)}
+      ${handoff ? `<a class="button button-outline inapp-handoff" href="${escapeHtml(handoff.href)}">${escapeHtml(handoff.label)}</a>` : ''}
+      <span class="inapp-steps">${escapeHtml(context.platform === 'ios'
+        ? 'Or tap ··· or the share icon, then Open in Safari.'
+        : 'Or tap ⋮ and choose Open in Chrome (or Open in browser).')}</span>`;
+    status.dataset.state = 'in-app';
+  }
+
   async function checkARSupport() {
     const status = $('#ar-status');
+    /* An embedded browser is answered before anything else is asked of it:
+       Messenger's webview is not a verdict on the phone. */
+    if (context.inAppBrowser) {
+      showInAppNotice();
+      return false;
+    }
     if (!window.isSecureContext) {
       status.textContent = 'Use HTTPS (or localhost) to enable camera and WebXR. Guided measurement is still available.';
       return false;
     }
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    if (isIOS && state.selected?.modelUsdz) {
-      status.textContent = 'iPhone Safari detected. AR Quick Look will open the native USDZ viewer for this product.';
+    if (context.platform === 'ios') {
+      /* A deliberate platform path, not a failed Android one: furniture is
+         placed with AR Quick Look, the room is measured without WebXR. */
+      status.textContent = state.selected?.modelUsdz
+        ? 'On iPhone, furniture opens in Apple AR Quick Look. Measure the room with Measure without AR.'
+        : 'On iPhone, measure the room with Measure without AR. Tracked AR room scans need Android Chrome.';
       return false;
     }
     if (!navigator.xr) {
-      status.textContent = 'WebXR is unavailable in this browser. The camera preview and guided measurement will still work.';
+      status.textContent = 'This browser has no tracked AR. Use Measure without AR, or open this page in Chrome.';
       return false;
     }
     try {
       const supported = await navigator.xr.isSessionSupported('immersive-ar');
-      status.textContent = supported ? 'AR-ready device detected. Use a bright, textured floor for best tracking.' : 'This device does not expose immersive AR. A camera preview will be used instead.';
+      /* "Supported" here is the browser's promise, not a result. It is
+         confirmed only when a session opens and finds the floor. */
+      status.textContent = supported
+        ? 'This browser offers tracked AR. It is confirmed once the camera finds your floor; bright light and a patterned floor help.'
+        : 'This browser does not offer tracked AR on this phone. Use Measure without AR.';
       return supported;
     } catch (error) {
       console.warn('[AR] Support probe failed:', error?.name, error?.message);
@@ -1968,107 +2165,47 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
   async function startNativeAR() {
     setARMode('native-ar');
     const root = $('#ar-experience');
-    
-    // Flat-surface detection state
-    let isSurfaceFlat = false;
-    let recentHitHeights = []; // Rolling buffer of Y-position samples (last 10 frames)
-    const flatnessThreshold = 0.015; // ~1.5 cm variance threshold
-    
+    hitSampler.reset();
+    state.target = { state: TARGET.SEARCHING, reason: null };
+    state.estimate = null;
+
     /*
-       Open a session by trying configurations from richest to barest.
+       ONE session request, from the tap that started this.
 
-       THE BUG THIS REPLACES, because it is the reason the scanner never
-       worked on a real phone:
+       This used to walk a ladder of five configurations, richest first, the
+       first carrying a depth-sensing dictionary. Only the first request runs
+       with the tap's user activation; the later ones may be refused because
+       that activation was spent, not because the phone lacks anything — so
+       the ladder turned "the browser refused" into "the phone cannot", and
+       the depth request itself made otherwise capable phones refuse the whole
+       session. Depth and plane detection are enhancements; the Infinix HOT 60i
+       places furniture with neither.
 
-       Both the original attempt and its fallback passed the same
-       `depthSensing` init dict. A phone that cannot satisfy that dict
-       rejects the WHOLE request with
-
-           NotSupportedError: The specified session configuration is not
-           supported.
-
-       — and since the fallback carried the identical dict, it failed the
-       same way. Two attempts, one configuration. The session never opened,
-       so there was no camera, no hit-test and no measurement, on a device
-       that reported immersive-ar as supported and could have done all three.
-
-       The fix is to actually degrade. Each rung drops the thing most likely
-       to be refused, so the last rung asks for nothing but the session
-       itself. A device that supports immersive-ar at all now gets one.
-
-       Order matters: depthSensing goes first because it is the most commonly
-       refused, then plane-detection, then dom-overlay, and hit-test moves
-       from required to optional only at the very end — a session without it
-       cannot measure, so it is the last thing given up rather than the
-       first.
+       So: hit-test required, local-floor / dom-overlay (and plane-detection
+       for a room scan) optional, depth never asked for. If it is refused, the
+       planner says what was refused and the NEXT tap of the button tries the
+       bare hit-test request — a new request from a new gesture.
     */
-    const CONFIGS = [
-      {
-        name: 'full',
-        init: {
-          requiredFeatures: ['hit-test'],
-          optionalFeatures: ['local-floor', 'dom-overlay', 'plane-detection', 'depth-sensing'],
-          depthSensing: {
-            usagePreference: ['cpu-optimized'],
-            dataFormatPreference: ['luminance-alpha', 'float32']
-          },
-          domOverlay: { root }
-        }
-      },
-      {
-        name: 'no-depth-config',
-        init: {
-          requiredFeatures: ['hit-test'],
-          optionalFeatures: ['local-floor', 'dom-overlay', 'plane-detection'],
-          domOverlay: { root }
-        }
-      },
-      {
-        name: 'overlay-only',
-        init: {
-          requiredFeatures: ['hit-test'],
-          optionalFeatures: ['local-floor', 'dom-overlay'],
-          domOverlay: { root }
-        }
-      },
-      {
-        name: 'bare-hit-test',
-        init: { requiredFeatures: ['hit-test'] }
-      },
-      {
-        name: 'nothing-required',
-        init: { optionalFeatures: ['hit-test', 'local-floor', 'dom-overlay'] }
-      }
-    ];
+    const init = state.retryMinimal
+      ? minimalSessionInit()
+      : sessionInit({ domOverlayRoot: root, purpose: state.arPurpose === 'scan' ? 'scan' : 'placement' });
+    state.sessionConfig = state.retryMinimal ? 'minimal' : 'standard';
 
-    let session = null;
-    const attempts = [];
-    for (const config of CONFIGS) {
-      try {
-        session = await navigator.xr.requestSession('immersive-ar', config.init);
-        state.sessionConfig = config.name;
-        state.hitTestRequired = Boolean(config.init.requiredFeatures?.includes('hit-test'));
-        if (attempts.length) {
-          console.warn(`[AR] session opened on "${config.name}" after ${attempts.length} refusal(s):`,
-            attempts.map(a => `${a.name}: ${a.error}`).join(' | '));
-        }
-        break;
-      } catch (error) {
-        attempts.push({ name: config.name, error: `${error?.name}: ${error?.message}` });
-      }
+    let session;
+    try {
+      session = await navigator.xr.requestSession('immersive-ar', init);
+    } catch (error) {
+      const refusal = classifyRefusal(error, { inAppBrowser: context.inAppBrowser });
+      console.error('[AR] session refused:', { config: state.sessionConfig, name: error?.name, message: error?.message, state: refusal.state });
+      // Offer the minimal request next time, unless that was this one.
+      state.retryMinimal = !state.retryMinimal && refusal.state === DIAG.AR_SESSION_REFUSED;
+      const wrapped = new Error(error?.message || 'AR session refused');
+      wrapped.name = error?.name || 'Error';
+      wrapped.refusal = refusal;
+      throw wrapped;
     }
-
-    if (!session) {
-      console.error('[AR] every session configuration was refused:', {
-        attempts,
-        isSecureContext: window.isSecureContext,
-        xrAvailable: Boolean(navigator.xr),
-        timestamp: new Date().toISOString()
-      });
-      const last = attempts[attempts.length - 1];
-      throw new Error(last ? `${last.error} (after ${attempts.length} configurations)` : 'No AR session');
-    }
-
+    state.retryMinimal = false;
+    state.sessionFeatures = [...(session.enabledFeatures || [])];
     state.session = session;
 
     // Load THREE.js if needed
@@ -2087,23 +2224,33 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     const layer = new XRWebGLLayer(session, gl);
     session.updateRenderState({ baseLayer: layer });
     const viewerSpace = await session.requestReferenceSpace('viewer');
-    state.referenceSpace = await session.requestReferenceSpace('local');
-    
-    // Request hit-test if the session supports it
-    if (state.hitTestRequired !== false) {
-      try {
-        state.hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
-      } catch (err) {
-        console.warn('[AR] Hit-test source unavailable:', err?.name, err?.message);
-        state.hitTestSource = null;
-      }
+    /* local-floor when it is granted: its origin is ON the floor, so a hit's
+       height is its height above the floor and a table top can be told from
+       the floor before any corner has been tapped. local otherwise — never
+       required, so a browser without it still tracks. */
+    state.floorOrigin = false;
+    try {
+      state.referenceSpace = await session.requestReferenceSpace('local-floor');
+      state.floorOrigin = true;
+    } catch {
+      state.referenceSpace = await session.requestReferenceSpace('local');
+    }
+
+    // Hit-test is required by the request, so this should never be missing;
+    // if it is, the session is useless for placing and says so.
+    try {
+      state.hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
+    } catch (err) {
+      console.warn('[AR] Hit-test source unavailable:', err?.name, err?.message);
+      state.hitTestSource = null;
+      setHint('This AR session cannot find surfaces. Close it and use Measure without AR.');
     }
 
     const product = state.selected;
     const HINTS = {
-      scan: 'Point at the floor where it meets a wall, and tap that corner.',
-      placement: 'Find the floor, then place. Use the tray to move, turn, and resize.',
-      area: 'Tap the corners of the free floor in order. Three or more, then close the outline.'
+      scan: 'Move slowly to find the floor.',
+      placement: 'Move slowly to find the floor.',
+      area: 'Move slowly to find the floor.'
     };
     setHint(
       state.arPurpose === 'scan' ? HINTS.scan
@@ -2118,11 +2265,16 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     if (useRoom && state.arPurpose === 'scan') {
       useRoom.addEventListener('click', event => {
         event.stopPropagation();
-        useScannedRoom();
+        if (useRoom.dataset.action === 'confirm') startConfirmationScan();
+        else useScannedRoom();
       });
     }
 
+    /* A tap anywhere on the camera does what the thumb-zone button does, and
+       is held to the same gate: nothing is captured until the target is a
+       valid floor, held still. */
     session.addEventListener('select', event => captureNativePoint(event.frame));
+    setPlacementButtonState(true);
     session.addEventListener('end', cleanupAR);
 
     // Load GLB model if this product has one. A room scan has no product, and
@@ -2131,26 +2283,32 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
 
     // Set up THREE.js rendering if model is available
     let renderer = null, scene = null, camera = null;
-    const fallbackRenderer = arRenderer(gl);
-    const [red, green, blue] = (colorFor(product).match(/[a-f\d]{2}/gi) || ['8c','9d','88']).map(value => parseInt(value, 16) / 255);
 
     let light = null;
     let dirLight = null;
     let placedModel = null;
     let baseScale = null;
 
-    $('#ar-tray').hidden = state.arPurpose !== 'placement';
+    // The adjustments appear once the piece is placed (setPlacementButtonState).
+    $('#ar-tray').hidden = true;
     /* The measurement modes get their own bottom-of-screen confirmation, so
        that finishing is a deliberate tap within thumb reach rather than a
        reach for the corner. The room scan already has "Use this room". */
     const useMeasurement = $('#use-measurement');
     if (useMeasurement) {
-      useMeasurement.hidden = state.arPurpose !== 'measurement';
+      // Shown once there is a reading to keep (armUseMeasurement), not before.
+      useMeasurement.hidden = true;
       useMeasurement.disabled = true;
     }
 
-    // Tray actions are wired up whether or not a GLB loaded, so the box fallback
-    // can still be placed and reset.
+    /* No model, nothing to place. There used to be a plain box drawn at the
+       product's dimensions here, in the product's colour, which on a phone
+       read as "the furniture loaded". It did not; the shopper was placing a
+       box. The reason the model is missing is said instead, and the camera
+       stays useful for looking at the room. */
+    if (state.arPurpose === 'placement' && product && !state.loadedModel) {
+      setHint(modelFailureMessage());
+    }
     $('#place-button').addEventListener('click', event => {
       event.stopPropagation();
       captureNativePoint(null);
@@ -2176,7 +2334,8 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       arTransform.reset();
       state.placedMatrix = null;
       state.placementConfirmed = false;
-      setPlacementButtonState(false);
+      hitSampler.reset();
+      setPlacementButtonState(true);
       setHint('Reset. Find the floor and place again.');
     });
 
@@ -2247,6 +2406,9 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       */
       if (!pose) {
         setTracking('lost');
+        hitSampler.miss(time);
+        setReticleState(TARGET.SEARCHING);
+        if (!state.placementConfirmed) setPlacementButtonState(true);
         /* Raised once per loss, and only after the room had been found: the
            first frames of a session have no pose either, and that is
            "acquiring", not "lost". Taken down again when tracking returns. */
@@ -2258,51 +2420,65 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
         }
         return;
       }
-      setTracking(state.latestHitPose ? 'stable' : 'acquiring');
       state.trackingEverFound = true;
       if (state.trackingLostAlert) { dismiss(state.trackingLostAlert); state.trackingLostAlert = null; }
 
       const hits = state.hitTestSource ? xrFrame.getHitTestResults(state.hitTestSource) : [];
       state.latestHitPose = hits[0]?.getPose(state.referenceSpace) || null;
 
-      // ===== FLAT-SURFACE DETECTION =====
-      if (state.arPurpose === 'placement' && state.latestHitPose && !state.placementConfirmed) {
-        // Method 1: Check XRPlaneSet if plane-detection is supported
-        const planes = xrFrame.detectedPlanes;
-        if (planes && planes.size > 0) {
-          // Check if any detected plane at this hit position is horizontal (floor-like)
-          const hitPos = state.latestHitPose.transform.position;
-          isSurfaceFlat = false;
-          
-          for (const plane of planes) {
-            if (plane.orientation === 'horizontal') {
-              // Simple check: if a horizontal plane exists, assume current surface is flat
-              isSurfaceFlat = true;
-              break;
-            }
-          }
-        } else {
-          // Method 2: Fallback — sample Y-position variance over time
-          const hitY = state.latestHitPose.transform.position.y;
-          recentHitHeights.push(hitY);
-          if (recentHitHeights.length > 10) recentHitHeights.shift(); // Keep last 10 samples
-          
-          if (recentHitHeights.length > 2) {
-            const minY = Math.min(...recentHitHeights);
-            const maxY = Math.max(...recentHitHeights);
-            const yRange = maxY - minY;
-            isSurfaceFlat = yRange < flatnessThreshold; // < 1.5 cm range = flat
+      /* ===== WHAT IS UNDER THE RETICLE =====
+         Every hit goes into a short window; the window's robust estimate,
+         not this frame's pose, is what gets judged and captured. The verdict
+         is about THIS hit: its surface normal (a hit pose's +Y), how steady
+         its height is, and, once a corner exists, whether it sits on the
+         floor already measured. A plane somewhere else in the session is not
+         evidence about this point, and steady Y alone is not flatness. */
+      if (state.latestHitPose) {
+        const t = state.latestHitPose.transform;
+        hitSampler.push(t.position, time, normalFromOrientation(t.orientation));
+      } else {
+        hitSampler.miss(time);
+      }
+      const estimate = hitSampler.estimate();
+      state.estimate = estimate;
+      const measuringFloor = state.arPurpose === 'scan' && !state.roomTaps?.closed;
+      const target = state.latestHitPose
+        ? evaluateTarget({
+            estimate,
+            floor: measuringFloor ? floorRef : null,
+            viewerY: state.floorOrigin ? pose.transform.position.y : null,
+            onHorizontalPlane: hitOnHorizontalPlane(xrFrame, estimate.point)
+          })
+        : { state: TARGET.SEARCHING, reason: 'Move slowly to find the floor.' };
+      // The ceiling tap is aimed UP; the floor gate does not apply to it.
+      if (state.arPurpose === 'scan' && state.roomTaps?.closed && estimate.point && estimate.stable) {
+        target.state = TARGET.VALID; target.reason = null;
+      }
+      state.target = target;
+      setReticleState(target.state);
+      setTracking(target.state === TARGET.VALID ? 'stable' : 'acquiring');
+
+      if (!state.placementConfirmed) {
+        const blocked = target.state !== TARGET.VALID || (state.arPurpose === 'placement' && !state.loadedModel);
+        state.placementBlocked = blocked;
+        setPlacementButtonState(blocked);
+        if (state.arPurpose === 'placement' && state.loadedModel) {
+          setHint(target.state === TARGET.VALID ? 'Floor found. Tap Place.' : target.reason, { urgent: false });
+        } else if (state.arPurpose !== 'placement') {
+          /* While the target is not usable, say why. The moment it is, say
+             what to do — never leave "Hold still…" up under a green reticle. */
+          if (target.state !== TARGET.VALID) {
+            setHint(target.reason, { urgent: false });
+            state.hintIsTargetReason = true;
+          } else if (state.hintIsTargetReason) {
+            setHint(state.arPurpose === 'scan'
+              ? (state.roomTaps?.closed ? 'Aim at the ceiling line and tap for the height.' : 'Floor found. Hold on the corner and tap Add corner.')
+              : 'Floor found. Tap Add point.');
+            state.hintIsTargetReason = false;
           }
         }
-
-        // Visual feedback on flatness. This also gates the place button, so it
-        // runs whether or not a GLB is available for this product.
-        setModelSurfaceState(placedModel, !isSurfaceFlat);
-        setHint(isSurfaceFlat ? 'Flat surface found. Tap to place.' : 'Uneven surface — find a flatter spot.');
-        state.placementBlocked = !isSurfaceFlat;
-        setPlacementButtonState(!isSurfaceFlat);
       }
-      // ===== END FLAT-SURFACE DETECTION =====
+      flushHint();
 
       // Viewer heading, so the tray's left/right follow wherever the phone faces.
       const viewerOrientation = pose.transform.orientation;
@@ -2340,6 +2516,10 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
           }
         }
         if (state.netSupport.depth !== depthLive) state.netSupport.depth = depthLive;
+        // Occlusion is offered only when there is something to occlude with.
+        const occlusion = $('#toggle-occlusion');
+        const canOcclude = Boolean(state.netSupport.planes || state.netSupport.depth);
+        if (occlusion && occlusion.hidden === canOcclude) occlusion.hidden = !canOcclude;
 
         if (state.arPurpose === 'scan') {
           // Only count the sweep while the tracker actually has a pose: yaw
@@ -2446,61 +2626,79 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
         return;
       }
 
-      /* Fallback cube when the GLB or THREE.js is unavailable.
-
-         Two rules, both learned from watching a recording of this running on
-         a real phone:
-
-         1. It is only ever drawn while PLACING something. It used to draw in
-            every purpose, so somebody measuring a doorway had a 200 × 100 ×
-            123 cm cabinet — a piece they had not chosen — parked against the
-            lens. Nothing belongs in front of the camera during a measurement
-            except the room.
-
-         2. It is drawn faintly. At alpha .72 a box that size is not an
-            object in the room, it is a coat of paint over it: the floor being
-            measured was a solid terracotta wash with the real world barely
-            legible underneath. .28 keeps the volume readable as a volume and
-            keeps the room visible through it, which is the whole point of
-            holding a box up against a space.
-      */
-      if (state.arPurpose !== 'placement' || !product) return;
-      gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
-      gl.clearColor(0, 0, 0, 0);
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      gl.enable(gl.DEPTH_TEST);
-      const dimensions = product.dimensions;
-      for (const view of pose.views) {
-        const viewport = layer.getViewport(view);
-        gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
-        const model = translateScale(anchor, arTransform.x, dimensions.height / 200, arTransform.z, dimensions.width / 200, dimensions.height / 200, dimensions.depth / 200);
-        fallbackRenderer.draw(matrixMultiply(view.projectionMatrix, matrixMultiply(view.transform.inverse.matrix, model)), [red, green, blue, .28]);
-      }
+      /* No model: nothing is drawn. See the note where the place button is
+         wired — a box standing in for the product is not the product. */
     }
 
     session.requestAnimationFrame(frame);
   }
 
+  /**
+   * Does plane detection put this point ON a horizontal plane?
+   *
+   * true / false when the session reports planes, null when it does not —
+   * so "no plane information" can never be read as either answer. The point
+   * is taken into the plane's own space: within 3 cm of its surface and
+   * inside its polygon counts.
+   */
+  function hitOnHorizontalPlane(xrFrame, point) {
+    const planes = xrFrame?.detectedPlanes;
+    if (!planes || !planes.size || !point || !THREE) return null;
+    for (const plane of planes) {
+      if (plane.orientation !== 'horizontal') continue;
+      const planePose = xrFrame.getPose?.(plane.planeSpace, state.referenceSpace);
+      if (!planePose) continue;
+      const inverse = new THREE.Matrix4().fromArray(planePose.transform.matrix).invert();
+      const local = new THREE.Vector3(point.x, point.y, point.z).applyMatrix4(inverse);
+      if (Math.abs(local.y) > 0.03) continue;
+      const polygon = plane.polygon || [];
+      let inside = false;
+      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const a = polygon[i], b = polygon[j];
+        if ((a.z > local.z) !== (b.z > local.z)
+          && local.x < ((b.x - a.x) * (local.z - a.z)) / (b.z - a.z) + a.x) inside = !inside;
+      }
+      if (inside) return true;
+    }
+    return false;
+  }
+
   function captureNativePoint(frame) {
     const pose = state.latestHitPose;
-    if (!pose) { toast('Move slowly until the floor target is detected, then tap again.', 'warning'); return; }
-    const point = pose.transform.position;
+    const estimate = state.estimate;
+    /* The gate for EVERY capture: a valid floor, held still, from a window of
+       hits. A tap before that is answered with what is wrong, not taken. */
+    if (state.placementConfirmed && state.arPurpose === 'placement') return;
+    if (!pose || !estimate?.point) { setHint('Move slowly to find the floor.'); return; }
+    if (state.target?.state !== TARGET.VALID) {
+      setHint(state.target?.reason || 'Hold still…');
+      return;
+    }
+    const point = estimate.point;
     if (state.arPurpose === 'placement') {
-      if (state.placementBlocked || state.placementConfirmed) { toast('Uneven surface. Find a flatter spot.', 'warning'); return; }
-      state.placedMatrix = pose.transform.matrix.slice();
+      if (!state.loadedModel) { setHint(modelFailureMessage()); return; }
+      // The hit's orientation, at the window's robust position.
+      const matrix = pose.transform.matrix.slice();
+      matrix[12] = point.x; matrix[13] = point.y; matrix[14] = point.z;
+      state.placedMatrix = matrix;
       state.placementConfirmed = true;
-      setHint('Placed at true scale. Use the tray to adjust it.');
+      setHint('Placed. Move, rotate or reset below.');
       setPlacementButtonState(false, true);
-      toast(`${state.selected.name} placed at true scale.`, 'success');
+      toast(`${state.selected.name} placed at its listed size.`, 'success');
       return;
     }
 
     // A tap during a room scan is a floor corner (or, once the floor is
     // closed, the ceiling). This is what actually measures the room on a
     // device without plane detection — which is to say, on almost all of them.
-    if (state.arPurpose === 'scan') return captureRoomCorner(point);
+    if (state.arPurpose === 'scan') {
+      const result = captureRoomCorner(point, estimate.spread);
+      hitSampler.reset();   // the next corner starts from a fresh window
+      return result;
+    }
 
-    if (state.measureMode === 'area') return captureAreaPoint(point);
+    if (state.measureMode === 'area') { hitSampler.reset(); return captureAreaPoint(point); }
+    hitSampler.reset();
 
     // Measurement mode: an initial scan, then a confirmatory scan of the same span.
     if (!state.arNeedsConfirmation) {
@@ -2561,8 +2759,9 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     if (!geo) return;
     const points = state.arPoints;
     if (!points.length) {
-      if (hitPos && pose) updateLiveMeasurementDisplay(distanceBetween(pose.transform.position, hitPos), 'phone → floor · tap the first corner');
-      else hideLiveMeasurement();
+      // Nothing measured yet: no readout over the camera. The instruction
+      // line already says what to do.
+      hideLiveMeasurement();
       return;
     }
     // Preview the outline as if the reticle were the next corner.
@@ -2674,18 +2873,25 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     const stage = $('#fallback-product');
     const cameraVideo = $('#camera-feed');
 
+    /* NOT AR. The camera feed and the model are drawn on top of each other
+       with no tracking between them: nothing here knows where the floor is,
+       where the phone moved, or how many pixels a metre is. So it is called
+       what it is on screen, there is no Place step and no "surface found",
+       and nothing claims true scale or a fit. Move, rotate and reset only. */
     setARMode('camera-preview');
     $('#xr-canvas').style.display = 'none';
     stage.style.display = 'block';
     cameraVideo.style.display = 'block';
     $('#ar-tray').hidden = !isPlacement;
     $('#ar-reticle').hidden = true;
+    const placeButton = $('#place-button');
+    if (placeButton) placeButton.hidden = true;
 
     const hasCamera = await startCameraStream();
     if (hasCamera) {
       setHint(isPlacement
-        ? 'Untracked preview. Use the tray to move, turn and resize.'
-        : 'Drag across the opening. The reading follows your finger.');
+        ? 'Untracked 3D preview. It is not anchored to your room, so it cannot show true size or check fit.'
+        : 'This phone cannot track the room. Close this and use Measure without AR.');
     }
 
     // The preview is an unanchored, device-side approximation for judging fit.
@@ -2750,11 +2956,6 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     resize();
     window.addEventListener('resize', resize, { passive: true });
 
-    let surfaceBlocked = false;
-    let placementConfirmed = false;
-    let previewTilt = 0;
-
-    setPlacementButtonState(false);
     /* There is nothing to occlude with in the untracked preview: no planes,
        no depth, no idea where the walls are. The control is hidden rather
        than shown doing nothing. */
@@ -2764,19 +2965,10 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     $('#reset-model').addEventListener('click', event => {
       event.stopPropagation();
       arTransform.reset();
-      placementConfirmed = false;
-      setPlacementButtonState(surfaceBlocked);
-      setHint('Reset to true scale.');
-    });
-    $('#place-button').addEventListener('click', event => {
-      event.stopPropagation();
-      if (surfaceBlocked) return;
-      placementConfirmed = true;
-      setPlacementButtonState(false, true);
-      setHint('Placed. Move around it to judge the fit.');
+      setHint('Reset the view.');
     });
 
-    bindPreviewGestures(stage, () => placementConfirmed || !isPlacement);
+    bindPreviewGestures(stage, () => !isPlacement);
 
     /*
        There is deliberately no ruler here any more.
@@ -2797,8 +2989,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
        person got from a tape measure, which they know the provenance of.
     */
     if (!isPlacement) {
-      setHint('This preview shows the piece at its real size, but cannot measure your room — '
-        + 'this device has no AR tracking. Enter a tape-measure reading in the fields below.');
+      setHint('This phone cannot track the room, so this view cannot measure it. Close this and use Measure without AR.');
     }
 
     const tick = () => {
@@ -2808,25 +2999,13 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       modelRoot.rotation.y = arTransform.yaw;
       modelRoot.scale.copy(baseScale);
 
-      const nextBlocked = Math.abs(previewTilt) > 45;
-      if (nextBlocked !== surfaceBlocked) {
-        surfaceBlocked = nextBlocked;
-        setModelSurfaceState(modelRoot, surfaceBlocked);
-        setPlacementButtonState(surfaceBlocked, placementConfirmed);
-        setHint(surfaceBlocked ? 'Hold the phone level to judge the surface.' : 'Untracked preview. Use the tray to move, turn and resize.');
-      }
-
       renderer.render(scene, camera);
-      if (isPlacement) updatePlacementChip(modelRoot, camera, product);
+      if (isPlacement) updatePlacementChip(modelRoot, camera, product, { untracked: true });
       requestAnimationFrame(tick);
     };
 
     state.fallbackRender = { renderer, scene, camera, modelRoot, resize };
     tick();
-
-    if (window.DeviceOrientationEvent) {
-      window.addEventListener('deviceorientation', event => { previewTilt = event.beta || 0; }, { passive: true });
-    }
   }
 
   /* Screen scale derived from the model's known true width at its current depth.
@@ -2935,7 +3114,24 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
 
   async function startExperienceInner(purpose) {
     const product = state.selected;
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isIOS = context.platform === 'ios';
+
+    /* In an embedded browser, nothing is attempted: the answer is "open this
+       in your browser", before a chain of AR errors that would read as the
+       phone's fault. */
+    if (context.inAppBrowser) {
+      showInAppNotice();
+      notify({ type: 'info', message: DIAG_COPY[DIAG.IN_APP_BROWSER].title, duration: 6000 });
+      return;
+    }
+
+    /* iPhone has no WebXR, so a room measurement goes straight to the
+       methods that work there instead of to a camera preview that cannot
+       measure. */
+    if (isIOS && purpose !== 'placement') {
+      window.dispatchEvent(new CustomEvent('furnishar:measure-without-ar'));
+      return;
+    }
 
     /* Quick Look renders a USDZ and hands nothing back to this page — no
        poses, no planes, no measurement. It is the right answer for "show me
@@ -2960,12 +3156,22 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       try {
         const response = await fetch(usdzUrl, { method: 'HEAD' });
         if (response.ok) {
+          /* Safari only hands an rel="ar" link to AR Quick Look when the
+             link contains an image; without one it downloads the file.
+             allowsContentScaling=0 turns off pinch-to-resize, so the piece
+             stays at its real size the way it does in FurnishAR's own AR. */
           const quickLookLink = document.createElement('a');
           quickLookLink.rel = 'ar';
-          quickLookLink.href = usdzUrl;
-          quickLookLink.target = '_blank';
+          quickLookLink.href = `${usdzUrl}#allowsContentScaling=0`;
+          const thumb = document.createElement('img');
+          thumb.alt = '';
+          thumb.src = product.thumbnail || 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';
+          quickLookLink.appendChild(thumb);
+          quickLookLink.hidden = true;
+          document.body.appendChild(quickLookLink);
           quickLookLink.click();
-          toast('Opening the native AR Quick Look viewer on iPhone Safari.');
+          quickLookLink.remove();
+          toast('Opening Apple AR Quick Look.');
           return;
         } else {
           console.warn(`[AR] USDZ file returned ${response.status} at ${product.modelUsdz}`, { url: product.modelUsdz });
@@ -2985,21 +3191,24 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
        session when the session is placing it; the rest of the time the
        subject is the room. */
     const TITLES = {
-      scan: ['Room scan', 'Turn slowly through a half-circle'],
+      scan: ['Room scan', 'Tap each corner where floor meets wall'],
       clearance: ['Measuring clearance', 'Tap point A, then point B'],
       area: ['Measuring floor area', 'Tap the corners of the free floor'],
-      room: ['Room scan', 'Turn slowly through a half-circle']
+      room: ['Room scan', 'Tap each corner where floor meets wall']
     };
     if (purpose === 'placement' && product) {
-      const { width, depth, height } = product.dimensions;
+      /* The same canonical size, through the same formatter, as the product
+         page, the planner card, the chip over the model and the fit check. */
       $('#ar-product-name').textContent = product.name;
-      $('#ar-product-dims').textContent = `${width} × ${depth} × ${height} cm`;
+      $('#ar-product-dims').textContent = formatDimensions(product.dimensions, 'cm');
     } else {
       const [title, sub] = TITLES[purpose === 'scan' ? 'scan' : state.measureMode] || TITLES.scan;
       $('#ar-product-name').textContent = title;
       $('#ar-product-dims').textContent = sub;
     }
     state.arPurpose = purpose;
+    const layer = $('#ar-experience');
+    if (layer) layer.dataset.purpose = purpose;
     if (purpose === 'scan') { sweep.reset(); resetRoomTaps(); }
     if (purpose === 'measurement' && state.measureMode === 'area') resetAreaScan();
     state.arPoints = [];
@@ -3010,9 +3219,22 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     $('#xr-canvas').style.display = '';
     $('#fallback-product').style.display = 'none';
     $('#ar-tray').hidden = purpose !== 'placement';
+    const placeButton = $('#place-button');
+    if (placeButton) placeButton.hidden = false;
+    setPlacementButtonState(true);
     try {
       const supportsAR = await checkARSupport();
-      if (supportsAR) await startNativeAR(); else await startCameraFallback();
+      if (supportsAR) {
+        await startNativeAR();
+      } else if (purpose === 'placement') {
+        await startCameraFallback();
+      } else {
+        // A room cannot be measured by an untracked camera. Say so and hand
+        // over to the methods that can, instead of opening a camera that
+        // pretends to.
+        cleanupAR();
+        window.dispatchEvent(new CustomEvent('furnishar:measure-without-ar'));
+      }
     } catch (error) {
       console.error('[AR] Native AR start failed:', {
         errorName: error?.name,
@@ -3021,30 +3243,32 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
         stack: error?.stack?.split('\n').slice(0, 3).join('\n'),
         timestamp: new Date().toISOString()
       });
-      const messageMap = {
-        NotAllowedError: 'Camera permission was denied. Enable camera access for this site and try again.',
-        NotSupportedError: 'This device reports AR support but couldn\'t start a session — hit-test or the AR overlay isn\'t available here.',
-        SecurityError: 'AR requires a secure, top-level browsing context — this won\'t work inside an embedded/in-app browser.',
-        ReferenceError: 'XR capabilities not available on this browser.',
-        TypeError: 'XR session initialization error — check console for details.'
-      };
-      await startCameraFallback();
-      toast(messageMap[error?.name] || `Live AR could not start (${error?.name}); switched to camera preview.`, 'warning');
+      /* What was OBSERVED is that the browser refused a session. That is
+         said, with the likely causes as likely causes and the way forward —
+         never "your phone does not support AR". */
+      const refusal = error?.refusal || classifyRefusal(error, { inAppBrowser: context.inAppBrowser });
+      const copy = DIAG_COPY[refusal.state] || DIAG_COPY[DIAG.AR_SESSION_REFUSED];
+      if (purpose === 'placement') {
+        await startCameraFallback();
+      } else {
+        cleanupAR();
+      }
+      toast(copy.title, 'warning');
 
-      /* Offer the device check at the one moment it is worth anything.
-
-         A toast that names an error and leaves is a dead end: the person is
-         standing in a room holding a phone that will not scan, and the next
-         thing they can usefully do is find out what their phone actually
-         supports. The status line under the button is not cleared by the
-         fallback, so it is where the offer goes — as a real link, which is
-         why this writes innerHTML rather than textContent. Only the error
-         name is interpolated and it comes from the browser, not from input. */
+      /* The next step, where the person is looking: the line under the
+         button. A retry is offered only as a NEW tap (a different, minimal
+         request); the device check is one link away. Only strings from the
+         catalogue above are interpolated. */
       const status = $('#ar-status');
       if (status) {
-        status.innerHTML = `Live AR could not start on this phone
-          (${escapeHtml(String(error?.name || 'unknown'))}). The camera preview is running instead —
-          <a href="/diagnose">check what your phone supports</a>.`;
+        const retry = state.retryMinimal ? ' Tap the button again to try a simpler AR session.' : '';
+        status.innerHTML = `<b>${escapeHtml(copy.title)}.</b> ${escapeHtml(copy.observed)}${copy.likely ? ` ${escapeHtml(copy.likely)}` : ''}${escapeHtml(retry)}
+          <a href="/diagnose">Check this phone</a>, or use Measure without AR.`;
+        status.dataset.state = 'refused';
+      }
+      if (state.retryMinimal) {
+        const button = $('#ar-button');
+        if (button) button.textContent = 'Try tracked AR again';
       }
     }
   }
@@ -3256,8 +3480,11 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
        on the floor, then optionally the ceiling. Each call is exactly what a
        tap on a hit-test point does, so a check can measure a whole room the
        way a person standing in one would, with detectedPlanes unavailable. */
-    tapCorner(point) { captureRoomCorner(point); return state.room; },
+    tapCorner(point, spread = 0.005) { captureRoomCorner(point, spread); return state.room; },
     closeFloor() { closeTappedFloor(); return state.room; },
+    /* "Scan again to confirm": the second, independent pass a tapped room
+       needs before it can be used. */
+    confirmScan() { startConfirmationScan(); return state.scanReadiness; },
     undoCorner() { undoTappedCorner(); return state.room; },
     accept() { useScannedRoom(); },
     get state() {

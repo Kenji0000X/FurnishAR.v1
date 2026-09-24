@@ -40,8 +40,8 @@ since the Next.js port; the measurement mathematics are in `public/geometry.js`.
 | FR-1 | A shopper can browse a catalogue of furniture from local stores, filtered by category, store, width and colour. | `app/page.js` (server-rendered), `app/CatalogSection.js` `matches` | `tests/api.test.js` catalogue endpoint; browser pass at 1280 and 390 px |
 | FR-2 | A product shows real dimensions, price, description and the store's contact details. | `app/furniture/[slug]/page.js` | Browser pass (product dialog) |
 | FR-3 | A shopper can place a product in their room at true scale using WebXR. | `startNativeAR`, `loadScaledModel` | `tests/geometry.test.js` (scaling maths); mocked WebXR session — 150+ frames, no errors |
-| FR-4 | Where WebXR is unavailable, the app degrades to an untracked camera preview rather than failing. | `startCameraFallback` | Browser pass with a faked camera |
-| FR-5 | A placed model can be moved, rotated 360°, resized and reset. | `arTransform`, `bindTray` | Browser pass: yaw 47°, scale 122° in a live session |
+| FR-4 | Where tracked WebXR is unavailable, the experience is chosen from observed capabilities (`lib/spatial/capabilities.mjs`): an untracked 3D preview labelled as such for placement, and aim / photo / tape methods for rooms. An in-app browser is told to open the page in Chrome or Safari first. | `assessCapabilities`, `startCameraFallback`, `MeasureSurface.js` | `tests/capabilities.test.js`; `scripts/check-tracked-ar.mjs`, `check-measure.mjs` |
+| FR-5 | A placed model can be moved, rotated and reset. It cannot be resized: it is always the product's listed size. | `arTransform`, `bindTray` | `tests/dimension-consistency.test.js`; `check-tracked-ar.mjs` |
 | FR-6 | A shopper can measure a **clearance** between two points and get a fit verdict. | `captureNativePoint`, `fitAgainstClearance` | `tests/geometry.test.js` "fit against a linear clearance" |
 | FR-7 | A shopper can measure a **floor area** from three or more points and get a fit verdict against the piece's footprint. | `captureAreaPoint`, `closeAreaOutline`, `fitAgainstArea` | `tests/geometry.test.js` (8 area cases); end-to-end scan of a 4 × 3 m floor reading 12.0 m² |
 | FR-8 | A measurement is accepted only when two independent scans agree within 5%. | `reconcileReadings` | `tests/geometry.test.js` "the panel's 5% rule"; end-to-end rejection at 32% |
@@ -64,14 +64,16 @@ since the Next.js port; the measurement mathematics are in `public/geometry.js`.
 | NFR-7 | **Security** — one store can never read or write another's data. | Enforced in the database, not the UI | `tests/db.test.js`, 14 cases |
 | NFR-8 | **Security** — the browser never holds a privileged key. | No keys at all | The app makes no third-party calls; there is nothing to hold |
 | NFR-9 | **Maintainability** — the system can be understood and changed by someone new. | Documented + tested | 50 automated tests; `docs/MAINTENANCE.md` |
-| NFR-10 | **Measurement accuracy** — AR readings within ±5% of a tape measure. | ±5% | Geometry proven exact against known shapes; **field validation against a tape measure is still outstanding** (see §6) |
+| NFR-10 | **Measurement accuracy** — readings within ±5% of a tape measure. | ±5% | Geometry proven exact against known shapes. Two scans agreeing within 5% is enforced, but that is **repeatability, not accuracy**. **Field validation against a tape measure is still outstanding**: `docs/ROOM-MEASUREMENT-VALIDATION.md` |
 
 ## 5. Constraints and assumptions
 
 - WebXR immersive AR with hit-test is available only on Android Chrome with
-  ARCore. iOS Safari has no WebXR; those users get the camera preview.
-- The camera preview is **not** tracked. Its ruler is an estimate scaled from
-  the product's own on-screen size, and is labelled as such in the interface.
+  ARCore, and only where a session actually opens (see `docs/AR-DEVICE-MATRIX.md`).
+  iOS Safari has no WebXR: furniture opens in AR Quick Look (USDZ), rooms are
+  measured by aim, photo or tape.
+- The camera preview is **not** tracked. It has no ruler, no Place step and no
+  true-scale claim, and is labelled "Untracked preview".
 - AR measurement needs a bright, textured, non-reflective floor. Accuracy
   degrades on plain tile, glass and in low light.
 - The pilot assumes each store has at most a few dozen products and that models

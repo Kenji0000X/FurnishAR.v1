@@ -46,8 +46,14 @@ function PlannerBody({ products }) {
         setFailed(error.message);
       });
 
+    /* The engine asks for this when tracked AR is not the right tool: on an
+       iPhone, or after a room scan could not start. */
+    const openMeasure = () => setMeasuring(true);
+    window.addEventListener('furnishar:measure-without-ar', openMeasure);
+
     return () => {
       cancelled = true;
+      window.removeEventListener('furnishar:measure-without-ar', openMeasure);
       // Unmounting with a live XR session would leave the camera running.
       if (teardown) teardown();
     };
@@ -264,8 +270,8 @@ function PlannerBody({ products }) {
               Measure without AR
             </button>
             <p className="ar-status">
-              Works on any phone: aim at the floor and read the angle, scale from
-              a photo, or type in tape-measure figures.
+              Works on any phone: aim the phone, measure from a photo, or type in
+              tape-measure figures. You will be shown which ones this phone supports.
             </p>
           </div>
         </section>
