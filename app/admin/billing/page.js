@@ -5,29 +5,36 @@ import { supabase } from '../../portal/backend.js';
 import useAlert from '../../alerts/useAlert.js';
 import PagedTable from '../PagedTable.js';
 import { money } from '../../billing/OrderCard.js';
+import { describeStatus } from '../../billing/payment-status.mjs';
 
 /**
- * What each shop owes FurnishAR.                           DFD: P8 → D5
+ * The platform's 10% and every shop's PayPal connection.    DFD: P8 → D5
  *
- * Buyers pay shops directly, so the 10% service fee is not collected at
- * checkout — it accrues per captured payment (0009) and is settled here when
- * the shop pays it. fee_overview() and record_fee_settlement() refuse anyone
- * who is not a platform admin; this page being behind the console gate is
- * the convenience, not the protection.
+ * Says truthfully which fee mode is in force:
+ *   accrual         buyers pay shops in full; the fee is owed and settled here;
+ *   platform_split  PayPal takes the fee at capture — counted as COLLECTED
+ *                   only when PayPal's capture breakdown reported it. Any
+ *                   payment where it did not (seller without the partner-fee
+ *                   permission, older payments) still accrues.
+ * fee_overview(), record_fee_settlement() and /api/sb/payments/admin refuse
+ * anyone who is not a platform admin; this page being behind the console
+ * gate is the convenience, not the protection.
  */
 export default function AdminBilling() {
   const alert = useAlert();
   const [rows, setRows] = useState(null);
+  const [config, setConfig] = useState(null);   // null = loading, false = could not be read
   const [settling, setSettling] = useState(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    try {
-      setRows(await supabase().feeOverview());
-    } catch (error) {
-      setRows([]);
-      alert.showError(error.message);
-    }
+    const sb = supabase();
+    const [overview, cfg] = await Promise.all([
+      sb.feeOverview().catch(error => { alert.showError(error.message); return []; }),
+      sb.adminPaymentsConfig().catch(() => false)
+    ]);
+    setRows(overview);
+    setConfig(cfg);
   }, [alert]);
 
   useEffect(() => { load(); }, [load]);
@@ -48,19 +55,57 @@ export default function AdminBilling() {
   }
 
   const list = rows || [];
-  const outstanding = list.reduce((sum, row) => sum + Number(row.outstanding || 0), 0);
-  const sales = list.reduce((sum, row) => sum + Number(row.sales || 0), 0);
+  const sum = key => list.reduce((total, row) => total + Number(row[key] || 0), 0);
+  const split = config?.feeMode === 'platform_split';
+  const splitAskedButOff = config?.feeModeConfigured === 'platform_split' && !split;
+  const connected = list.filter(row => row.payment_status === 'CONNECTED').length;
 
   return (
     <>
       <section className="admin-intro">
         <p className="eyebrow">10% Service Fee</p>
-        <h1 id="console-title">Billing</h1>
+        <h1 id="console-title">
+          Billing
+          {config?.sandbox && <span className="status-chip is-sandbox" title="No real money moves">PayPal Sandbox</span>}
+        </h1>
         <p>
           {rows === null ? 'Loading…'
-            : `${money(sales)} paid to shops through FurnishAR · ${money(outstanding)} in fees outstanding.`}
+            : `${money(sum('sales'))} paid to shops · ${connected} of ${list.length} shops connected to PayPal.`}
         </p>
       </section>
+
+      <div className="bezel console-panel fee-mode">
+        <div className="bezel-core">
+          <p className="console-tile-label">Fee mode in force</p>
+          <h2>{config ? (split ? 'Platform split through PayPal' : 'Accrual — shops settle the fee')
+            : config === false ? 'Could not read the PayPal configuration' : 'Checking…'}</h2>
+          <p>
+            {split
+              ? 'PayPal takes the 10% at capture from shops that granted FurnishAR the partner-fee permission. It is counted as collected only when PayPal reports it. Payments without it accrue and are settled below.'
+              : 'Buyers pay the shop in full (price + 10%). The 10% is owed by the shop and recorded here when it is settled. Nothing is split by PayPal.'}
+          </p>
+          {splitAskedButOff && (
+            <p className="form-error" role="status">PAYPAL_FEE_MODE is platform_split, but the partner settings are incomplete, so no split is attempted.</p>
+          )}
+          {config?.problems?.length > 0 && (
+            <ul className="config-problems" aria-label="PayPal configuration problems">
+              {config.problems.map(problem => <li key={problem}>{problem}</li>)}
+            </ul>
+          )}
+          {config?.warnings?.length > 0 && (
+            <ul className="config-warnings" aria-label="PayPal configuration warnings">
+              {config.warnings.map(warning => <li key={warning}>{warning}</li>)}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      <dl className="billing-summary">
+        <div><dt>Accrued (Owed)</dt><dd>{money(sum('accrued'))}</dd></div>
+        <div><dt>Collected by PayPal</dt><dd>{money(sum('collected'))}</dd></div>
+        <div><dt>Refunded to Buyers</dt><dd>{money(sum('refunded'))}</dd></div>
+        <div><dt>Outstanding</dt><dd>{money(sum('outstanding'))}</dd></div>
+      </dl>
 
       {settling && (
         <div className="bezel console-panel">
@@ -84,22 +129,34 @@ export default function AdminBilling() {
 
       <PagedTable
         rows={list}
-        colSpan={6}
+        colSpan={7}
         empty={rows === null ? 'Loading…' : 'No stores yet.'}
-        head={<tr><th scope="col">Store</th><th scope="col">Type</th><th scope="col" className="num">Paid to Shop</th><th scope="col" className="num">Fees Accrued</th><th scope="col" className="num">Outstanding</th><th><span className="sr-only">Actions</span></th></tr>}
-        renderRow={row => (
-          <tr key={row.store_id}>
-            <td translate="no">{row.store_name}</td>
-            <td>{row.fulfilment === 'custom' ? 'Custom' : 'Stocked'}</td>
-            <td className="num">{money(row.sales)}</td>
-            <td className="num">{money(row.accrued)}</td>
-            <td className="num"><b>{money(row.outstanding)}</b></td>
-            <td>
-              <button className="icon-button" type="button" onClick={() => setSettling(row)}
-                aria-label={`Record a payment from ${row.store_name}`}>Record Payment…</button>
-            </td>
-          </tr>
-        )}
+        head={<tr>
+          <th scope="col">Store</th><th scope="col">PayPal</th>
+          <th scope="col" className="num">Paid to Shop</th><th scope="col" className="num">Accrued</th>
+          <th scope="col" className="num">Collected</th><th scope="col" className="num">Outstanding</th>
+          <th><span className="sr-only">Actions</span></th>
+        </tr>}
+        renderRow={row => {
+          const status = describeStatus(row.payment_status);
+          return (
+            <tr key={row.store_id}>
+              <td translate="no">{row.store_name}<br /><small>{row.fulfilment === 'custom' ? 'Custom' : 'Stocked'}</small></td>
+              <td>
+                <span className={`status-chip is-${status.tone}`}>{status.label}</span>
+                {row.merchant_id_masked && <><br /><small translate="no">{row.merchant_id_masked}{row.payment_environment === 'sandbox' ? ' · sandbox' : ''}</small></>}
+              </td>
+              <td className="num">{money(row.sales)}</td>
+              <td className="num">{money(row.accrued)}</td>
+              <td className="num">{money(row.collected)}</td>
+              <td className="num"><b>{money(row.outstanding)}</b></td>
+              <td>
+                <button className="icon-button" type="button" onClick={() => setSettling(row)}
+                  aria-label={`Record a payment from ${row.store_name}`}>Record Payment…</button>
+              </td>
+            </tr>
+          );
+        }}
       />
     </>
   );

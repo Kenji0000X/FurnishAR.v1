@@ -7,7 +7,9 @@ import { initBackend, usingSupabase, supabase, backendReason } from '../portal/b
 import { consumeAuthIntent, peekAuthIntent } from '../../lib/auth-intent.js';
 import { flashSuccess } from '../../lib/flash.js';
 import PasswordField from '../PasswordField.js';
+import GoogleButton from '../GoogleButton.js';
 import useAlert from '../alerts/useAlert.js';
+import { destinationFor, oauthAlert } from '../../lib/role-routes.mjs';
 
 /**
  * One door, two kinds of person behind it.
@@ -69,6 +71,17 @@ export default function LoginChooser() {
   const [notice, setNotice] = useState('');
   const [sent, setSent] = useState('');
 
+  /* Back from a Google sign-in that did not finish (lib/oauth.js). Said
+     once, then taken out of the address bar. */
+  const oauthError = params.get('oauth_error');
+  useEffect(() => {
+    if (!oauthError) return;
+    alert.raise(oauthAlert(oauthError));
+    const clean = new URLSearchParams(params);
+    clean.delete('oauth_error');
+    window.history.replaceState(null, '', `/login${clean.size ? `?${clean}` : ''}`);
+  }, [oauthError, params, alert]);
+
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -101,6 +114,11 @@ export default function LoginChooser() {
       if (role === 'admin') {
         setNotice('Opening the platform console…');
         router.replace('/admin');
+        return;
+      }
+      if (role === 'onboarding') {
+        /* Signed in (e.g. with Google) but no role yet. */
+        router.replace(destinationFor('onboarding', { next }));
         return;
       }
       setTowns(await supabase().listMunicipalities().catch(() => []));
@@ -141,11 +159,11 @@ export default function LoginChooser() {
          change, so an inline "signed in" would vanish with it. Failures stay
          inline, beside the form they are about: one event, one message. */
       alert.raise('auth.signed-in');
-      if (role === 'admin') router.push('/admin');
-      else if (role === 'owner' || role === 'pending') router.push('/portal');
-      else {
+      if (role === 'buyer' || !role) {
         consumeAuthIntent();
         router.push(next || '/account');
+      } else {
+        router.push(destinationFor(role, { next }));
       }
     } catch (signInError) {
       setNotice('');
@@ -240,6 +258,13 @@ export default function LoginChooser() {
           </Link>
         </div>
 
+        <div className="oauth-row">
+          <GoogleButton next={next} />
+          <p className="form-note">
+            Google tells FurnishAR only your name and email. New here? You choose shopping or selling next.
+          </p>
+        </div>
+
         <p className="role-foot">
           Just looking? <Link href="/collection">Browse the catalogue</Link> — no account needed.
         </p>
@@ -290,6 +315,11 @@ export default function LoginChooser() {
             Not a shopper?
           </button>
         </p>
+      </div>
+
+      <div className="oauth-row">
+        <GoogleButton next={next} intent="buyer" />
+        <p className="or-rule" aria-hidden="true"><span>or with email</span></p>
       </div>
 
       <div className="mode-switch" role="tablist" aria-label="Sign in or create an account">

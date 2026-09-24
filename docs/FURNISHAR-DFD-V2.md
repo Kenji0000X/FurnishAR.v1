@@ -34,7 +34,10 @@ This is the implementation-aligned replacement for the supplied sample DFD.
 | Buyer orders, PayPal return | `/account#orders`, `/account?paypal=return` | P10 Orders & Payments |
 | Receipt | `/account/receipt/[id]` | P10 Orders & Payments (read, per RLS) |
 | Store billing and incoming orders | `/portal#orders` | P7 → P10 |
-| Platform fees | `/admin/billing` | P8 → D5 |
+| Platform fees, fee mode, PayPal status per shop | `/admin/billing` | P8 → D5 |
+| Google sign-in return | `/auth/callback` | P1 Authentication (code → session) |
+| First sign-in: choose buyer or store | `/onboarding` | P1 → P6 (buyer) / P7 (application) |
+| Shop's PayPal seller connection | `/portal#billing` (Connect PayPal) | P7 → P10 → PayPal |
 
 ## Actual API boundary
 
@@ -45,6 +48,11 @@ The DFD is aligned with the current repository routes:
 - `POST /api/sb/auth/refresh`
 - `POST /api/sb/auth/logout`
 - `POST /api/sb/auth/resend`
+- `GET /api/sb/auth/google`, `POST /api/sb/auth/exchange` (Google sign-in, PKCE)
+- `GET /api/sb/account/state`, `POST /api/sb/account/buyer|apply` (onboarding)
+- `POST /api/sb/payments/connect|refresh`, `GET /api/sb/payments/admin` (PayPal seller connection)
+- `POST /api/paypal/webhook` (PayPal → P10)
+- `GET /api/cron/payment-reminders` (scheduler → P10 → Email)
 - `GET /api/sb/status`
 - `GET|HEAD|POST|PATCH|DELETE /api/sb/rest/<allowlisted-resource>`
 - `GET /api/sb/model/<store-id>/<product-id>/<file>`
@@ -73,6 +81,12 @@ The DFD is aligned with the current repository routes:
 | `POST /api/sb/orders/quote`, `decline`, `ready`, `fulfil`, `delivery`, `store-billing` | P10 Orders & Payments (store owner) | D5 |
 | `/api/sb/rest/orders`, `payments`, `store_payout`, `fee_settlements` (read-only) | P10 reads, per RLS | D5 |
 | `/api/sb/rest/rpc/store_fee_summary`, `fee_overview`, `record_fee_settlement` | P7 fee balance, P8 settlement | D5, D4 (audit) |
+| `GET /api/sb/auth/google`, `POST /api/sb/auth/exchange` | P1 Google sign-in (identity only; provider tokens dropped) | D1 (GoTrue), Google |
+| `/api/sb/account/state`, `buyer`, `apply` | P1 → P6 buyer onboarding / P7 store application | D1, D4 |
+| `POST /api/sb/payments/connect`, `refresh`; `GET /api/sb/payments/admin` | P7 → P10 seller onboarding; P8 configuration | D5 (`store_payment_accounts`), PayPal |
+| `POST /api/paypal/webhook` | P10 — verified, idempotent capture / refund / seller events | D5 (`payment_webhook_events`, `payments`, `payment_refunds`) |
+| `GET /api/cron/payment-reminders` | P10 → Email Service, cooldown in D5 | D5 |
+| `/api/sb/rest/store_payment_accounts`, `payment_attempts`, `payment_refunds`, `payment_webhook_events` (read-only) | P7 / P8 / P10 reads, per RLS | D5 |
 
 The demo endpoints are the database-less mode only: no accounts exist there, so
 there is nothing to authenticate or authorize. With a database configured they
@@ -107,7 +121,12 @@ flowchart LR
     E -->|confirmation link| B
 
     PP[PayPal]
-    F -->|create / capture order, payee = shop| PP
+    G[Google]
+    B -->|choose Google account| G
+    G -->|identity via Supabase Auth| F
+    O -->|connect seller account| PP
+    PP -->|seller status, webhooks| F
+    F -->|create / capture order, payee = shop merchant id| PP
     PP -->|approval / capture result| F
     B -->|pays shop directly| PP
     F -->|order emails| E
@@ -142,7 +161,11 @@ flowchart TB
     PP[PayPal]
     EM[Email Service]
 
-    B -->|credentials / signup data| P1
+    GO[Google]
+    B -->|credentials / signup data / Continue with Google| P1
+    P1 -->|PKCE authorize / code exchange| GO
+    GO -->|identity only| P1
+    P1 -->|no role yet: onboarding choice| B
     P1 -->|session / role result| B
     P1 -->|identity / role| D1
 
@@ -190,8 +213,14 @@ flowchart TB
     P10 -->|price / stock hold| D2
     P10 -->|orders / verified captures| D5
     D5 -->|amount due / order state| P10
-    P10 -->|create / capture, payee = shop| PP
+    P10 -->|create / capture, payee = shop merchant id, fee mode| PP
     PP -->|approval / capture result| P10
+    O -->|connect PayPal| P7
+    P7 -->|partner referral / status refresh| PP
+    PP -->|merchant integration status| P7
+    P7 -->|seller status| D5
+    PP -->|signed webhooks: capture / refund / seller| P10
+    P10 -->|payment-setup reminders, account and payment emails| EM
     P10 -->|receipt / delivery-step email| EM
     P8 -->|fee overview / settlements| D5
 
@@ -259,23 +288,45 @@ flowchart LR
     CAP[POST /api/sb/orders/capture]
     V{PayPal order matches\nbegin_payment?}
     K[PayPal capture]
-    RC[(record_capture\nserver secret + payee check)]
+    RC[(record_capture\nserver secret + merchant check\nfee mode as PayPal reported)]
+    AT[(payment_attempts\nwhat was asked of PayPal)]
+    WH[POST /api/paypal/webhook\nverified, once per event]
     N[Alert + emails]
 
     U --> PG --> A
     A -->|guest / store account| L
     A -->|buyer| C --> DB --> PPc --> AP --> R --> CAP --> V
+    PPc --> AT
+    AT --> V
     V -->|no| N
     V -->|yes| K --> RC --> N
+    K -.->|pending| WH --> RC
 ```
 
 Custom builds follow the same capture path in stages: `requested → quoted →
-deposit (50%) → deposit_paid → ready → balance → paid → fulfilled`.
+deposit (50%) → deposit_paid → ready → balance → paid → fulfilled`. The 10%
+fee is computed once at the quote; the deposit carries half of it (rounded)
+and the balance the rest, so the stages add up to the fee exactly.
+
+A shop can be paid only after it CONNECTs a PayPal seller account:
+
+```mermaid
+flowchart LR
+    O[Store owner] --> BC[Portal → Billing\nConnect PayPal]
+    BC --> ST[(server_payment_onboarding_started\nmember check + tracking id)]
+    ST --> PR[PayPal Partner Referrals\nseller signs in on PayPal]
+    PR --> RET[/portal?paypal_onboarding=return/]
+    RET --> RF[POST /api/sb/payments/refresh]
+    RF --> MI[PayPal: merchant behind OUR tracking id\n+ merchant integration]
+    MI --> RA[(server_record_payment_account\nCONNECTED / PENDING / ERROR …)]
+    RA -->|status change| EM[Email]
+    WHK[Seller webhooks] --> RA
+```
 
 ## Process definitions
 
 ### P1 Authentication & Session
-Handles buyer login/signup, store-owner login, admin sign-in, refresh, logout, and role resolution.
+Handles buyer login/signup, store-owner login, admin sign-in, **Sign in with Google** (Supabase Auth, PKCE with the verifier held server-side, identity scopes only, Google's provider tokens discarded), refresh, logout, and role resolution. Role comes from `my_role()` only: `admin` (platform_admins — never from Google), `owner`, `pending`, `buyer`, or `onboarding` (signed in, no role yet → `/onboarding`: buyer asks only for a municipality; store files an application linked by account id).
 
 ### P2 Browse Collection
 Public catalogue browsing through `/` and `/collection`.
@@ -312,7 +363,16 @@ orders, only a store's members quote or mark its orders, only the buyer pays
 their own order. Amounts come from the database, never the browser; a payment
 is recorded only after the server has captured it with PayPal and checked the
 amount and payee, and only with the server's payment-recorder secret. Emails
-(Resend) are notifications of recorded events and never block them.
+(Gmail or Resend) are notifications of recorded events and never block them.
+
+Since 0011: the payee is the shop's CONNECTED PayPal **merchant id**
+(Partner Referrals; status only from PayPal); each PayPal order is recorded
+as a `payment_attempt` and the capture must match it; the fee is either
+accrued (default) or split by PayPal (`platform_split`) and counted as
+collected only when PayPal's capture reports it; PayPal webhooks (signature
+verified, processed once) record pending captures, refunds (seller and
+platform portions) and seller status changes; approved shops that are not
+connected get scheduled reminder emails with a cooldown.
 
 ## Reliability rules for the diagram
 
@@ -384,7 +444,13 @@ Where this DFD and the code disagreed, and which one moved.
 - RECOMMENDED ARCHITECTURE: inside P4, one capability router (`lib/spatial/capabilities.mjs`) decides the experience from observed facts; one minimal session request per tap; capture from a sampling window; orientation from the full rotation; photo by homography; manual input with units and sanity checks. `/diagnose` reports observed / likely / action and a copyable report with no hardware identifiers.
 - REASON: field testing on four phones and in Messenger. **No flow, endpoint, process or store added** (all on the device, inside P4); P5 unchanged. Camera frames and room data never leave the phone (`docs/PRIVACY-AR.md`).
 
-**10. Database state**
+**10. Google sign-in and PayPal marketplace (added 2026-09-24)**
+- DFD ISSUE: P1 had one way in (email + password) and no state for "signed in, no role"; P10 paid a typed PayPal email that nothing verified; there were no webhooks, refunds or fee modes; P7 had no seller connection.
+- CURRENT CODE BEHAVIOR (before): see `AUTH-PAYMENTS-FLOW-MAP.md`.
+- RECOMMENDED ARCHITECTURE: Google as an external entity of P1 (identity only); `/onboarding` as the P1 → P6/P7 branch; PayPal Partner Referrals as a P7 → PayPal flow writing `store_payment_accounts` (D5); P10 pays the connected merchant, records `payment_attempts`, receives verified PayPal webhooks, records refunds; the scheduler → P10 → Email for reminders. Authentication (P1) and payments (P10) stay separate processes: a Google account is never a PayPal account and never an admin.
+- REASON: requested feature. **DFD and code changed together** (migration 0011, `lib/oauth.js`, `lib/account.js`, `lib/payments.js`, `lib/paypal.js`, the drawio). Setup: `GOOGLE-PAYPAL-SETUP.md`.
+
+**11. Database state**
 - Migrations 0005 (bucket limit), 0006 (buyers, `my_role`) and 0007 (private `furniture-models` bucket, `can_view_model` policy) are applied to the live project. 0008 takes trigger functions off the RPC surface and stops anonymous calls to `can_view_model`.
 
 ## DFD artifact
@@ -396,6 +462,8 @@ The companion `FURNISHAR-DFD-V2.drawio` holds every diagram as a draw.io page. O
 | Level 0 — Context DFD | the system as one process and its six external entities |
 | Level 1 — System DFD | processes 1.0–10.0 and data stores D1–D5 (this document's Level 1) |
 | Level 2 — 1.0 Authentication & Session | 1.1 Register · 1.2 Log In · 1.3 Resolve Role · 1.4 Renew Session · 1.5 Log Out |
+| Level 2 — 1.0 Google Sign-in & Onboarding | 1.6 Start Google Sign-in (PKCE) · 1.7 Exchange Code · 1.3 Resolve Role · 1.8 Onboard (0011) |
+| Level 2 — 10.9–10.13 PayPal Seller, Webhooks & Reminders | seller onboarding and status, verified webhooks, fee mode, payment-setup reminders (0011) |
 | Level 2 — 5.0 3D Access & Authorization | 5.1 Validate · 5.2 Verify Session · 5.3 Authorize & Sign · 5.4 Deliver Signed URL |
 | Level 2 — 10.0 Orders & Payments | 10.1–10.8: place/cancel, quote, start payment, capture, fulfil, notify, billing, view |
 | Level 3 — 5.3 Authorize & Sign Object | the three rules of `can_view_model` and the refusal handling |

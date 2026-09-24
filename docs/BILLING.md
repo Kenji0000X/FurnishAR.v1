@@ -1,5 +1,7 @@
 # Orders & payments — setup
 
+> **Since 0011** shops are paid through a connected PayPal **seller** account (Partner Referrals), not a typed email; the fee can be split by PayPal (`platform_split`) or accrue (default); webhooks, refunds and reminders exist. See `GOOGLE-PAYPAL-SETUP.md`. The sections below describe the 0009/0010 base that still applies.
+
 DFD process **P10**, data store **D5**. Migration `supabase/migrations/0009_orders_billing.sql`.
 
 ## How the money moves
@@ -55,9 +57,9 @@ In `/portal`, under **Billing & store type**, each shop sets three things:
 
 ## Limits worth knowing
 
-- **Pending captures:** a PayPal capture that comes back PENDING (for example, a new seller account under review) is not recorded yet. The buyer is told it is being reviewed. Recording it automatically when it clears would need a PayPal webhook, which is not built yet.
-- **Refunds:** refunds are done by the shop in its own PayPal account. A payment that arrives after an order has already moved on (paid twice, or the stock ran out) is recorded with `applied = false`, and the shop is emailed to refund it.
-- **Automatic 10% split:** taking the 10% automatically at checkout, instead of billing shops for it, needs PayPal Commerce Platform (partner) approval.
+- **Pending captures:** a capture that comes back PENDING is not recorded as paid. Since 0011 the `PAYMENT.CAPTURE.COMPLETED` webhook records it when it clears.
+- **Refunds:** refunds are done by the shop in its own PayPal account; since 0011 the refund webhook records them (`payment_refunds`, seller and platform portions). A payment that arrives after an order has already moved on (paid twice, or the stock ran out) is recorded with `applied = false`, and the shop is emailed to refund it.
+- **Automatic 10% split:** `PAYPAL_FEE_MODE=platform_split`, only once PayPal has enabled the partner app for platform fees and the seller granted the permission (0011).
 
 ## Tests
 

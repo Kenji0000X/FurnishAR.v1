@@ -5,6 +5,9 @@ import { initBackend, usingSupabase, supabase, backendReason, backendConfigured,
 import Link from 'next/link';
 import ProductFormDialog from './ProductFormDialog.js';
 import PasswordField from '../PasswordField.js';
+import GoogleButton from '../GoogleButton.js';
+import { oauthAlert } from '../../lib/role-routes.mjs';
+import PaymentSetupReminder from '../billing/PaymentSetupReminder.js';
 import useAlert from '../alerts/useAlert.js';
 import ConfirmDialog from '../ConfirmDialog.js';
 import { formatDimensions } from '../../lib/spatial/units.mjs';
@@ -138,6 +141,10 @@ function LoginPanel({ onSubmit, error, busy, cooldown, onShowSignup }) {
         <p className="form-error" role="alert" aria-live="assertive">{error}</p>
         <button className="text-button" type="button" onClick={onShowSignup}>New store? Sign up</button>
       </form>
+      <div className="oauth-row">
+        <p className="or-rule" aria-hidden="true"><span>or</span></p>
+        <GoogleButton intent="store" />
+      </div>
 
       {/* The single way in to the platform console.
           Showing it to everyone gives nothing away: /admin refuses anyone who
@@ -216,6 +223,11 @@ function SignupPanel({ onSubmit, message, busy, cooldown, onShowLogin }) {
         )}
         <button className="text-button" type="button" onClick={onShowLogin}>Back to login</button>
       </form>
+      <div className="oauth-row">
+        <p className="or-rule" aria-hidden="true"><span>or</span></p>
+        <GoogleButton intent="store" label="Apply with Google" />
+        <p className="form-note">No password to make: you sign in with Google, then fill in the application.</p>
+      </div>
     </div>
   );
 }
@@ -229,7 +241,27 @@ function SignupPanel({ onSubmit, message, busy, cooldown, onShowLogin }) {
  * them "your store is in review" was a dead end — their console was rendered
  * further down a branch this panel returns before reaching.
  */
-function PendingPanel({ email, onLogout, isAdmin }) {
+function PendingPanel({ email, onLogout, isAdmin, accountRole }) {
+  if (!isAdmin && accountRole === 'onboarding') {
+    /* Signed in (often with Google) but never applied, or the application
+       was not approved: nothing is "in review". Say so and go to the form. */
+    return (
+      <div className="login-panel">
+        <div className="login-copy">
+          <span className="secure-mark" aria-hidden="true">⌑</span>
+          <h2>No store application yet.</h2>
+          <p>
+            <b>{email}</b> is signed in but has not applied to sell, or its last application was not
+            approved. Applying takes a minute.
+          </p>
+        </div>
+        <div className="panel-actions">
+          <Link className="button button-primary" href="/onboarding?as=store">Apply to sell <span aria-hidden="true">→</span></Link>
+          <button className="button button-outline" type="button" onClick={onLogout}>Sign out</button>
+        </div>
+      </div>
+    );
+  }
   if (isAdmin) {
     return (
       <div className="login-panel">
@@ -292,6 +324,8 @@ export default function Portal({ initialProducts }) {
   // this; it decides what to render and grants nothing on its own.
   const [isAdmin, setIsAdmin] = useState(false);
   const [openOrders, setOpenOrders] = useState(0);   // for the rail's Orders badge
+  const [accountRole, setAccountRole] = useState(null);
+  const [paymentStatus, setPaymentStatus] = useState(null);   // reported by StoreOrders
 
   // Applying had no address of its own: it was a button on the login panel and
   // nothing else, so the footer, a poster or a message to a shop owner could
@@ -330,6 +364,18 @@ export default function Portal({ initialProducts }) {
   const alert = useAlert();
   const toast = (message, type = 'success') => alert.notify({ type, message });
 
+  /* Back from a Google sign-in that did not finish (lib/oauth.js). */
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    const code = query.get('oauth_error');
+    if (!code) return;
+    alert.raise(oauthAlert(code));
+    query.delete('oauth_error');
+    window.history.replaceState(null, '', `/portal${query.size ? `?${query}` : ''}${window.location.hash}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+
   /** Reads whichever session exists and loads the store's own inventory. */
   const refreshSession = useCallback(async () => {
     if (usingSupabase()) {
@@ -348,6 +394,8 @@ export default function Portal({ initialProducts }) {
       // session. Checking it only then meant an operator never saw their own
       // console until they reloaded the page by hand.
       setIsAdmin(await sb.isPlatformAdmin());
+      // Without a store: in review, or never applied (a Google sign-in)?
+      setAccountRole(membership ? 'owner' : await sb.myRole().catch(() => null));
 
       setSession({
         token: current.access_token,
@@ -596,7 +644,7 @@ export default function Portal({ initialProducts }) {
   }
 
   if (awaitingApproval) {
-    return <><PortalIntro /><PendingPanel email={user.email} onLogout={handleLogout} isAdmin={isAdmin} /></>;
+    return <><PortalIntro /><PendingPanel email={user.email} onLogout={handleLogout} isAdmin={isAdmin} accountRole={accountRole} /></>;
   }
 
   const plan = usingSupabase()
@@ -646,6 +694,8 @@ export default function Portal({ initialProducts }) {
             ? <p>{placeable} of {ownProducts.length} listings can be placed in a shopper&rsquo;s room.</p>
             : <p>Add your first piece so shoppers can find it and measure it at home.</p>}
         </ConsoleHeader>
+
+        {usingSupabase() && user.storeUuid && <PaymentSetupReminder storeUuid={user.storeUuid} status={paymentStatus} />}
 
         <ul className="console-bento" aria-label="Store at a glance">
           <li className="console-tile is-hero bezel">
@@ -781,7 +831,7 @@ export default function Portal({ initialProducts }) {
       </ConsoleSection>
 
       {/* Orders and billing live in the database (0009); the demo backend has neither. */}
-      {usingSupabase() && user.storeUuid && <StoreOrders storeUuid={user.storeUuid} onOpenCount={setOpenOrders} />}
+      {usingSupabase() && user.storeUuid && <StoreOrders storeUuid={user.storeUuid} onOpenCount={setOpenOrders} onPaymentStatus={setPaymentStatus} />}
 
       <ConsoleSection id="plan" title="Your Plan" note="Premium lifts the listing limit and features your pieces at the top of the catalog.">
         <PlanPanel plan={plan} used={ownProducts.length} />

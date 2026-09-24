@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { initBackend, usingSupabase, supabase } from '../../portal/backend.js';
 import AuthGateDialog from '../../AuthGateDialog.js';
@@ -15,15 +16,22 @@ import useAlert from '../../alerts/useAlert.js';
  * PayPal. A CUSTOM shop's piece is a starting point: the buyer describes what
  * they want and the shop replies with a quote.
  *
- * What this component shows is a preview. The amount actually charged, and
- * whether the delivery details are acceptable, are decided by the database
- * (0009, 0010) — this page could be edited in devtools to say ₱1 and the
- * buyer would still be asked for the real price.
+ * What this component shows is a preview. The amount actually charged, the
+ * fee, the shop's PayPal merchant and whether the delivery details are
+ * acceptable are decided by the database (0009–0011) — this page could be
+ * edited in devtools to say ₱1 and the buyer would still be asked for the
+ * real price, paid to the real shop.
+ *
+ * A shop takes online orders only once its PayPal seller account is
+ * connected (0011); until then this says so instead of offering a button
+ * that the server would refuse. Buyers never connect PayPal to FurnishAR:
+ * they sign in to PayPal only on PayPal's page, for that one payment.
  */
 const money = value => `₱${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default function PurchasePanel({ product }) {
   const alert = useAlert();
+  const router = useRouter();
   const [config, setConfig] = useState(null);
   const [role, setRole] = useState(null);
   const [quantity, setQuantity] = useState(1);
@@ -52,6 +60,18 @@ export default function PurchasePanel({ product }) {
   if (!config || config.offline || !product.storeUuid) return null;
   if (!custom && !config.payments) return null;
 
+  if (product.paymentsReady === false) {
+    return (
+      <section className="purchase-panel" aria-labelledby="purchase-heading">
+        <h2 id="purchase-heading" className="sr-only">Buying</h2>
+        <p className="purchase-note" role="status">
+          {product.store} is finishing its PayPal setup, so online {custom ? 'requests' : 'checkout'} will open soon.
+          {product.storeContact ? ` To buy now, contact the shop at ${product.storeContact}.` : ' To buy now, contact the shop directly.'}
+        </p>
+      </section>
+    );
+  }
+
   const rate = Number(config.feeRate ?? 0.1);
   const subtotal = Number(product.price) * quantity;
   const fee = Math.round(subtotal * rate * 100) / 100;
@@ -59,6 +79,11 @@ export default function PurchasePanel({ product }) {
   function needsBuyer(title) {
     if (role === 'guest') {
       setGate({ title, body: `Create a free shopper account or sign in. You will come straight back to the ${product.name}.` });
+      return true;
+    }
+    if (role === 'onboarding') {
+      // Signed in (e.g. with Google) but not yet a shopper: one question first.
+      router.push(`/onboarding?as=buyer&next=${encodeURIComponent(here)}`);
       return true;
     }
     if (role === 'owner' || role === 'admin' || role === 'pending') {
@@ -124,7 +149,7 @@ export default function PurchasePanel({ product }) {
 
       {dialog === 'checkout' && (
         <CheckoutDialog product={product} quantity={quantity} subtotal={subtotal} fee={fee} here={here}
-          onClose={() => setDialog(null)} />
+          sandbox={config.sandbox} onClose={() => setDialog(null)} />
       )}
       {dialog === 'request' && (
         <CustomRequestDialog product={product} onClose={() => setDialog(null)} />
@@ -225,11 +250,16 @@ function deliveryFrom(values) {
   };
 }
 
-function CheckoutDialog({ product, quantity, subtotal, fee, here, onClose }) {
+function CheckoutDialog({ product, quantity, subtotal, fee, here, sandbox, onClose }) {
   const alert = useAlert();
   const ref = useModal(onClose);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [email, setEmail] = useState('');
+
+  useEffect(() => {
+    supabase().getSession().then(current => setEmail(current?.user?.email || '')).catch(() => {});
+  }, []);
 
   async function submit(event) {
     event.preventDefault();
@@ -257,6 +287,7 @@ function CheckoutDialog({ product, quantity, subtotal, fee, here, onClose }) {
     <dialog ref={ref} className="confirm-dialog request-dialog" aria-labelledby="checkout-title">
       <form className="product-form" onSubmit={submit}>
         <h2 id="checkout-title">Checkout</h2>
+        {email && <p className="form-note">Signed in as <b>{email}</b></p>}
         <dl className="price-breakdown">
           <div><dt>{product.name}{quantity > 1 ? ` × ${quantity}` : ''}</dt><dd>{money(subtotal)}</dd></div>
           <div><dt>Service fee (10%)</dt><dd>{money(fee)}</dd></div>
@@ -268,11 +299,13 @@ function CheckoutDialog({ product, quantity, subtotal, fee, here, onClose }) {
         <div className="confirm-actions">
           <button className="button" type="button" onClick={() => ref.current?.close()}>Cancel</button>
           <button className="button button-primary" type="submit" disabled={busy} aria-busy={busy}>
-            {busy ? 'Opening PayPal…' : 'Continue to PayPal'}
+            {busy ? 'Opening PayPal…' : 'Pay with PayPal'}
           </button>
         </div>
         <p className="purchase-note">
-          Your receipt and estimated arrival date are emailed to you after payment.
+          You pay {product.store} on PayPal&rsquo;s own page — with your PayPal account or a card through PayPal.
+          FurnishAR never sees your PayPal password or card. Your receipt and estimated arrival date are emailed to you after payment.
+          {sandbox && <><br /><span className="status-chip is-sandbox">PayPal Sandbox</span> Test mode — no real money moves.</>}
         </p>
       </form>
     </dialog>

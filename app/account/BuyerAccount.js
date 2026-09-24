@@ -51,6 +51,11 @@ export default function BuyerAccount() {
       setState('guest');
       return;
     }
+    if (role === 'onboarding') {
+      /* Signed in (e.g. with Google) but not a shopper yet: one question. */
+      window.location.replace('/onboarding?as=buyer&next=%2Faccount');
+      return;
+    }
     if (role !== 'buyer') { setState('wrong-door'); return; }
 
     const [row, list] = await Promise.all([
