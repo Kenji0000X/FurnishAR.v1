@@ -415,6 +415,8 @@ try {
   check('an id PayPal refuses is not connected, and the owner is told why',
     await owner.locator('text=/does not recognise that Merchant ID/').first().isVisible()
     && !/Open — buyers can pay you/.test(await card.innerText()));
+  await card.locator('.paypal-help summary').click();
+  check('the help explains how to get a Merchant ID', /Sign Up[\s\S]*Business account[\s\S]*Merchant ID/i.test(await card.locator('.paypal-help').innerText()));
   if (process.env.SHOTS) await card.screenshot({ path: `${process.env.SHOTS}/paypal-card-refused.png` });
   await merchantField.fill('stockmerchant1');
   await card.getByRole('button', { name: 'Verify & Connect' }).click();

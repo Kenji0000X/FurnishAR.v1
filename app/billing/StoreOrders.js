@@ -433,6 +433,23 @@ function PaypalCard({ account, config, busy, onConnect, onRefresh, onLink, onUnl
               {config?.sandbox && <> Sandbox: developer.paypal.com → Sandbox Accounts → your Business account → <b>Account ID</b>.</>}
               {' '}PayPal checks it before your shop is connected; nothing is charged.
             </p>
+            <details className="paypal-help">
+              <summary>No PayPal account yet? How to get a Merchant ID</summary>
+              <ol>
+                <li>Go to <a href="https://www.paypal.com/ph/business" target="_blank" rel="noopener noreferrer">paypal.com</a> →
+                  <b> Sign Up</b> → choose <b>Business account</b>. It&rsquo;s free. Already have a personal PayPal? Upgrade it to
+                  Business in PayPal&rsquo;s Account Settings instead.</li>
+                <li>Enter your shop&rsquo;s name, email and mobile number, and set a password.</li>
+                <li>Open the email PayPal sends and <b>confirm your email address</b>. Until you do, PayPal won&rsquo;t accept payments for you.</li>
+                <li>In PayPal, click the <b>gear icon (Settings) → Account Settings → Business information</b> and copy the
+                  <b> PayPal Merchant ID</b>.</li>
+                <li>Paste it above and choose <b>Verify &amp; Connect</b>.</li>
+              </ol>
+              <p className="form-note">
+                Buyers pay straight into this PayPal account. FurnishAR never asks for your PayPal password.
+                {config?.sandbox && <> This site is in <b>test mode</b>: use a sandbox Business account from developer.paypal.com → Sandbox Accounts (its <b>Account ID</b>), not a real one.</>}
+              </p>
+            </details>
           </form>
         )}
 

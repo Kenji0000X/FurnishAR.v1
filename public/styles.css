@@ -5540,3 +5540,8 @@ td .status-chip { margin-inline-start: 0; }
 .paypal-link .form-note { grid-column: 1 / -1; margin: 0; }
 @media (max-width: 40rem) { .paypal-link { grid-template-columns: 1fr; } }
 .paypal-link .button { justify-self: start; }
+.paypal-help { grid-column: 1 / -1; border: 1px solid var(--rule); border-radius: var(--radius-sm); padding: .6rem .85rem; background: var(--paper); }
+.paypal-help summary { cursor: pointer; font-weight: 600; font-size: .875rem; color: var(--accent-ink); min-height: 28px; display: flex; align-items: center; }
+.paypal-help summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.paypal-help ol { margin: .6rem 0 .4rem; padding-inline-start: 1.2rem; display: grid; gap: .35rem; font-size: .875rem; color: var(--ink-muted); }
+.paypal-help a { color: var(--accent-ink); }
