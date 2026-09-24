@@ -154,7 +154,7 @@ async function fillAndSubmit() {
   await page.fill('input[name="height"]', '45');
   await page.fill('input[name="depth"]', '40');
   await page.setInputFiles('input[name="modelFile"]', {
-    name: 'model.glb', mimeType: 'model/gltf-binary', buffer: makeTestGlb(512 * 1024)
+    name: 'model.glb', mimeType: 'model/gltf-binary', buffer: makeTestGlb(512 * 1024, { size: [0.8, 0.45, 0.4] })
   });
   await page.click('dialog.form-dialog button[type="submit"]');
   await page.waitForTimeout(2500);
@@ -202,7 +202,7 @@ console.log('--- the file stores but the row never lands ---');
   await page.fill('input[name="height"]', '40');
   await page.fill('input[name="depth"]', '35');
   await page.setInputFiles('input[name="modelFile"]', {
-    name: 'model.glb', mimeType: 'model/gltf-binary', buffer: makeTestGlb(256 * 1024)
+    name: 'model.glb', mimeType: 'model/gltf-binary', buffer: makeTestGlb(256 * 1024, { size: [0.6, 0.4, 0.35] })
   });
   await page.click('dialog.form-dialog button[type="submit"]');
   await page.waitForTimeout(3000);

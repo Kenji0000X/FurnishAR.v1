@@ -66,6 +66,11 @@ const PAIRS = [
   ['--accent-ink', '--paper-raised', 4.5, 'info alerts'],
   ['--ink-muted', '--paper-raised', 4.5, 'alert message text'],
 
+  // The store owner's 3D model workspace (app/portal/ModelPreview.js): notes
+  // written on the preview stage, and the checklist's pending rows under it.
+  ['--ink-muted', '--paper-sunken', 4.5, 'model preview notes on the stage'],
+  ['--danger', '--paper-sunken', 4.5, 'model preview failures on the stage'],
+
   // The deep tone stopped being a one-off block the moment the home page got
   // two full-bleed bands on it. Everything that sits on --deep is measured
   // here, and adding these caught a real failure: the primary button on a band

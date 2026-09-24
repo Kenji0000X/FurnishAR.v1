@@ -124,7 +124,7 @@ await page.fill('input[name="depth"]', '40');
 await page.setInputFiles('input[name="modelFile"]', {
   name: 'model.glb',
   mimeType: 'model/gltf-binary',
-  buffer: makeTestGlb(FILE_MB * 1024 * 1024)
+  buffer: makeTestGlb(FILE_MB * 1024 * 1024, { size: [0.8, 0.45, 0.4] })
 });
 
 const percentagesSeen = new Set();

@@ -20,6 +20,7 @@
     "check:retry": "node scripts/check-upload-retry.mjs",
     "check:ar": "node scripts/check-ar-model.mjs",
     "check:shrink": "node scripts/check-model-shrink.mjs",
+    "check:model-form": "node scripts/check-model-form.mjs",
     "check:chrome": "node scripts/check-chrome.mjs",
     "check:contrast": "node scripts/check-contrast.mjs",
     "check:home": "node scripts/check-home-sections.mjs",

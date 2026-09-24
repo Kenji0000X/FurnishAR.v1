@@ -2353,79 +2353,348 @@ footer {
 .form-dialog { padding: 2rem; background: var(--paper-raised); }
 .form-dialog h2 { margin-bottom: 1.5rem; font-size: 1.5rem; }
 .product-form { display: grid; gap: 1rem; }
-.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .85rem; }
+.form-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .85rem; }
 .product-form textarea { resize: vertical; }
 
 /*
-   Five named groups instead of one 16-field grid — see the comment in
-   ProductFormDialog.js for why. The only two rules doing real work here are
-   proximity ones: the gap BETWEEN fieldsets (.product-form's 1rem gap, plus
-   each section's own 1.1rem top padding — 2.1rem total) is more than double
-   the gap WITHIN one (.form-grid's .85rem), so five groups read as five
-   groups without needing boxes or shadows to say so.
-
-   The legend reuses .filter-group's own mono/uppercase/tracked-out label —
-   the same "section title" this app already uses on the catalogue's filter
-   panel, not a new pattern invented for this one form.
+   Named groups instead of one long grid. The gap BETWEEN fieldsets (each
+   section's 1.1rem top padding plus the column gap) is more than double the
+   gap WITHIN one (.form-grid's .85rem), so the groups read as groups without
+   boxes or shadows to say so. The legend is the app's mono section label.
 */
 .form-section {
   display: grid; gap: .85rem;
+  min-width: 0;
   padding: 0; border: 0;
   padding-top: 1.1rem;
   border-top: 1px solid var(--rule);
 }
-.product-form > .form-section:first-child { padding-top: 0; border-top: 0; }
 .form-section > legend {
+  display: flex; align-items: center; gap: .5rem;
   padding: 0;
   font-family: var(--mono); font-size: var(--micro);
   letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint);
 }
+/* A fieldset's legend sits in the border; floated, it becomes an ordinary
+   grid item, so the top padding above applies to it like any other child. */
+.form-section > legend { float: left; width: 100%; }
 
-/* The AR box override is the one group most owners will never open — it
-   defaults to the dimensions above. Recessed rather than boxed, so the eye
-   settles on the required groups above it and treats this one as optional
-   at a glance, before reading a word of the legend. */
-.form-section-optional { opacity: .82; }
-.form-section-optional > legend { color: var(--ink-faint); }
-.form-section-note { margin-top: -.4rem; }
+/* ------------------------------------------- the product dialog -------- */
+/*
+   The 3D part of the form is a workspace, not a field: the size and the file
+   on the left, what they produce on the right, side by side so a change on
+   one side is seen on the other without scrolling. Below 60rem it stacks in
+   task order — size, file, preview, description — which is why the preview
+   is its own grid area rather than the second of two columns.
+*/
+.product-dialog { width: min(1120px, calc(100% - 2rem)); }
+.product-dialog-head { margin-bottom: 1.4rem; padding-right: 2.5rem; }
+.product-dialog-eyebrow {
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint);
+}
+.product-dialog h2 { margin: .35rem 0 0; }
+.product-dialog h2:focus { outline: none; }
+.product-dialog h2:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 4px; }
+
+.product-form-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "main" "preview" "rest";
+  gap: 1.1rem;
+}
+.product-form-main { grid-area: main; display: grid; gap: 1.1rem; min-width: 0; }
+.product-form-main > .form-section:first-child { padding-top: 0; border-top: 0; }
+.product-form-preview { grid-area: preview; min-width: 0; }
+.product-form-rest { grid-area: rest; min-width: 0; display: grid; }
+@media (min-width: 60rem) {
+  .product-form-layout {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    grid-template-areas: "main preview" "rest preview";
+    grid-template-rows: auto 1fr;
+    column-gap: 2rem;
+  }
+  /* The preview follows the owner down the form. The dialog is the scroller. */
+  .product-form-preview { align-self: start; position: sticky; top: 0; }
+}
+
+.step-index {
+  display: inline-grid; place-items: center;
+  width: 1.35rem; height: 1.35rem;
+  border: 1px solid var(--rule-strong); border-radius: var(--radius-pill);
+  font-size: .625rem; letter-spacing: 0; color: var(--ink-muted);
+}
+.preview-title {
+  display: flex; align-items: center; gap: .5rem;
+  margin-bottom: .85rem;
+  font-family: var(--mono); font-size: var(--micro); font-weight: 400;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint);
+}
+
+/* 1 · Physical size ---------------------------------------------------- */
+.size-head {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: .6rem 1rem;
+}
+.size-head .field-note { flex: 1 1 16rem; font-size: .75rem; color: var(--ink-muted); }
+
+/* cm / in / ft: three segments, the chosen one filled. Native radios inside,
+   so arrow keys move between them and a screen reader hears a radio group. */
+.unit-switch {
+  display: inline-flex; padding: 3px; gap: 2px;
+  border: 1px solid var(--rule-strong); border-radius: var(--radius-pill);
+  background: var(--paper);
+}
+.product-form .unit-option {
+  position: relative; display: block;
+  font-family: var(--mono); font-size: .6875rem; letter-spacing: .06em;
+  text-transform: none; color: var(--ink-muted);
+}
+.product-form .unit-option input {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  margin: 0; padding: 0; border: 0; opacity: 0; cursor: pointer;
+}
+.unit-option > span[aria-hidden] {
+  display: grid; place-items: center;
+  min-width: 2.6rem; height: 1.9rem; padding: 0 .6rem;
+  border-radius: var(--radius-pill);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.unit-option input:checked + span { background: var(--ink); color: var(--paper); }
+.unit-option:hover input:not(:checked) + span { color: var(--ink); }
+.unit-option input:focus-visible + span { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+
+.size-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .85rem; }
+.product-form .size-field { align-content: start; }
+.size-label { display: flex; flex-wrap: wrap; align-items: baseline; gap: .1rem .45rem; }
+.size-hint { letter-spacing: .04em; text-transform: none; font-family: var(--sans); font-size: .6875rem; color: var(--ink-faint); }
+.size-input { position: relative; display: block; }
+.product-form .size-input input {
+  padding-right: 2.4rem;
+  font-family: var(--mono); font-size: .9375rem; font-variant-numeric: tabular-nums;
+}
+.size-unit {
+  position: absolute; right: .7rem; top: 50%; transform: translateY(-50%);
+  font-family: var(--mono); font-size: .6875rem; letter-spacing: .04em;
+  text-transform: none; color: var(--ink-faint); pointer-events: none;
+}
+.product-form .size-input input[aria-invalid="true"] { border-color: var(--danger); }
+.field-error {
+  font-family: var(--sans); font-size: .6875rem; line-height: 1.4;
+  letter-spacing: normal; text-transform: none; color: var(--danger);
+}
+.size-saved { font-family: var(--mono); font-size: .6875rem; }
+.size-large { color: var(--warn); }
+
+/* 2 · The model file ---------------------------------------------------- */
+.dropzone { display: grid; gap: .55rem; }
+.product-form .dropzone-target {
+  position: relative;
+  display: grid; justify-items: center; align-content: center; gap: .35rem;
+  min-height: 7.5rem; padding: 1.2rem;
+  border: 1px dashed var(--rule-strong); border-radius: var(--radius);
+  background: var(--paper);
+  font-family: var(--sans); font-size: .8125rem; letter-spacing: normal; text-transform: none;
+  color: var(--ink); text-align: center; cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.dropzone-target:hover, .dropzone[data-dragging] .dropzone-target {
+  border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--paper));
+}
+.dropzone-target:focus-within { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
+.dropzone-target svg { color: var(--accent-ink); }
+.dropzone-title { font-weight: 500; }
+.dropzone-sub { font-size: .75rem; color: var(--ink-muted); }
+/* The input covers the whole target: clicking anywhere, or pressing Space on
+   it, opens the picker, and it stays in the tab order and the accessibility
+   tree. It is invisible, not hidden. */
+.product-form .dropzone-input {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  margin: 0; padding: 0; border: 0; opacity: 0; cursor: pointer;
+}
+.dropzone .field-note { font-size: .6875rem; line-height: 1.45; }
+
+.file-card {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
+  gap: .75rem; padding: .7rem .85rem;
+  border: 1px solid var(--rule); border-radius: var(--radius-sm);
+  background: var(--paper);
+}
+.file-card > svg { color: var(--ink-muted); }
+.file-card-text { display: grid; min-width: 0; }
+.file-card-name {
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font-size: .8125rem; color: var(--ink);
+}
+.file-card-meta { font-family: var(--mono); font-size: .6875rem; color: var(--ink-faint); }
+.file-card-actions { display: flex; gap: .9rem; }
+.file-card-actions .text-button { font-size: .75rem; }
+
+.upload-state {
+  display: flex; align-items: center; gap: .5rem;
+  min-height: 1.4rem;
+  font-size: .75rem; color: var(--ink-muted);
+}
+.upload-state[data-state="ready"] { color: var(--ok); }
+.upload-state[data-state="error"], .upload-state[data-state="scale-mismatch"] { color: var(--danger); }
+.upload-state svg { flex: 0 0 auto; }
+
+.advanced-paths { border-top: 1px dashed var(--rule); padding-top: .75rem; }
+.advanced-paths summary {
+  cursor: pointer; width: max-content; max-width: 100%;
+  font-family: var(--mono); font-size: var(--micro);
+  letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint);
+}
+.advanced-paths[open] summary { margin-bottom: .6rem; }
+.advanced-paths .form-grid { margin-top: .6rem; }
+
+.product-form-footer {
+  position: sticky; z-index: 2;
+  /* Sticky offsets are measured inside the dialog's padding; minus that
+     padding puts the bar on the dialog's real bottom edge. */
+  bottom: -2rem;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: .75rem 1.25rem;
+  margin: .5rem -2rem -2rem; padding: 1rem 2rem;
+  border-top: 1px solid var(--rule);
+  background: var(--paper-raised);
+}
+.product-form-messages { flex: 1 1 16rem; display: grid; gap: .35rem; min-width: 0; }
+.product-form-messages .form-error:empty { display: none; }
+.product-form-footer .button-primary { min-width: 11rem; justify-content: center; }
 
 /* ------------------------------------------- the model preview ---------- */
 /*
-   Shown inside the product form so a shop can confirm their upload before
-   publishing it, in the same lighting the catalogue and the product page use.
+   The owner's model at the size it was given, before it is saved. The stage
+   moves the camera to fit the piece; the piece itself is never resized to
+   fit the stage.
 */
 
-.model-preview { margin-top: 1rem; }
+.model-preview { display: grid; gap: .75rem; }
 
 .model-preview-stage {
   position: relative;
   display: grid; place-items: center;
-  aspect-ratio: 16 / 10;
-  border: 1px solid var(--rule);
-  background: var(--paper-sunken);
+  aspect-ratio: 4 / 3;
+  border: 1px solid var(--rule); border-radius: var(--radius);
+  background:
+    radial-gradient(120% 90% at 50% 20%, color-mix(in srgb, var(--paper) 70%, transparent), transparent 70%),
+    var(--paper-sunken);
   overflow: hidden;
 }
-.model-preview-stage canvas { width: 100%; height: 100%; display: block; }
+.model-preview-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 /* No model, no canvas to look at — the note takes the space instead. */
 .model-preview:not([data-state="ready"]) .model-preview-stage canvas { display: none; }
 
 .model-preview-note {
-  max-width: 28rem;
+  display: grid; justify-items: center; gap: .5rem;
+  max-width: 24rem;
   padding: 1.25rem;
   text-align: center;
   font-size: .8125rem; color: var(--ink-muted);
 }
+.model-preview-note[role="status"] { display: flex; align-items: center; gap: .55rem; }
+/* Over the canvas while its first frame is drawn, which a dense model can
+   make take a moment. */
+.model-preview-drawing { position: absolute; inset: auto 0 0 0; justify-content: center; margin: auto; }
 .model-preview-note.is-error { color: var(--danger); }
-.model-preview-note b { display: block; margin-bottom: .3rem; color: inherit; }
+.model-preview-note.is-error span { color: var(--ink-muted); }
+.model-preview-note b { display: block; color: inherit; }
 .model-preview-note code { font-family: var(--mono); font-size: .9em; }
 
-.model-preview-caption {
-  display: flex; align-items: center; gap: .45rem;
-  margin-top: .5rem;
-  font-family: var(--mono); font-size: var(--micro);
-  letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint);
+/* The size, written on the stage, in the owner's unit. */
+.model-preview-size {
+  position: absolute; left: .6rem; top: .6rem;
+  display: flex; flex-wrap: wrap; gap: .3rem;
+  max-width: calc(100% - 1.2rem);
+  pointer-events: none;
 }
-.model-preview-ok { width: 6px; height: 6px; background: var(--ok); }
+.model-preview-size span {
+  padding: .2rem .5rem;
+  border-radius: var(--radius-pill);
+  background: var(--glass); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  font-family: var(--mono); font-size: .6875rem; color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.model-preview-reset {
+  position: absolute; right: .6rem; bottom: .6rem;
+  display: inline-flex; align-items: center; gap: .35rem;
+  min-height: 2rem; padding: 0 .75rem;
+  border: 1px solid var(--rule-strong); border-radius: var(--radius-pill);
+  background: var(--glass); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  font-size: .75rem; color: var(--ink);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.model-preview-reset:hover { background: var(--ink); color: var(--paper); }
+@media (pointer: coarse) { .model-preview-reset { min-height: var(--tap); } }
+.model-preview-hint { font-size: .6875rem; color: var(--ink-faint); }
+
+/* Proportions that cannot be this size. A panel with a tinted ground rather
+   than a thick coloured stripe: it is an explanation with two ways out, not
+   a banner. */
+.scale-attention {
+  display: grid; gap: .7rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--rule));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--danger) 6%, var(--paper-raised));
+}
+.scale-attention h3 {
+  display: flex; align-items: flex-start; gap: .5rem;
+  font-size: .9375rem; line-height: 1.35; color: var(--ink);
+}
+.scale-attention h3 svg { flex: 0 0 auto; margin-top: .15rem; color: var(--danger); }
+.scale-attention dl { display: grid; gap: .35rem; margin: 0; }
+.scale-attention dl > div {
+  display: grid; grid-template-columns: minmax(0, 9.5rem) minmax(0, 1fr); gap: .75rem;
+  font-size: .75rem;
+}
+.scale-attention dt { color: var(--ink-muted); }
+.scale-attention dd { margin: 0; font-family: var(--mono); color: var(--ink); overflow-wrap: anywhere; }
+.scale-attention-note { font-size: .75rem; line-height: 1.5; color: var(--ink-muted); }
+.scale-attention-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+
+/* The checklist: an icon AND words for every state, so it never relies on
+   colour. */
+.scale-checks { display: grid; gap: .1rem; margin: 0; padding: 0; list-style: none; }
+.scale-checks li {
+  display: grid; grid-template-columns: 1.4rem minmax(0, 1fr); align-items: center;
+  column-gap: .5rem;
+  padding: .45rem 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: .8125rem; color: var(--ink-muted);
+}
+.scale-checks li:last-child { border-bottom: 0; }
+.scale-checks li > svg {
+  width: 1.4rem; height: 1.4rem; padding: .2rem;
+  border-radius: var(--radius-pill);
+  background: var(--paper-sunken); color: var(--ink-faint);
+}
+.scale-checks li[data-state="done"] { color: var(--ink); }
+.scale-checks li[data-state="done"] > svg { background: color-mix(in srgb, var(--ok) 16%, var(--paper)); color: var(--ok); }
+.scale-checks li[data-state="problem"] { color: var(--ink); }
+.scale-checks li[data-state="problem"] > svg { background: color-mix(in srgb, var(--danger) 14%, var(--paper)); color: var(--danger); }
+.scale-checks small {
+  grid-column: 2;
+  font-family: var(--mono); font-size: .6875rem; color: var(--ink-faint);
+}
+
+@media (max-width: 40rem) {
+  .product-dialog-head { margin-bottom: 1rem; }
+  .size-grid { grid-template-columns: minmax(0, 1fr); }
+  .product-form-footer { margin: .5rem -1.1rem -1.4rem; padding: .9rem 1.1rem; bottom: -1.4rem; }
+  .product-form-footer .button-primary { flex: 1 1 100%; }
+  .scale-attention dl > div { grid-template-columns: minmax(0, 1fr); gap: .1rem; }
+  .file-card { grid-template-columns: auto minmax(0, 1fr); }
+  .file-card-actions { grid-column: 1 / -1; justify-content: flex-end; }
+}
+@media (pointer: coarse) {
+  .file-card-actions .text-button { min-height: var(--tap); padding: 0 .25rem; }
+  .unit-option > span[aria-hidden] { height: 2.5rem; min-width: 3rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dropzone-target, .unit-option > span[aria-hidden], .model-preview-reset { transition: none; }
+}
 
 /* The old bottom-of-screen .toast lived here. Every notification now goes
    through lib/alerts/store.mjs and is drawn by .alert-region (end of file). */

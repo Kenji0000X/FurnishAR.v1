@@ -284,7 +284,7 @@ Public catalogue browsing through `/` and `/collection`.
 Public furniture information. The product page does not directly expose the protected 3D file.
 
 ### P4 Planner / Device Check
-`/plan`, camera/device checks, room measurement, furniture placement, WebXR/Quick Look, and fallback behavior.
+`/plan`, camera/device checks, room measurement, furniture placement, WebXR/Quick Look, and fallback behavior. The model is placed at the product's stored dimensions (D2), scaled uniformly; a model whose proportions cannot be those dimensions is not shown in AR. Sizes are displayed in cm, in or ft; the unit changes the text, never the size.
 
 ### P5 3D Access & Authorization
 Protected model boundary. Authentication asks who the caller is; authorization asks whether that caller may access the requested object.
@@ -293,7 +293,7 @@ Protected model boundary. Authentication asks who the caller is; authorization a
 `/account`. Buyer-owned profile operations only.
 
 ### P7 Store Portal
-`/portal`. Store application, owner authentication, inventory, product CRUD, and model upload.
+`/portal`. Store application, owner authentication, inventory, product CRUD, and model upload. The owner's width × depth × height (entered in cm, in or ft, stored in cm) is the one physical size. A chosen model is read and checked in the browser against that size before it is uploaded; a model whose proportions do not match is refused, never stretched. The upload itself is unchanged: signed upload URL, private bucket.
 
 ### P8 Admin Console
 `/admin`. Platform-level application review, stores, models, usage, and audit activity.
@@ -372,19 +372,32 @@ Where this DFD and the code disagreed, and which one moved.
 - RECOMMENDED ARCHITECTURE: the buyer's delivery choice travels with the order into D5 (0010); the database stamps the estimated arrival on payment; the shop's delivery steps go through `POST /api/sb/orders/delivery` (P7 → P10 → D5) and each raises an email (P10 → Email Service → Buyer). The receipt is a read of D5 under RLS.
 - REASON: requested feature. The Email Service entity is now Gmail (App Password) or Resend — both server-side only.
 
-**8. Database state**
+**8. Physical size is authoritative (added 2026-09-24)**
+- DFD ISSUE: P7 → D2 carried "details / dimensions", but the product also had a second, owner-editable size (`bounds_*`, "AR box size") that nothing reconciled with the first, and P4 scaled the model per axis from whichever it read.
+- CURRENT CODE BEHAVIOR (before): two size inputs in the form; AR scale derived from the mesh with a units guess; the preview fitted every model to one unit, so it could not show the published size.
+- RECOMMENDED ARCHITECTURE: one physical size. P7 validates the model locally (read, measure, compare proportions within 3%) before the existing signed upload; D2 keeps `width_cm / depth_cm / height_cm`; `bounds_*` stay in the schema for compatibility but are no longer written, so the catalogue view falls back to the dimensions. P4 and the portal preview use the same transform (`lib/spatial/model-transform.mjs`): one uniform factor, floored, centred, re-measured.
+- REASON: requested feature; a piece of furniture has one size. **Code changed; no flow, endpoint, process or store added**, so the drawio is unchanged. P5 is untouched: private bucket, `/api/sb/model` authorization and signed URLs all stay as they were, and the portal preview of a stored model goes through the same signed-URL path.
+
+**9. Database state**
 - Migrations 0005 (bucket limit), 0006 (buyers, `my_role`) and 0007 (private `furniture-models` bucket, `can_view_model` policy) are applied to the live project. 0008 takes trigger functions off the RPC surface and stops anonymous calls to `can_view_model`.
 
 ## DFD artifact
 
-The companion `FURNISHAR-DFD-V2.drawio` holds every diagram in this document as a draw.io page. Open it at app.diagrams.net, or in the draw.io desktop app or VS Code extension, and switch pages with the tabs at the bottom:
+The companion `FURNISHAR-DFD-V2.drawio` holds every diagram as a draw.io page. Open it at app.diagrams.net, or in the draw.io desktop app or VS Code extension, and switch pages with the tabs at the bottom:
 
-| Page | Matches the section |
+| Page | Shows |
 |---|---|
-| Level 0 — Context DFD | Level 0 context DFD |
-| Level 1 — System DFD | Level 1 system DFD (P1–P10, D1–D5) |
-| Level 2 — Protected 3D Access | Critical 3D access flow |
-| Level 2 — Orders & Payments (P10) | Payment flow (P10), plus the custom-build stages |
-| Use Case Diagram | The actors and processes above, as UML use cases |
+| Level 0 — Context DFD | the system as one process and its six external entities |
+| Level 1 — System DFD | processes 1.0–10.0 and data stores D1–D5 (this document's Level 1) |
+| Level 2 — 1.0 Authentication & Session | 1.1 Register · 1.2 Log In · 1.3 Resolve Role · 1.4 Renew Session · 1.5 Log Out |
+| Level 2 — 5.0 3D Access & Authorization | 5.1 Validate · 5.2 Verify Session · 5.3 Authorize & Sign · 5.4 Deliver Signed URL |
+| Level 2 — 10.0 Orders & Payments | 10.1–10.8: place/cancel, quote, start payment, capture, fulfil, notify, billing, view |
+| Level 3 — 5.3 Authorize & Sign Object | the three rules of `can_view_model` and the refusal handling |
+| Level 3 — 10.4 Capture & Record Payment | fetch, re-check, match & capture, secret check, record, report |
+| Flow — Protected 3D Access | the "Critical 3D access flow" above as a step-by-step flowchart |
+| Flow — Checkout & Custom-Build Stages | the "Payment flow (P10)" above, plus the custom-build stages |
+| Use Case Diagram | the actors and what each can do, in UML |
 
-Pages 1 and 3–5 are generated by `python3 scripts/build-dfd-drawio.py`. The Level 1 page is hand-laid and the script keeps it unchanged. After changing a flow here, update that script and re-run it so the diagram and this text stay in step. `--preview <dir>` also writes an SVG sketch of each generated page for a quick check.
+`docs/DFD-LEVELS.md` explains every level: notation, each process and the code behind it, the data stores, and how each Level 2 page balances with Level 1.
+
+All pages are generated by `python3 scripts/build-dfd-drawio.py`. After changing a flow here, update that script and re-run it so the diagrams and this text stay in step. `--preview <dir>` also writes an SVG of each page.

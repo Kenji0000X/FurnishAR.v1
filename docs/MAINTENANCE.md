@@ -108,6 +108,54 @@ knowing where it stops working is part of the result.
 **Device and version to record with the table:** phone model, Android and
 Chrome version, ARCore version, and the build stamp from the footer.
 
+### Furniture shown at its real size in AR
+
+**What is already proven.** The store owner's width × depth × height is the
+size. `tests/model-scale.test.js` and `tests/units.test.js` show that a model
+exported in metres, centimetres or millimetres is scaled to exactly that size
+(30 × 30 × 40 cm becomes 0.30 × 0.30 × 0.40 m); that the scale is one uniform
+factor, never stretched per axis; that a model whose proportions differ by
+more than 3% is refused; and that the scaled model's bounds are re-measured
+within 2% before it is shown. `scripts/check-model-form.mjs` checks the same
+in the portal, in a real browser.
+
+That proves the scene is built at the right size. It does **not** prove a
+phone's AR tracking shows it at that size; ARCore and ARKit estimate the
+floor and the camera's distance, and that estimate is where error comes from.
+
+**Protocol.** Use a real object whose size you can measure (a stool, a box),
+listed with its measured dimensions and a matching model. In a bright room
+with a textured floor:
+
+1. Put the real object on the floor. Measure its width, depth and height with
+   a steel tape. That is the reference.
+2. Open the product in AR on the phone and place the model beside it.
+3. Measure the virtual piece against a tape laid on the floor beside it, or
+   with the planner's clearance tool, for each of width, depth and height.
+4. Repeat twice more, re-placing the model each time. Record every reading.
+
+**Table to fill in** (`observed − expected ÷ expected × 100`):
+
+| Device | OS | Browser | Axis | Expected | Observed 1 | Observed 2 | Observed 3 | Mean | Error % |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| | | | Width | | | | | | |
+| | | | Depth | | | | | | |
+| | | | Height | | | | | | |
+
+**Pass criterion.** Mean error within ±5% on each axis. Record the phone model,
+OS version, browser version and the build stamp from the footer with the table.
+
+**What may be claimed.** Until this table is filled in: "Displayed using the
+furniture's verified real-world dimensions." Not "exact", not "accurate to the
+millimetre": the app controls the size of the scene, the phone's tracking
+controls how that scene lines up with the room.
+
+**Also time it on a phone.** In headless Chromium with no GPU, the portal's
+preview of a 60 MB / 870 000-triangle model took about 55 s to read and first
+draw, and a 100 MB model about 93 s. A phone with a real GPU should be far
+faster. Record how long a large model takes to show in the portal on a
+mid-range phone before relying on it.
+
 ## 6. Common problems
 
 | Symptom | Likely cause | Fix |

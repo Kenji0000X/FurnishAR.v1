@@ -18,13 +18,15 @@
  * does not care which transport answered.
  */
 
+import { MODEL_UPLOAD_LIMIT_BYTES } from './model-limits.mjs';
+
 const CONFIG = (typeof window !== 'undefined' && window.FURNISHAR_CONFIG) || {};
 const MODEL_BUCKET = 'furniture-models';
-// Matches the bucket's file_size_limit (supabase/migrations/0005_raise_model_limit.sql).
-// Checked here too so an oversized file is refused before spending any of the
-// upload — on a slow connection, finding out after ten minutes is its own
+// The one upload limit (./model-limits.mjs explains the three numbers behind
+// it). Checked here too so an oversized file is refused before spending any of
+// the upload — on a slow connection, finding out after ten minutes is its own
 // kind of broken.
-const MAX_MODEL_BYTES = 100 * 1024 * 1024;
+const MAX_MODEL_BYTES = MODEL_UPLOAD_LIMIT_BYTES;
 const SESSION_KEY = 'furnishar-sb-session';
 
 let mode = null;          // 'proxy' | 'direct' | null
@@ -1046,19 +1048,14 @@ export function friendlyError(error) {
   if (/User already registered/i.test(message)) return 'An account already exists for that email. Sign in instead.';
   if (/Password should be at least/i.test(message)) return 'Use a password of at least 6 characters.';
   if (/Email not confirmed/i.test(message)) return 'Confirm your email address first — check your inbox.';
-  // Reads the constant rather than repeating the number, which is how this
-  // came to still say 50 after the bucket was raised to 100.
-  //
-  // Storage enforces the BUCKET's file_size_limit, which is a different number
-  // from this app's MAX_MODEL_BYTES and only matches it once
-  // 0005_raise_model_limit.sql has actually been run against the project. A
-  // file that passes the check in uploadModel() and is then refused here means
-  // exactly that gap, so say so instead of quoting a limit the server does not
-  // agree with.
+  // Reads the constant rather than repeating the number. A file that passes
+  // the check in uploadModel() and is then refused here means the bucket's own
+  // file_size_limit is below this app's, so say that instead of quoting a
+  // limit the server does not agree with.
   if (/exceeded the maximum allowed size|Payload too large/i.test(message)) {
-    return `Supabase refused that model as too large. This app allows ${MAX_MODEL_BYTES / 1048576} MB, `
-      + 'but the storage bucket enforces its own limit — if it still refuses a file under that, run '
-      + 'supabase/migrations/0005_raise_model_limit.sql against the project to raise the bucket to 100 MB.';
+    return `Supabase refused that model as too large. This app uploads models up to ${MAX_MODEL_BYTES / 1048576} MB, `
+      + 'which is under the storage limit of every Supabase plan, so the bucket\'s own limit has been set lower. '
+      + 'Check file_size_limit on the furniture-models bucket (supabase/migrations/0005_raise_model_limit.sql).';
   }
   return message;
 }

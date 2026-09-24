@@ -25,7 +25,7 @@ const PLANS = [
     features: [
       'Up to 8 published products',
       'AR placement and room measurement',
-      '3D model upload, 50 MB per file',
+      '3D model upload, up to 40 MB per file',
       'Store profile in every listing'
     ]
   },
