@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+
 /**
  * One order, as its buyer or its shop sees it.                 DFD: P10
  *
@@ -23,6 +25,16 @@ const LABELS = {
   expired: ['Expired', 'off']
 };
 
+const DELIVERY = {
+  preparing: 'Preparing',
+  out_for_delivery: 'Out for delivery',
+  ready_for_pickup: 'Ready for pickup',
+  delivered: 'Delivered'
+};
+
+const arrival = value => new Date(`${value}T12:00:00+08:00`)
+  .toLocaleDateString('en-PH', { timeZone: 'Asia/Manila', weekday: 'short', month: 'short', day: 'numeric' });
+
 export function statusLabel(status) {
   return LABELS[status]?.[0] || status;
 }
@@ -37,7 +49,16 @@ function requestSummary(request) {
 }
 
 export default function OrderCard({ order, perspective, children }) {
-  const [label, tone] = LABELS[order.status] || [order.status, 'wait'];
+  let [label, tone] = LABELS[order.status] || [order.status, 'wait'];
+  // Once paid, what the buyer wants to know is where the furniture is.
+  if (order.status === 'paid' && order.delivery_status && order.delivery_status !== 'preparing') {
+    label = order.fulfilment_method === 'pickup' && order.delivery_status === 'delivered' ? 'Picked up' : DELIVERY[order.delivery_status];
+  } else if (order.status === 'paid' && order.delivery_status === 'preparing') {
+    label = 'Paid — preparing';
+  } else if (order.status === 'fulfilled') {
+    label = order.fulfilment_method === 'pickup' ? 'Picked up' : 'Delivered';
+  }
+  const hasReceipt = Number(order.amount_paid) > 0;
   const summary = requestSummary(order.request);
   const due = order.status === 'quoted' ? order.deposit_amount
     : order.status === 'balance_due' ? Number(order.total) - Number(order.amount_paid)
@@ -69,6 +90,21 @@ export default function OrderCard({ order, perspective, children }) {
       )}
       {order.lead_time_days && <p className="order-meta">Lead time: about {order.lead_time_days} days{order.quote_note ? ` · “${order.quote_note}”` : ''}</p>}
       {order.decline_reason && <p className="order-meta">Shop said: {order.decline_reason}</p>}
+      {order.fulfilment_method && (
+        <p className="order-meta">
+          {order.fulfilment_method === 'pickup'
+            ? 'Store pickup'
+            : `Free delivery to ${[order.delivery_address, order.delivery_municipality].filter(Boolean).join(', ')}`}
+          {order.estimated_arrival && order.status !== 'fulfilled' && (
+            <> · <b>{order.fulfilment_method === 'pickup' ? 'ready by' : 'arrives by'} {arrival(order.estimated_arrival)}</b></>
+          )}
+          {perspective === 'store' && order.delivery_phone ? ` · ${order.delivery_phone}` : ''}
+          {perspective === 'store' && order.delivery_notes ? ` · “${order.delivery_notes}”` : ''}
+        </p>
+      )}
+      {hasReceipt && (
+        <p className="order-meta"><Link href={`/account/receipt/${order.id}`}>View receipt</Link></p>
+      )}
       {order.status === 'pending_payment' && order.hold_expires_at && (
         <p className="order-meta">Held until {new Date(order.hold_expires_at).toLocaleTimeString('en-PH', { timeStyle: 'short' })}</p>
       )}

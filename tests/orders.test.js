@@ -73,11 +73,15 @@ test('no session, no order', async () => {
 });
 
 test('checkout sends the product and quantity, never a price, and pays the shop', async () => {
-  const result = await handleOrders(req, 'checkout', { productId: PRODUCT, quantity: 2, price: 1, total: 1 }, SITE);
+  const delivery = { method: 'delivery', address: 'Purok 3, Poblacion', municipality: 'Mamburao', phone: '0917 123 4567', notes: null };
+  const result = await handleOrders(req, 'checkout', { productId: PRODUCT, quantity: 2, price: 1, total: 1, delivery }, SITE);
   assert.equal(result.status, 200);
   assert.equal(result.body.approveUrl, 'https://paypal.test/approve');
   const create = calls.find(c => c.url.includes('create_stock_order'));
-  assert.deepEqual(create.body, { p_product: PRODUCT, p_quantity: 2 });
+  assert.deepEqual(create.body, {
+    p_product: PRODUCT, p_quantity: 2, p_method: 'delivery', p_address: 'Purok 3, Poblacion',
+    p_municipality: 'Mamburao', p_phone: '0917 123 4567', p_notes: null
+  });
   const pp = calls.find(c => c.url.endsWith('/v2/checkout/orders'));
   assert.equal(pp.body.purchase_units[0].amount.value, '2200.00');      // from begin_payment
   assert.equal(pp.body.purchase_units[0].payee.email_address, 'shop@pay.ph');
@@ -139,4 +143,27 @@ test('unknown actions are not dispatched', async () => {
     const result = await handleOrders(req, action, {}, SITE);
     assert.equal(result.status, 404, action);
   }
+});
+
+test('the receipt email carries the order, the fee, the payment and the arrival date', () => {
+  const { messagesFor } = require('../lib/notify.js');
+  const contacts = {
+    order_id: ORDER, reference: 'ABC123', kind: 'stock', product_name: 'Chair <b>', quantity: 2, unit_price: 1000,
+    subtotal: 2000, platform_fee: 200, total: 2200, amount_paid: 2200, created_at: '2026-09-24T02:00:00Z',
+    buyer_name: 'Ana', buyer_email: 'ana@gmail.com', store_name: 'Shop', store_address: 'Mamburao', store_contact: '0917',
+    store_emails: ['shop@gmail.com'], fulfilment_method: 'delivery', delivery_address: 'Purok 3', delivery_municipality: 'Mamburao',
+    delivery_phone: '0917 123 4567', estimated_arrival: '2026-09-27',
+    payments: [{ stage: 'full', amount: 2200, capture_id: 'CAP123', captured_at: '2026-09-24T02:05:00Z', applied: true }]
+  };
+  const [toBuyer, toShop] = messagesFor('paid', contacts, SITE);
+  assert.equal(toBuyer.to, 'ana@gmail.com');
+  const text = toBuyer.rows.filter(r => !r.rule).map(r => `${r.label}: ${r.value}`).join('\n');
+  for (const piece of ['ABC123', '₱2,000.00', '₱200.00', '₱2,200.00', 'CAP123', 'Free delivery to Purok 3, Mamburao', 'September 27, 2026']) {
+    assert.ok(text.includes(piece), `receipt is missing ${piece}:\n${text}`);
+  }
+  assert.equal(toBuyer.action.href, `${SITE}/account/receipt/${ORDER}`);
+  assert.deepEqual(toShop.to, ['shop@gmail.com']);
+  // Buyer-supplied text is escaped in the HTML.
+  const { render } = require('../lib/notify.js');
+  assert.ok(!render(toBuyer).html.includes('<b>'));
 });

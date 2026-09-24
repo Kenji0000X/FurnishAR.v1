@@ -22,11 +22,12 @@ DFD process **P10**, data store **D5**. Migration `supabase/migrations/0009_orde
 | `PAYPAL_CLIENT_SECRET` | That app's secret. **Never** a `NEXT_PUBLIC_` variable. |
 | `PAYPAL_ENV` | `sandbox` (default) or `live` |
 | `PAYMENT_RECORDER_SECRET` | A random string, 32+ characters. Must match the hash stored in the database (below). |
-| `RESEND_API_KEY` | Resend API key, for order emails |
-| `EMAIL_FROM` | e.g. `FurnishAR <orders@your-domain>` — the domain must be verified in Resend |
+| `GMAIL_USER` | The Gmail address that sends receipts and order emails, e.g. `furnishar.orders@gmail.com` |
+| `GMAIL_APP_PASSWORD` | A Google **App Password** for that Gmail (16 letters; spaces are fine). Not the normal Gmail password. |
+| `RESEND_API_KEY` / `EMAIL_FROM` | Alternative to Gmail. Only used when the Gmail pair is not set; without a verified domain Resend only delivers to its own account's address. |
 | `SITE_URL` | optional, e.g. `https://furnisharv1.vercel.app` — where PayPal sends buyers back |
 
-Payments stay switched off until PayPal and the recorder secret are both set. Without Resend the orders still work; the emails are skipped and logged.
+Payments stay switched off until PayPal and the recorder secret are both set. Without an email sender the orders still work; the emails are skipped and logged.
 
 ## The payment-recorder secret
 
@@ -63,3 +64,20 @@ In `/portal`, under **Billing & store type**, each shop sets three things:
 - `node --test tests/billing.test.js`: the database rules, against a local Postgres.
 - `node --test tests/orders.test.js`: the server, against a fake PayPal.
 - `npm run check:billing`: the browser flow, end to end. Run `npm run build` first.
+
+## Gmail App Password (for receipts)
+
+1. Use a Gmail account for the shop platform (a new one such as `furnishar.orders@gmail.com` is best).
+2. Turn on **2-Step Verification**: myaccount.google.com → Security → 2-Step Verification.
+3. Create an App Password: myaccount.google.com/apppasswords → name it "FurnishAR" → **Create**. Copy the 16-letter password.
+4. In Vercel add `GMAIL_USER` (the Gmail address) and `GMAIL_APP_PASSWORD` (the 16 letters), then redeploy.
+
+Gmail allows about 500 emails a day from a personal account.
+
+## Delivery, pickup and receipts (0010)
+
+- At checkout the buyer chooses **free delivery** (address, municipality, mobile number) or **store pickup**.
+- Each shop sets how many days delivery and pickup take (portal → Billing & store type).
+- When an order is paid — or a custom build's deposit is — the database stamps an **estimated arrival date**: today + those days (+ the quoted lead time for a custom build).
+- The shop moves a paid order along: **Out for delivery** / **Ready for pickup** → **Delivered / Picked up**. Each step emails the buyer.
+- The buyer gets an itemised **receipt email** on payment and can open or print it any time at `/account/receipt/<order>`.

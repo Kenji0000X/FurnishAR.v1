@@ -1266,12 +1266,26 @@ export async function orderAction(action, payload = {}, retried = false) {
 
 const ORDER_FIELDS = 'id,reference,kind,status,store_id,product_id,product_name,quantity,unit_price,subtotal,'
   + 'fee_rate,platform_fee,total,deposit_amount,amount_paid,currency,request,quote_note,lead_time_days,'
-  + 'decline_reason,hold_expires_at,created_at,updated_at,paid_at,buyer_name,buyer_email,stores(name,slug)';
+  + 'decline_reason,hold_expires_at,created_at,updated_at,paid_at,buyer_name,buyer_email,'
+  + 'fulfilment_method,delivery_address,delivery_municipality,delivery_phone,delivery_notes,'
+  + 'estimated_arrival,delivery_status,delivered_at,fulfilled_at,stores(name,slug,address,contact_number)';
 
 /** The signed-in buyer's own orders (RLS decides which rows exist). */
 export async function listMyOrders() {
   if (!session) return [];
   return (await restCall(`orders?select=${ORDER_FIELDS}&order=created_at.desc&limit=50`)) || [];
+}
+
+/**
+ * One order with its payments, for its receipt. RLS decides who may read it:
+ * the buyer, the shop's members, or an admin. Anyone else gets nothing.
+ */
+export async function getOrderReceipt(orderId) {
+  const rows = await restCall(
+    `orders?id=eq.${encodeURIComponent(orderId)}&select=${ORDER_FIELDS},`
+    + 'payments(stage,amount,capture_id,captured_at,applied)&limit=1'
+  );
+  return (rows || [])[0] || null;
 }
 
 /** A store's incoming orders, for its owner. */
@@ -1285,12 +1299,14 @@ export async function listStoreOrders(storeUuid) {
 export async function storeBilling(storeUuid) {
   const id = encodeURIComponent(storeUuid);
   const [payout, store, fees] = await Promise.all([
-    restCall(`store_payout?store_id=eq.${id}&select=paypal_email,notify_email`),
+    restCall(`store_payout?store_id=eq.${id}&select=paypal_email,notify_email,delivery_days,pickup_days`),
     restCall(`stores?id=eq.${id}&select=fulfilment`),
     restCall('rpc/store_fee_summary', { method: 'POST', body: JSON.stringify({ p_store: storeUuid }) })
   ]);
   return {
     fulfilment: store?.[0]?.fulfilment || 'stocked',
+    deliveryDays: payout?.[0]?.delivery_days ?? 3,
+    pickupDays: payout?.[0]?.pickup_days ?? 1,
     paypalEmail: payout?.[0]?.paypal_email || '',
     notifyEmail: payout?.[0]?.notify_email || '',
     fees: fees || { accrued: 0, settled: 0, outstanding: 0 }

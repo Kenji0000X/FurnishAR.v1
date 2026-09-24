@@ -32,6 +32,7 @@ This is the implementation-aligned replacement for the supplied sample DFD.
 | Help | `/faq` | Public content — no process, no data flow |
 | Buy / request a build | `/furniture/[slug]` (purchase panel) | P10 Orders & Payments |
 | Buyer orders, PayPal return | `/account#orders`, `/account?paypal=return` | P10 Orders & Payments |
+| Receipt | `/account/receipt/[id]` | P10 Orders & Payments (read, per RLS) |
 | Store billing and incoming orders | `/portal#orders` | P7 → P10 |
 | Platform fees | `/admin/billing` | P8 → D5 |
 
@@ -69,7 +70,7 @@ The DFD is aligned with the current repository routes:
 | `/api/sb/status` | Health (no process data) | — |
 | `GET /api/sb/orders/config` | P10 — are payments / emails switched on (no secrets) | — |
 | `POST /api/sb/orders/checkout`, `pay`, `capture`, `request`, `cancel` | P10 Orders & Payments (buyer) | D2, D5, PayPal |
-| `POST /api/sb/orders/quote`, `decline`, `ready`, `fulfil`, `store-billing` | P10 Orders & Payments (store owner) | D5 |
+| `POST /api/sb/orders/quote`, `decline`, `ready`, `fulfil`, `delivery`, `store-billing` | P10 Orders & Payments (store owner) | D5 |
 | `/api/sb/rest/orders`, `payments`, `store_payout`, `fee_settlements` (read-only) | P10 reads, per RLS | D5 |
 | `/api/sb/rest/rpc/store_fee_summary`, `fee_overview`, `record_fee_settlement` | P7 fee balance, P8 settlement | D5, D4 (audit) |
 
@@ -191,7 +192,7 @@ flowchart TB
     D5 -->|amount due / order state| P10
     P10 -->|create / capture, payee = shop| PP
     PP -->|approval / capture result| P10
-    P10 -->|order email| EM
+    P10 -->|receipt / delivery-step email| EM
     P8 -->|fee overview / settlements| D5
 
     P1 -->|auth event| P9
@@ -365,7 +366,13 @@ Where this DFD and the code disagreed, and which one moved.
 - RECOMMENDED ARCHITECTURE: P10 Orders & Payments, D5 Orders / Payments / Fees, PayPal and Email as external entities, endpoints `/api/sb/orders/*` as listed above.
 - REASON: requested feature. Added to the DFD and the code together. Also closed a hole found on the way: store owners could UPDATE every column of their store (including `plan` and `status`); 0009 limits them to the shop's own details.
 
-**7. Database state**
+**7. Delivery, pickup and receipts (added 2026-09-24)**
+- DFD ISSUE: P10 ended at "paid"; nothing described how the buyer receives the piece or what record they keep.
+- CURRENT CODE BEHAVIOR (before): no delivery details, no arrival date, a one-line "payment received" email.
+- RECOMMENDED ARCHITECTURE: the buyer's delivery choice travels with the order into D5 (0010); the database stamps the estimated arrival on payment; the shop's delivery steps go through `POST /api/sb/orders/delivery` (P7 → P10 → D5) and each raises an email (P10 → Email Service → Buyer). The receipt is a read of D5 under RLS.
+- REASON: requested feature. The Email Service entity is now Gmail (App Password) or Resend — both server-side only.
+
+**8. Database state**
 - Migrations 0005 (bucket limit), 0006 (buyers, `my_role`) and 0007 (private `furniture-models` bucket, `can_view_model` policy) are applied to the live project. 0008 takes trigger functions off the RPC surface and stops anonymous calls to `can_view_model`.
 
 ## DFD artifact

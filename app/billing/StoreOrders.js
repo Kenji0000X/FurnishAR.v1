@@ -41,7 +41,9 @@ export default function StoreOrders({ storeUuid }) {
         storeId: storeUuid,
         fulfilment: values.fulfilment,
         paypalEmail: values.paypalEmail,
-        notifyEmail: values.notifyEmail
+        notifyEmail: values.notifyEmail,
+        deliveryDays: Number(values.deliveryDays),
+        pickupDays: Number(values.pickupDays)
       });
       alert.showSuccess('Billing settings saved.');
       await load();
@@ -55,7 +57,11 @@ export default function StoreOrders({ storeUuid }) {
     setBusy(order.id);
     try {
       await supabase().orderAction(action, { orderId: order.id, ...extra });
-      const said = {
+      const said = action === 'delivery' ? {
+        out_for_delivery: `${order.reference} is out for delivery. The buyer has been emailed.`,
+        ready_for_pickup: `${order.reference} is ready for pickup. The buyer has been emailed.`,
+        delivered: `${order.reference} marked ${order.fulfilment_method === 'pickup' ? 'picked up' : 'delivered'}.`
+      }[extra.status] : {
         quote: `Quote sent for ${order.reference}. The buyer has been emailed.`,
         decline: `Request ${order.reference} declined.`,
         ready: `${order.reference} marked ready. The buyer has been asked for the balance.`,
@@ -100,7 +106,21 @@ export default function StoreOrders({ storeUuid }) {
               <input name="notifyEmail" type="email" defaultValue={billing.notifyEmail}
                 autoComplete="email" spellCheck={false} placeholder="Optional — defaults to your sign-in email…" />
             </label>
+            <label>
+              Delivery takes (days)
+              <input name="deliveryDays" type="number" min="1" max="60" required inputMode="numeric"
+                defaultValue={billing.deliveryDays} />
+            </label>
+            <label>
+              Ready for pickup in (days)
+              <input name="pickupDays" type="number" min="0" max="60" required inputMode="numeric"
+                defaultValue={billing.pickupDays} />
+            </label>
           </fieldset>
+          <p className="form-note">
+            Delivery is free for buyers. These days set the estimated arrival date on each receipt
+            (plus the lead time you quote, for custom builds).
+          </p>
           <p className="form-note">
             Buyers pay your PayPal account directly: your price plus FurnishAR&rsquo;s 10% service fee.
             The fee is tallied below and settled with FurnishAR separately.
@@ -146,9 +166,21 @@ export default function StoreOrders({ storeUuid }) {
                     <button className="button button-primary" type="button" disabled={busy === order.id}
                       onClick={() => act(order, 'ready')}>Mark ready — request balance</button>
                   )}
-                  {order.status === 'paid' && (
+                  {order.status === 'paid' && order.fulfilment_method !== 'pickup'
+                    && order.delivery_status !== 'out_for_delivery' && (
                     <button className="button button-primary" type="button" disabled={busy === order.id}
-                      onClick={() => act(order, 'fulfil')}>Mark handed over</button>
+                      onClick={() => act(order, 'delivery', { status: 'out_for_delivery' })}>Out for delivery</button>
+                  )}
+                  {order.status === 'paid' && order.fulfilment_method === 'pickup'
+                    && order.delivery_status !== 'ready_for_pickup' && (
+                    <button className="button button-primary" type="button" disabled={busy === order.id}
+                      onClick={() => act(order, 'delivery', { status: 'ready_for_pickup' })}>Ready for pickup</button>
+                  )}
+                  {order.status === 'paid' && (
+                    <button className="button button-outline" type="button" disabled={busy === order.id}
+                      onClick={() => act(order, 'delivery', { status: 'delivered' })}>
+                      {order.fulfilment_method === 'pickup' ? 'Mark picked up' : 'Mark delivered'}
+                    </button>
                   )}
                 </div>
                 {quoting === order.id && (

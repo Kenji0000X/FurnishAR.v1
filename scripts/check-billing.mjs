@@ -57,6 +57,7 @@ const stores = [
 const orders = [];
 const recorded = [];
 const paypalCreated = [];
+const delivered = [];
 
 const who = auth => (/tok-buyer/.test(auth || '') ? 'buyer' : /tok-owner/.test(auth || '') ? 'owner' : 'guest');
 
@@ -82,15 +83,26 @@ const supabase = createServer((req, res) => {
     if (u.startsWith('/rest/v1/catalog')) return send(200, catalog);
     if (u.startsWith('/rest/v1/stores')) return send(200, u.includes(`id=eq.${STOCK_STORE}`) ? [stores[0]] : stores);
     if (u.startsWith('/rest/v1/buyers')) return send(200, role === 'buyer' ? [{ full_name: 'Ana Reyes', municipality: 'Mamburao' }] : []);
-    if (u.startsWith('/rest/v1/municipalities')) return send(200, [{ name: 'Mamburao' }]);
+    if (u.startsWith('/rest/v1/municipalities')) return send(200, [{ name: 'Mamburao' }, { name: 'Sablayan' }]);
     if (u.startsWith('/rest/v1/store_members')) {
       return send(200, role === 'owner' ? [{ role: 'owner', stores: { id: STOCK_STORE, slug: 'stock-shop', name: 'Stock Shop', plan: 'premium' } }] : []);
     }
     if (u.startsWith('/rest/v1/store_payout')) return send(200, [{ paypal_email: 'shop@pay.test', notify_email: null }]);
     if (u.startsWith('/rest/v1/rpc/store_fee_summary')) return send(200, { accrued: 200, settled: 0, outstanding: 200 });
     if (u.startsWith('/rest/v1/orders')) {
-      const mine = orders.filter(o => (role === 'buyer' ? true : role === 'owner' ? o.store_id === STOCK_STORE : false));
-      return send(200, mine.map(o => ({ ...o, stores: { name: o.store_id === STOCK_STORE ? 'Stock Shop' : 'Maker Shop', slug: 'x' } })));
+      const wanted = u.match(/[?&]id=eq\.([0-9a-f-]+)/)?.[1];
+      const mine = orders.filter(o => (role === 'buyer' ? true : role === 'owner' ? o.store_id === STOCK_STORE : false))
+        .filter(o => !wanted || o.id === wanted);
+      return send(200, mine.map(o => ({ ...o,
+        stores: { name: o.store_id === STOCK_STORE ? 'Stock Shop' : 'Maker Shop', slug: 'x', address: 'Mamburao', contact_number: '0917' },
+        payments: recorded.filter(r => r.p_order === o.id && r.p_secret === SECRET)
+          .map(r => ({ stage: r.p_stage, amount: r.p_amount, capture_id: r.p_capture, captured_at: new Date().toISOString(), applied: true })) })));
+    }
+    if (u.startsWith('/rest/v1/rpc/update_delivery_status')) {
+      const order = orders.find(o => o.id === body.p_order);
+      order.delivery_status = body.p_status;
+      if (body.p_status === 'delivered') order.status = 'fulfilled';
+      return send(200, { order_id: order.id, delivery_status: body.p_status });
     }
     if (u.startsWith('/rest/v1/rpc/create_stock_order')) {
       if (role !== 'buyer') return send(403, { code: '42501', message: 'Only a shopper account can place orders.' });
@@ -99,7 +111,10 @@ const supabase = createServer((req, res) => {
         kind: 'stock', status: 'pending_payment', store_id: STOCK_STORE, product_id: CHAIR, product_name: 'Billing Check Chair',
         quantity: qty, subtotal: 1000 * qty, platform_fee: 100 * qty, total: 1100 * qty, amount_paid: 0,
         created_at: new Date().toISOString(), hold_expires_at: new Date(Date.now() + 1800e3).toISOString(),
-        buyer_name: 'Ana Reyes', buyer_email: 'buyer@test.ph' };
+        buyer_name: 'Ana Reyes', buyer_email: 'buyer@test.ph',
+        fulfilment_method: body.p_method, delivery_address: body.p_address, delivery_municipality: body.p_municipality,
+        delivery_phone: body.p_phone, delivery_notes: body.p_notes };
+      delivered.push({ ...body });
       orders.push(order);
       return send(200, { order_id: order.id, reference: order.reference });
     }
@@ -113,6 +128,8 @@ const supabase = createServer((req, res) => {
       const order = orders.find(o => o.id === body.p_order);
       order.status = 'paid';
       order.amount_paid = body.p_amount;
+      order.delivery_status = 'preparing';
+      order.estimated_arrival = new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10);
       return send(200, { order_id: order.id, status: 'paid', applied: true, duplicate: false });
     }
     if (u.startsWith('/rest/v1/rpc/order_contacts')) return send(200, { reference: 'REF', buyer_email: 'buyer@test.ph', store_emails: ['shop@test.ph'] });
@@ -220,6 +237,14 @@ try {
   await shot(buyer, 'product-stocked');
   check('price, 10% fee and total are shown', /2,000\.00/.test(breakdown) && /200\.00/.test(breakdown) && /2,200\.00/.test(breakdown), breakdown.replace(/\s+/g, ' '));
   await buyer.getByRole('button', { name: 'Buy with PayPal' }).click();
+  const checkout = buyer.locator('dialog.request-dialog[open]');
+  await checkout.waitFor({ timeout: 10000 });
+  check('checkout asks how the buyer gets it', await checkout.getByText('Free delivery').first().isVisible());
+  await checkout.locator('input[name="address"]').fill('Purok 3, Brgy. Poblacion');
+  await checkout.locator('select[name="municipality"]').selectOption('Mamburao');
+  await checkout.locator('input[name="phone"]').fill('0917 123 4567');
+  await shot(buyer, 'checkout-dialog');
+  await checkout.getByRole('button', { name: 'Continue to PayPal' }).click();
   await buyer.waitForURL(/\/account/, { timeout: 20000 }).catch(async () => {
     console.log('  (still on', buyer.url(), '—', (await buyer.locator('[role="alert"], [role="status"]').allInnerTexts()).join(' | '), ')');
   });
@@ -231,12 +256,27 @@ try {
   await shot(buyer, 'account-orders');
   check('the order shows as paid', await buyer.locator('.order-status', { hasText: 'Paid' }).first().isVisible());
   check('the return address was cleaned', !buyer.url().includes('token='), buyer.url());
+  check('the delivery details reached the order', delivered[0]?.p_method === 'delivery'
+    && delivered[0]?.p_municipality === 'Mamburao' && delivered[0]?.p_phone === '0917 123 4567', JSON.stringify(delivered[0]));
+  check('the order shows its arrival date', /arrives by/.test(await buyer.locator('.order-card').first().innerText()));
+
+  console.log('--- the receipt ---');
+  await buyer.getByRole('link', { name: 'View receipt' }).first().click();
+  await buyer.locator('.receipt').waitFor({ timeout: 15000 }).catch(() => {});
+  const receiptText = await buyer.locator('.receipt').innerText().catch(() => '');
+  await shot(buyer, 'receipt');
+  check('the receipt itemises price, fee, total and payment',
+    /2,000\.00/.test(receiptText) && /200\.00/.test(receiptText) && /2,200\.00/.test(receiptText) && /CAPPPORDER/.test(receiptText),
+    receiptText.replace(/\s+/g, ' ').slice(0, 160));
+  check('the receipt says where and when', /Purok 3, Brgy\. Poblacion/.test(receiptText) && /Estimated arrival/i.test(receiptText));
 
   console.log('--- a buyer requests a custom build ---');
   await buyer.goto(`${APP}/furniture/billing-check-table`);
   check('made-to-order is said, not a stock count', /Made to order/.test(await buyer.locator('.detail-availability').innerText()));
   await buyer.getByRole('button', { name: 'Request a custom build' }).click();
   await buyer.locator('dialog.request-dialog textarea[name="notes"]').fill('Narra, 6 seats');
+  await buyer.locator('dialog.request-dialog').getByText('Store pickup').click();
+  await buyer.locator('dialog.request-dialog input[name="phone"]').fill('0917 123 4567');
   await shot(buyer, 'custom-request');
   await buyer.getByRole('button', { name: 'Send request' }).click();
   await buyer.locator('text=/Request REQ\\d+ sent/').first().waitFor({ timeout: 10000 }).catch(() => {});
@@ -244,10 +284,13 @@ try {
 
   console.log('--- the shop sees it and quotes ---');
   const owner = await page('tok-owner');
+  owner.on('pageerror', e => console.log('  (owner pageerror', e.message, ')'));
+  owner.on('response', async r => { if (r.url().includes('/api/sb/') && !r.ok()) console.log('  (owner', r.status(), r.url(), ')'); });
   await owner.goto(`${APP}/portal`);
   await owner.locator('#billing-title').waitFor({ timeout: 20000 }).catch(() => {});
   check('billing settings are in the portal', await owner.locator('#billing-title').isVisible());
   check('the fee owed is shown', /200\.00/.test(await owner.locator('.billing-summary').innerText().catch(() => '')));
+  await shot(owner, 'portal-orders');
   await owner.getByRole('button', { name: 'Send quote' }).first().click();
   await owner.locator('.order-quote input[name="price"]').fill('5000');
   await owner.locator('.order-quote input[name="leadDays"]').fill('14');
@@ -255,6 +298,14 @@ try {
   await owner.locator('.order-quote button[type="submit"]').click();
   await owner.locator('.order-status', { hasText: 'Quote ready' }).first().waitFor({ timeout: 10000 }).catch(() => {});
   check('the quote is sent', await owner.locator('.order-status', { hasText: 'Quote ready' }).first().isVisible());
+
+  console.log('--- the shop sends it out ---');
+  await owner.getByRole('button', { name: 'Out for delivery' }).first().click();
+  await owner.locator('.order-status', { hasText: 'Out for delivery' }).first().waitFor({ timeout: 10000 }).catch(() => {});
+  check('the order is out for delivery', await owner.locator('.order-status', { hasText: 'Out for delivery' }).first().isVisible());
+  await owner.getByRole('button', { name: 'Mark delivered' }).first().click();
+  await owner.locator('.order-status', { hasText: 'Delivered' }).first().waitFor({ timeout: 10000 }).catch(() => {});
+  check('and then delivered', await owner.locator('.order-status', { hasText: 'Delivered' }).first().isVisible());
 } finally {
   await browser.close();
   try { process.kill(-app.pid); } catch {}

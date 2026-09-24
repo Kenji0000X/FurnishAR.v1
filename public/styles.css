@@ -4946,3 +4946,54 @@ dialog, .drawer-panel { overscroll-behavior: contain; }
 .billing-form fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .billing-form > .button { justify-self: start; }
 @media (max-width: 40rem) { .billing-form .form-grid { grid-template-columns: 1fr; } }
+
+/* ---------------------------------------------- delivery & receipt (0010) */
+
+.delivery-fields { display: grid; gap: .75rem; border: 0; padding: 0; margin: 0; min-width: 0; }
+.delivery-fields legend { font-weight: 600; margin-bottom: .5rem; padding: 0; }
+.delivery-choice { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+.choice-card {
+  display: flex !important; flex-direction: row !important; align-items: flex-start; gap: .6rem;
+  padding: .75rem .85rem; border: 1px solid var(--rule); background: var(--paper);
+  text-transform: none !important; letter-spacing: normal !important; font-family: inherit !important;
+  font-size: .875rem !important; color: var(--ink) !important; cursor: pointer;
+}
+.choice-card:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.choice-card input { width: auto !important; margin-top: .2rem; accent-color: var(--accent); }
+.choice-card span { display: grid; gap: .15rem; }
+.choice-card small { color: var(--ink-muted); font-size: .75rem; }
+@media (max-width: 30rem) { .delivery-choice { grid-template-columns: 1fr; } }
+
+.receipt {
+  max-width: 46rem; margin: 0 auto; padding: 1.6rem;
+  display: grid; gap: 1.4rem;
+  border: 1px solid var(--rule); background: var(--paper-raised);
+}
+.receipt h2 { font-size: .75rem; font-family: var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint); margin: 0 0 .4rem; }
+.receipt-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem; align-items: flex-start; }
+.receipt-head h1 { font-size: 1.5rem; margin: .2rem 0; }
+.receipt-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.receipt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.receipt-grid p { margin: 0; font-size: .9rem; line-height: 1.5; }
+@media (max-width: 36rem) { .receipt-grid { grid-template-columns: 1fr; } }
+.receipt-table { width: 100%; border-collapse: collapse; font-size: .875rem; font-variant-numeric: tabular-nums; }
+.receipt-table th { text-align: left; font-weight: 500; color: var(--ink-muted); border-bottom: 1px solid var(--rule); padding: .45rem .3rem; }
+.receipt-table td { padding: .45rem .3rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.receipt-table th:not(:first-child), .receipt-table td:last-child, .receipt-table tbody td:not(:first-child) { text-align: right; }
+.receipt-table tfoot td:first-child { text-align: right; color: var(--ink-muted); }
+.receipt-total td { font-weight: 700; color: var(--ink) !important; }
+.receipt-txn { display: block; font-family: var(--mono); font-size: .6875rem; color: var(--ink-faint); }
+.receipt-eta { font-size: 1.15rem !important; font-weight: 600; }
+.receipt-timeline { list-style: none; margin: 0; padding: 0; display: grid; gap: .45rem; }
+.receipt-timeline li { display: flex; gap: .6rem; align-items: baseline; color: var(--ink-faint); font-size: .875rem; }
+.receipt-timeline li::before { content: '○'; }
+.receipt-timeline li[data-done] { color: var(--ink); }
+.receipt-timeline li[data-done]::before { content: '●'; color: var(--accent); }
+.receipt-timeline small { color: var(--ink-faint); font-size: .75rem; }
+
+@media print {
+  .no-print, .receipt-actions { display: none !important; }
+  .receipt { border: 0; padding: 0; max-width: none; }
+}
+.request-dialog { margin: auto; max-height: calc(100dvh - 2rem); overflow-y: auto; }
+.receipt-view .receipt { margin-top: clamp(1rem, 4vw, 2.5rem); margin-bottom: 2rem; }

@@ -89,7 +89,7 @@ test.before(() => {
                       where id = (select id from public.products where store_id = '${ids.storeA}' limit 1)
                       returning id`);
   // Store B builds to order.
-  as(ids.ownerB, `select public.save_store_billing('${ids.storeB}', 'custom', 'pay-b@shop.ph', 'orders-b@shop.ph')`);
+  as(ids.ownerB, `select public.save_store_billing('${ids.storeB}', 'custom', 'pay-b@shop.ph', 'orders-b@shop.ph', 3, 1)`);
 });
 
 test.after(() => {
@@ -101,14 +101,14 @@ const capture = (userId, order, stage, amount, { secret = SECRET, payee = 'pay-a
     '${captureId || `CAP-${order}-${stage}`}', ${amount}, 'PHP', '${payee}', 'payer@example.ph')::text`);
 
 it('a shop without a PayPal account cannot take an order', () => {
-  const error = refused(ids.buyer, `select public.create_stock_order('${ids.product}', 1)`);
+  const error = refused(ids.buyer, `select public.create_stock_order('${ids.product}', 1, 'delivery', 'Purok 3, Brgy. Poblacion', 'Mamburao', '0917 123 4567', null)`);
   assert.match(error, /not taking online payments/);
 });
 
 it('only the store owner sets where the store is paid', () => {
-  assert.match(refused(ids.ownerB, `select public.save_store_billing('${ids.storeA}', 'stocked', 'evil@x.ph', null)`),
+  assert.match(refused(ids.ownerB, `select public.save_store_billing('${ids.storeA}', 'stocked', 'evil@x.ph', null, 3, 1)`),
     /Only this store's owner/);
-  as(ids.ownerA, `select public.save_store_billing('${ids.storeA}', 'stocked', 'Pay-A@Shop.ph', null)`);
+  as(ids.ownerA, `select public.save_store_billing('${ids.storeA}', 'stocked', 'Pay-A@Shop.ph', null, 3, 1)`);
   assert.equal(psql(`select paypal_email from public.store_payout where store_id = '${ids.storeA}'`), 'pay-a@shop.ph');
   assert.equal(as(ids.otherBuyer, `select count(*) from public.store_payout`), '0');
 });
@@ -122,12 +122,12 @@ it('an owner can no longer upgrade their own plan or unsuspend their store', () 
 });
 
 it('guests and store accounts cannot order; the price is the database\'s', () => {
-  assert.match(refused(null, `select public.create_stock_order('${ids.product}', 1)`), /permission denied/);
-  assert.match(refused(ids.ownerA, `select public.create_stock_order('${ids.product}', 1)`), /Only a shopper/);
-  assert.match(refused(ids.buyer, `select public.create_stock_order('${ids.product}', 99)`), /quantity from 1 to 20/);
-  assert.match(refused(ids.buyer, `select public.create_stock_order('${ids.product}', 6)`), /Only 5 left/);
+  assert.match(refused(null, `select public.create_stock_order('${ids.product}', 1, 'delivery', 'Purok 3, Brgy. Poblacion', 'Mamburao', '0917 123 4567', null)`), /permission denied/);
+  assert.match(refused(ids.ownerA, `select public.create_stock_order('${ids.product}', 1, 'delivery', 'Purok 3, Brgy. Poblacion', 'Mamburao', '0917 123 4567', null)`), /Only a shopper/);
+  assert.match(refused(ids.buyer, `select public.create_stock_order('${ids.product}', 99, 'delivery', 'Purok 3, Brgy. Poblacion', 'Mamburao', '0917 123 4567', null)`), /quantity from 1 to 20/);
+  assert.match(refused(ids.buyer, `select public.create_stock_order('${ids.product}', 6, 'delivery', 'Purok 3, Brgy. Poblacion', 'Mamburao', '0917 123 4567', null)`), /Only 5 left/);
 
-  ids.stockOrder = JSON.parse(as(ids.buyer, `select public.create_stock_order('${ids.product}', 2)::text`)).order_id;
+  ids.stockOrder = JSON.parse(as(ids.buyer, `select public.create_stock_order('${ids.product}', 2, 'delivery', 'Purok 3, Brgy. Poblacion', 'Mamburao', '0917 123 4567', null)::text`)).order_id;
   const row = JSON.parse(psql(`select row_to_json(o) from public.orders o where id = '${ids.stockOrder}'`));
   assert.equal(Number(row.subtotal), 2000);
   assert.equal(Number(row.platform_fee), 200);      // 10% on top
@@ -180,30 +180,40 @@ it('a verified capture pays the order, once, and accrues the 10%', () => {
   assert.equal(Number(summary.accrued), 200);
   assert.match(refused(ids.ownerB, `select public.store_fee_summary('${ids.storeA}')`), /Not your store/);
   assert.match(refused(ids.buyer, `select public.cancel_order('${ids.stockOrder}')`), /paid order cannot be cancelled/);
+  const shipped = JSON.parse(psql(`select row_to_json(o) from public.orders o where id = '${ids.stockOrder}'`));
+  assert.equal(shipped.delivery_status, 'preparing');
+  assert.equal(shipped.estimated_arrival, psql(`select ((now() at time zone 'Asia/Manila')::date + 3)::text`));
+  assert.match(refused(ids.ownerA, `select public.update_delivery_status('${ids.stockOrder}', 'ready_for_pickup')`),
+    /is a delivery/);
+  assert.match(refused(ids.ownerB, `select public.update_delivery_status('${ids.stockOrder}', 'out_for_delivery')`),
+    /not one of your store/);
+  as(ids.ownerA, `select public.update_delivery_status('${ids.stockOrder}', 'out_for_delivery')`);
   as(ids.ownerA, `select public.mark_order_fulfilled('${ids.stockOrder}')`);
+  assert.equal(psql(`select delivery_status from public.orders where id = '${ids.stockOrder}'`), 'delivered');
   assert.equal(psql(`select status from public.orders where id = '${ids.stockOrder}'`), 'fulfilled');
 });
 
 it('an unpaid hold expires and the stock goes back on the shelf', () => {
-  const order = JSON.parse(as(ids.otherBuyer, `select public.create_stock_order('${ids.product}', 3)::text`)).order_id;
+  const order = JSON.parse(as(ids.otherBuyer, `select public.create_stock_order('${ids.product}', 3, 'delivery', 'Purok 3, Brgy. Poblacion', 'Mamburao', '0917 123 4567', null)::text`)).order_id;
   assert.equal(psql(`select stock from public.products where id = '${ids.product}'`), '0');
   psql(`update public.orders set hold_expires_at = now() - interval '1 minute' where id = '${order}'`);
   assert.equal(JSON.parse(as(ids.otherBuyer, `select public.begin_payment('${order}')::text`)).stage, null);
   assert.equal(psql(`select status from public.orders where id = '${order}'`), 'expired');
   assert.equal(psql(`select stock from public.products where id = '${ids.product}'`), '3');
 
-  const cancelled = JSON.parse(as(ids.otherBuyer, `select public.create_stock_order('${ids.product}', 1)::text`)).order_id;
+  const cancelled = JSON.parse(as(ids.otherBuyer, `select public.create_stock_order('${ids.product}', 1, 'delivery', 'Purok 3, Brgy. Poblacion', 'Mamburao', '0917 123 4567', null)::text`)).order_id;
   as(ids.otherBuyer, `select public.cancel_order('${cancelled}')`);
   assert.equal(psql(`select stock from public.products where id = '${ids.product}'`), '3');
 });
 
 it('a custom build: request, quote, deposit, ready, balance, handed over', () => {
-  assert.match(refused(ids.buyer, `select public.create_custom_request('${ids.storeA}', null, '{"notes":"x"}')`),
+  assert.match(refused(ids.buyer, `select public.create_custom_request('${ids.storeA}', null, '{"notes":"x"}', 'pickup', null, null, '0917 123 4567', null)`),
     /sells from stock/);
-  assert.match(refused(ids.buyer, `select public.create_custom_request('${ids.storeB}', null, '{}')`),
+  assert.match(refused(ids.buyer, `select public.create_custom_request('${ids.storeB}', null, '{}', 'pickup', null, null, '0917 123 4567', null)`),
     /Describe what you want/);
   const order = JSON.parse(as(ids.buyer, `select public.create_custom_request('${ids.storeB}', null,
-    '{"width_cm":"180","notes":"Narra dining table","price":"1","evil":"x"}')::text`)).order_id;
+    '{"width_cm":"180","notes":"Narra dining table","price":"1","evil":"x"}',
+    'delivery', 'Purok 3, Brgy. Poblacion', 'Mamburao', '0917 123 4567', 'Gate is blue')::text`)).order_id;
   const request = JSON.parse(psql(`select request::text from public.orders where id = '${order}'`));
   assert.deepEqual(Object.keys(request).sort(), ['notes', 'width_cm']);
   assert.equal(JSON.parse(as(ids.buyer, `select public.begin_payment('${order}')::text`)).stage, null);
@@ -219,6 +229,9 @@ it('a custom build: request, quote, deposit, ready, balance, handed over', () =>
   assert.equal(Number(due.amount), 2750);
   const deposit = JSON.parse(capture(ids.buyer, order, 'deposit', 2750, { payee: 'pay-b@shop.ph' }));
   assert.equal(deposit.status, 'deposit_paid');
+  // Delivery days (3) plus the quoted lead time (14), from the day the deposit landed.
+  assert.equal(psql(`select estimated_arrival::text from public.orders where id = '${order}'`),
+    psql(`select ((now() at time zone 'Asia/Manila')::date + 17)::text`));
   assert.match(refused(ids.ownerB, `select public.decline_custom_order('${order}', 'no')`), /not been paid/);
 
   assert.match(refused(ids.buyer, `select public.mark_order_ready('${order}')`), /not one of your store/);
@@ -243,4 +256,19 @@ it('only an admin sees every store\'s fees and records a settlement', () => {
   const summary = JSON.parse(as(ids.ownerA, `select public.store_fee_summary('${ids.storeA}')::text`));
   assert.equal(Number(summary.outstanding), 0);
   assert.equal(as(ids.admin, `select count(*) from public.admin_audit where action = 'fees.settled'`), '1');
+});
+
+it('an order needs a way to reach the buyer', () => {
+  const bad = (method, address, town, phone) => refused(ids.buyer,
+    `select public.create_stock_order('${ids.product}', 1, ${method}, ${address}, ${town}, ${phone}, null)`);
+  assert.match(bad("'drone'", 'null', 'null', "'0917 123 4567'"), /delivery or store pickup/);
+  assert.match(bad("'pickup'", 'null', 'null', "'call me'"), /mobile number/);
+  assert.match(bad("'delivery'", "'x'", "'Mamburao'", "'0917 123 4567'"), /delivery address/);
+  assert.match(bad("'delivery'", "'Purok 3, Poblacion'", "'Manila'", "'0917 123 4567'"), /Occidental Mindoro/);
+  const pickup = JSON.parse(as(ids.buyer,
+    `select public.create_stock_order('${ids.product}', 1, 'pickup', 'ignored street', 'Mamburao', '0917 123 4567', null)::text`)).order_id;
+  const row = JSON.parse(psql(`select row_to_json(o) from public.orders o where id = '${pickup}'`));
+  assert.equal(row.fulfilment_method, 'pickup');
+  assert.equal(row.delivery_address, null);          // a pickup keeps no address
+  as(ids.buyer, `select public.cancel_order('${pickup}')`);
 });

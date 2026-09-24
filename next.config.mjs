@@ -2,6 +2,10 @@
 const nextConfig = {
   reactStrictMode: true,
 
+  // Sent from the server only (lib/notify.js); loaded at run time rather
+  // than bundled, the way Node libraries with optional native paths prefer.
+  serverExternalPackages: ['nodemailer'],
+
   // The demo catalogue's 3D model lives in data/models, which is not served
   // statically (it used to be in /public, where it was a download for
   // anyone). The route that serves it in database-less demo mode reads it

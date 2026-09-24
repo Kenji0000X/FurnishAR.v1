@@ -10,14 +10,15 @@ import useAlert from '../../alerts/useAlert.js';
  * Buying, or asking for a build.                               DFD: P10
  *
  * A STOCKED shop's piece is bought outright: the buyer sees the shop's
- * price, FurnishAR's 10% service fee on top, and the total, then pays the
- * shop directly on PayPal. A CUSTOM shop's piece is a starting point: the
- * buyer describes what they want and the shop replies with a quote.
+ * price, FurnishAR's 10% service fee on top, and the total, says how they
+ * want it (free delivery or store pickup), then pays the shop directly on
+ * PayPal. A CUSTOM shop's piece is a starting point: the buyer describes what
+ * they want and the shop replies with a quote.
  *
- * What this component shows is a preview. The amount actually charged is
- * computed by the database from the product row (0009) — this page could be
- * edited in devtools to say ₱1 and the buyer would still be asked for the
- * real price.
+ * What this component shows is a preview. The amount actually charged, and
+ * whether the delivery details are acceptable, are decided by the database
+ * (0009, 0010) — this page could be edited in devtools to say ₱1 and the
+ * buyer would still be asked for the real price.
  */
 const money = value => `₱${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -26,9 +27,8 @@ export default function PurchasePanel({ product }) {
   const [config, setConfig] = useState(null);
   const [role, setRole] = useState(null);
   const [quantity, setQuantity] = useState(1);
-  const [busy, setBusy] = useState(false);
   const [gate, setGate] = useState(null);
-  const [requesting, setRequesting] = useState(false);
+  const [dialog, setDialog] = useState(null);   // 'checkout' | 'request' | null
 
   const custom = product.fulfilment === 'custom';
   const stock = Number(product.stock) || 0;
@@ -68,23 +68,6 @@ export default function PurchasePanel({ product }) {
     return false;
   }
 
-  async function buy() {
-    if (needsBuyer('Sign in to buy this piece.')) return;
-    setBusy(true);
-    try {
-      const result = await supabase().orderAction('checkout', { productId: product.id, quantity });
-      // To PayPal — the shop's own account — and back to /account.
-      window.location.assign(result.approveUrl);
-    } catch (error) {
-      setBusy(false);
-      if (error.code === 'auth_required' || error.code === 'session_expired') {
-        alert.raise('auth.expired', { actions: [{ label: 'Sign in again', href: `/login?as=buyer&next=${encodeURIComponent(here)}` }] });
-      } else {
-        alert.showError(error.message);
-      }
-    }
-  }
-
   return (
     <section className="purchase-panel" aria-labelledby="purchase-heading">
       <h2 id="purchase-heading" className="sr-only">{custom ? 'Request a custom build' : 'Buy'}</h2>
@@ -94,11 +77,12 @@ export default function PurchasePanel({ product }) {
           <p className="purchase-note">
             Made to order by {product.store}. Send your size and finish; the shop replies with a
             price and lead time. You pay a 50% deposit to reserve the build and the balance when it is ready.
+            Delivery is free, or pick it up at the shop.
           </p>
           <button
             className="button button-primary"
             type="button"
-            onClick={() => { if (!needsBuyer('Sign in to request a custom build.')) setRequesting(true); }}
+            onClick={() => { if (!needsBuyer('Sign in to request a custom build.')) setDialog('request'); }}
           >
             Request a custom build
           </button>
@@ -110,30 +94,40 @@ export default function PurchasePanel({ product }) {
           <dl className="price-breakdown">
             <div><dt>Price{quantity > 1 ? ` × ${quantity}` : ''}</dt><dd>{money(subtotal)}</dd></div>
             <div><dt>Service fee ({Math.round(rate * 100)}%)</dt><dd>{money(fee)}</dd></div>
+            <div><dt>Delivery</dt><dd>Free</dd></div>
             <div className="price-total"><dt>Total</dt><dd>{money(subtotal + fee)}</dd></div>
           </dl>
           <div className="purchase-row">
             <label className="quantity-field">
               Qty
-              <select value={quantity} onChange={event => setQuantity(Number(event.target.value))} disabled={busy}>
+              <select value={quantity} onChange={event => setQuantity(Number(event.target.value))}>
                 {Array.from({ length: Math.min(stock, 20) }, (_, i) => i + 1).map(n => (
                   <option key={n} value={n}>{n}</option>
                 ))}
               </select>
             </label>
-            <button className="button button-primary" type="button" onClick={buy} disabled={busy} aria-busy={busy}>
-              {busy ? 'Opening PayPal…' : 'Buy with PayPal'}
+            <button
+              className="button button-primary"
+              type="button"
+              onClick={() => { if (!needsBuyer('Sign in to buy this piece.')) setDialog('checkout'); }}
+            >
+              Buy with PayPal
             </button>
           </div>
           <p className="purchase-note">
-            You pay {product.store} directly through PayPal. The piece is held for you for 30 minutes while you pay.
+            You pay {product.store} directly through PayPal. Free delivery in Occidental Mindoro, or pick it up
+            at the shop. The piece is held for you for 30 minutes while you pay.
             {config.sandbox ? ' (Test mode — no real money moves.)' : ''}
           </p>
         </>
       )}
 
-      {requesting && (
-        <CustomRequestDialog product={product} onClose={() => setRequesting(false)} />
+      {dialog === 'checkout' && (
+        <CheckoutDialog product={product} quantity={quantity} subtotal={subtotal} fee={fee} here={here}
+          onClose={() => setDialog(null)} />
+      )}
+      {dialog === 'request' && (
+        <CustomRequestDialog product={product} onClose={() => setDialog(null)} />
       )}
       {gate && (
         <AuthGateDialog title={gate.title} body={gate.body} next={here} onClose={() => setGate(null)} />
@@ -142,18 +136,154 @@ export default function PurchasePanel({ product }) {
   );
 }
 
-function CustomRequestDialog({ product, onClose }) {
-  const alert = useAlert();
-  const dialogRef = useRef(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-
+/** A native <dialog>, opened on mount, closed by Escape, Cancel or success. */
+function useModal(onClose) {
+  const ref = useRef(null);
   useEffect(() => {
-    const dialog = dialogRef.current;
+    const dialog = ref.current;
     if (!dialog?.open) dialog?.showModal();
     dialog?.addEventListener('close', onClose);
     return () => dialog?.removeEventListener('close', onClose);
   }, [onClose]);
+  return ref;
+}
+
+/**
+ * How the buyer gets it: free delivery or store pickup, and a number the
+ * shop can call. The municipality defaults to the one on their profile.
+ */
+function DeliveryFields({ store }) {
+  const [method, setMethod] = useState('delivery');
+  const [towns, setTowns] = useState([]);
+  const [home, setHome] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    Promise.all([
+      supabase().listMunicipalities().catch(() => []),
+      supabase().buyerProfile().catch(() => null)
+    ]).then(([list, profile]) => {
+      if (!alive) return;
+      setTowns(list);
+      setHome(profile?.municipality || '');
+    });
+    return () => { alive = false; };
+  }, []);
+
+  return (
+    <fieldset className="delivery-fields">
+      <legend>How would you like to get it?</legend>
+      <div className="delivery-choice" role="radiogroup">
+        <label className="choice-card">
+          <input type="radio" name="method" value="delivery" checked={method === 'delivery'}
+            onChange={() => setMethod('delivery')} />
+          <span><b>Free delivery</b><small>Anywhere in Occidental Mindoro</small></span>
+        </label>
+        <label className="choice-card">
+          <input type="radio" name="method" value="pickup" checked={method === 'pickup'}
+            onChange={() => setMethod('pickup')} />
+          <span><b>Store pickup</b><small>Collect it at {store}</small></span>
+        </label>
+      </div>
+
+      {method === 'delivery' && (
+        <>
+          <label>
+            Delivery address
+            <input name="address" required minLength={5} maxLength={300} autoComplete="street-address"
+              placeholder="House no., street, barangay…" />
+          </label>
+          <label>
+            Municipality
+            <select name="municipality" required value={home} onChange={event => setHome(event.target.value)}>
+              <option value="" disabled>Choose…</option>
+              {towns.map(town => <option key={town} value={town}>{town}</option>)}
+            </select>
+          </label>
+        </>
+      )}
+      <label>
+        Mobile number
+        <input name="phone" type="tel" required inputMode="tel" autoComplete="tel" pattern="[0-9+() \-]{7,20}"
+          maxLength={20} placeholder="0917 123 4567…" />
+      </label>
+      <label>
+        Notes for the shop (optional)
+        <input name="deliveryNotes" maxLength={300} placeholder={method === 'delivery' ? 'Landmark, gate colour…' : 'Preferred pickup time…'} />
+      </label>
+    </fieldset>
+  );
+}
+
+function deliveryFrom(values) {
+  return {
+    method: values.method,
+    address: values.address || null,
+    municipality: values.municipality || null,
+    phone: values.phone,
+    notes: values.deliveryNotes || null
+  };
+}
+
+function CheckoutDialog({ product, quantity, subtotal, fee, here, onClose }) {
+  const alert = useAlert();
+  const ref = useModal(onClose);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function submit(event) {
+    event.preventDefault();
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    setBusy(true);
+    setError('');
+    try {
+      const result = await supabase().orderAction('checkout', {
+        productId: product.id, quantity, delivery: deliveryFrom(values)
+      });
+      // To PayPal — the shop's own account — and back to /account.
+      window.location.assign(result.approveUrl);
+    } catch (failure) {
+      setBusy(false);
+      if (failure.code === 'auth_required' || failure.code === 'session_expired') {
+        alert.raise('auth.expired', { actions: [{ label: 'Sign in again', href: `/login?as=buyer&next=${encodeURIComponent(here)}` }] });
+        ref.current?.close();
+      } else {
+        setError(failure.message);
+      }
+    }
+  }
+
+  return (
+    <dialog ref={ref} className="confirm-dialog request-dialog" aria-labelledby="checkout-title">
+      <form className="product-form" onSubmit={submit}>
+        <h2 id="checkout-title">Checkout</h2>
+        <dl className="price-breakdown">
+          <div><dt>{product.name}{quantity > 1 ? ` × ${quantity}` : ''}</dt><dd>{money(subtotal)}</dd></div>
+          <div><dt>Service fee (10%)</dt><dd>{money(fee)}</dd></div>
+          <div><dt>Delivery</dt><dd>Free</dd></div>
+          <div className="price-total"><dt>Total</dt><dd>{money(subtotal + fee)}</dd></div>
+        </dl>
+        <DeliveryFields store={product.store} />
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="confirm-actions">
+          <button className="button" type="button" onClick={() => ref.current?.close()}>Cancel</button>
+          <button className="button button-primary" type="submit" disabled={busy} aria-busy={busy}>
+            {busy ? 'Opening PayPal…' : 'Continue to PayPal'}
+          </button>
+        </div>
+        <p className="purchase-note">
+          Your receipt and estimated arrival date are emailed to you after payment.
+        </p>
+      </form>
+    </dialog>
+  );
+}
+
+function CustomRequestDialog({ product, onClose }) {
+  const alert = useAlert();
+  const ref = useModal(onClose);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
   async function submit(event) {
     event.preventDefault();
@@ -167,12 +297,13 @@ function CustomRequestDialog({ product, onClose }) {
         request: {
           width_cm: values.width, height_cm: values.height, depth_cm: values.depth,
           material: values.material, color: values.color, notes: values.notes
-        }
+        },
+        delivery: deliveryFrom(values)
       });
       alert.showSuccess(`Request ${result.reference} sent. ${product.store} will reply with a quote by email.`, {
         actions: [{ label: 'View your orders', href: '/account#orders' }]
       });
-      dialogRef.current?.close();
+      ref.current?.close();
     } catch (failure) {
       setError(failure.message);
       setBusy(false);
@@ -181,7 +312,7 @@ function CustomRequestDialog({ product, onClose }) {
 
   const d = product.dimensions || {};
   return (
-    <dialog ref={dialogRef} className="confirm-dialog request-dialog" aria-labelledby="request-title">
+    <dialog ref={ref} className="confirm-dialog request-dialog" aria-labelledby="request-title">
       <form className="product-form" onSubmit={submit}>
         <h2 id="request-title">Custom build from {product.store}</h2>
         <p>Based on the {product.name}. Change anything you like.</p>
@@ -194,10 +325,11 @@ function CustomRequestDialog({ product, onClose }) {
           <label>Material<input name="material" maxLength={80} placeholder="Narra, rattan…" /></label>
           <label>Colour / finish<input name="color" maxLength={80} placeholder="Natural oil…" /></label>
         </div>
-        <label>Notes<textarea name="notes" rows={4} maxLength={1000} placeholder="Anything the shop should know…" /></label>
+        <label>Notes<textarea name="notes" rows={3} maxLength={1000} placeholder="Anything the shop should know…" /></label>
+        <DeliveryFields store={product.store} />
         {error && <p className="form-error" role="alert">{error}</p>}
         <div className="confirm-actions">
-          <button className="button" type="button" onClick={() => dialogRef.current?.close()}>Cancel</button>
+          <button className="button" type="button" onClick={() => ref.current?.close()}>Cancel</button>
           <button className="button button-primary" type="submit" disabled={busy} aria-busy={busy}>
             {busy ? 'Sending…' : 'Send request'}
           </button>

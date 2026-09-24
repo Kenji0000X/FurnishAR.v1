@@ -14,7 +14,7 @@
  *   POST /api/sb/storage/sign   one-time signed upload URL
  *   GET  /api/sb/orders/config  are online payments / emails switched on?
  *   POST /api/sb/orders/<action> checkout | pay | capture | request | cancel |
- *                               quote | decline | ready | fulfil | store-billing
+ *                               quote | decline | ready | fulfil | delivery | store-billing
  */
 import proxy from '../../../../lib/supabase-proxy.js';
 import orders from '../../../../lib/orders.js';
