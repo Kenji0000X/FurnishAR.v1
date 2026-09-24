@@ -112,7 +112,7 @@ for (const device of DEVICES) {
   await page.fill('input[name="email"]', 'owner@furnishar.ph');
   await page.fill('input[name="password"]', 'furnishar');
   await page.click('form.login-form button[type="submit"]');
-  const signedIn = await page.waitForSelector('.dashboard', { timeout: 20000 }).then(() => true, () => false);
+  const signedIn = await page.waitForSelector('.console', { timeout: 20000 }).then(() => true, () => false);
   if (signedIn) {
     await page.waitForTimeout(1200);
     await audit(page, '/portal (signed in, inventory table)');

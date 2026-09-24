@@ -144,7 +144,7 @@ await page.waitForSelector('form.login-form', { timeout: 20000 });
 await page.fill('input[name="email"]', 'owner@furnishar.ph');
 await page.fill('input[name="password"]', 'x');
 await page.click('form.login-form button[type="submit"]');
-await page.waitForSelector('.dashboard', { timeout: 20000 }).catch(() => {});
+await page.waitForSelector('.console', { timeout: 20000 }).catch(() => {});
 
 async function fillAndSubmit() {
   await page.fill('input[name="name"]', 'Retry Test Bench');
@@ -161,7 +161,7 @@ async function fillAndSubmit() {
 }
 
 console.log('--- first attempt: Storage refuses the file ---');
-await page.click('button:has-text("+ Add product")');
+await page.click('.console-head button:has-text("Add Product")');
 await page.waitForSelector('dialog.form-dialog[open]', { timeout: 10000 });
 await fillAndSubmit();
 
@@ -193,7 +193,7 @@ console.log('--- the file stores but the row never lands ---');
   // model the owner watched upload: bytes in Storage, nothing pointing at them.
   // Silent before the read-back; the owner only found out in AR, later.
   assetRowLands = false;
-  await page.click('button:has-text("+ Add product")');
+  await page.click('.console-head button:has-text("Add Product")');
   await page.waitForSelector('dialog.form-dialog[open]', { timeout: 10000 });
   await page.fill('input[name="name"]', 'Unlinked Bench');
   await page.fill('input[name="price"]', '900');

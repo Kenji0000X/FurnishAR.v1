@@ -10,7 +10,7 @@ export default function AdminActivity() {
   return (
     <>
       <section className="admin-intro">
-        <p className="eyebrow">Every decision, recorded</p>
+        <p className="eyebrow">Every Decision, Recorded</p>
         <h1 id="console-title">Activity</h1>
         <p>
           Who approved or rejected which application, and when. Written by the database

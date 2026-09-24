@@ -1,0 +1,388 @@
+/* ============================================================================
+   The back-office consoles: /portal (a store's own) and /admin (the platform).
+
+   Soft structuralism on the brand's slate: objects are nested frames (an outer
+   shell and an inner core with a concentric radius, BRAND.md §1), one forest
+   accent for the one action that matters, numbers in tabular figures, and a
+   bento of uneven tiles instead of a row of identical boxes.
+
+   Everything is scoped under .console so nothing here leaks into the
+   shopper-facing pages.
+   ========================================================================= */
+
+.console {
+  --console-ease: cubic-bezier(.32, .72, 0, 1);
+  --shell-pad: 6px;
+  --console-shadow:
+    0 1px 1px rgba(18, 38, 46, .04),
+    0 2px 6px -2px rgba(18, 38, 46, .06),
+    0 18px 40px -24px rgba(18, 38, 46, .28);
+  --console-line: color-mix(in oklab, var(--ink) 9%, transparent);
+  --console-highlight: inset 0 1px 0 rgba(255, 255, 255, .7);
+
+  display: grid;
+  grid-template-columns: 16.5rem minmax(0, 1fr);
+  gap: clamp(1.5rem, 3vw, 3rem);
+  align-items: start;
+  width: 100%;
+  margin: 0 auto;
+  -webkit-tap-highlight-color: transparent;
+}
+/* The view around the console already carries the page gutter and maximum
+   width; the console fills it rather than padding it a second time. Wider cap
+   so tables and the bento get the room the rail takes away. */
+.admin-view:has(> .console), .admin-view:has(> * > .console) {
+  max-width: 1480px;
+  padding-top: clamp(1.25rem, 3vw, 2.25rem);
+}
+.console-overview { display: grid; gap: clamp(1.5rem, 3vw, 2.25rem); }
+:root[data-theme="dark"] .console {
+  --console-highlight: inset 0 1px 0 rgba(255, 255, 255, .06);
+  --console-shadow:
+    0 1px 1px rgba(0, 0, 0, .3),
+    0 18px 40px -24px rgba(0, 0, 0, .7);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .console {
+    --console-highlight: inset 0 1px 0 rgba(255, 255, 255, .06);
+    --console-shadow: 0 1px 1px rgba(0, 0, 0, .3), 0 18px 40px -24px rgba(0, 0, 0, .7);
+  }
+}
+
+.console :is(a, button, select, input, textarea, summary) { touch-action: manipulation; }
+.console :is(.num, td, dd, .kpi-value, .console-count, .console-tile-value) { font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------------- frames */
+
+.bezel {
+  padding: var(--shell-pad);
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--ink) 3.5%, transparent);
+  box-shadow: inset 0 0 0 1px var(--console-line);
+}
+.bezel-core {
+  border-radius: calc(var(--radius-lg) - var(--shell-pad));
+  background: var(--paper-raised);
+  box-shadow: var(--console-highlight), 0 0 0 1px var(--console-line), var(--console-shadow);
+}
+
+/* ------------------------------------------------------------------ rail */
+
+.console-rail { position: sticky; top: calc(var(--header-h) + 1.25rem); }
+.console-rail-core { display: grid; gap: 1.25rem; padding: 1.1rem .75rem .75rem; }
+.console-brand { padding: 0 .6rem; }
+.console-kicker {
+  margin: 0; font-family: var(--mono); font-size: var(--micro); letter-spacing: .16em;
+  text-transform: uppercase; color: var(--ink-faint);
+}
+.console-org {
+  margin: .3rem 0 0; font-size: 1.05rem; font-weight: 650; letter-spacing: -.02em; line-height: 1.25;
+  color: var(--ink); overflow-wrap: anywhere;
+}
+
+.console-nav { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.console-link {
+  display: flex; align-items: center; gap: .7rem;
+  min-height: 44px; padding: .55rem .7rem;
+  border-radius: 14px;
+  color: var(--ink-muted); text-decoration: none; font-size: .9375rem;
+  transition: background-color var(--dur-fast) var(--console-ease), color var(--dur-fast) var(--console-ease),
+              transform var(--dur-press) var(--console-ease);
+}
+.console-link:hover { background: color-mix(in oklab, var(--ink) 6%, transparent); color: var(--ink); }
+.console-link:active { transform: scale(.985); }
+.console-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.console-link[aria-current] {
+  background: var(--accent-soft); color: var(--accent-ink); font-weight: 600;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 22%, transparent);
+}
+.console-link-icon { flex: none; transition: transform 400ms var(--console-ease); }
+.console-link:hover .console-link-icon { transform: translateX(1px); }
+.console-link-label { flex: 1; min-width: 0; }
+.console-count {
+  min-width: 1.5rem; padding: .1rem .45rem; border-radius: var(--radius-pill);
+  background: var(--accent); color: var(--on-accent);
+  font-size: .75rem; font-weight: 650; text-align: center;
+}
+
+.console-account {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .35rem .6rem;
+  padding: .75rem .6rem .25rem; border-top: 1px solid var(--console-line);
+}
+.console-avatar {
+  display: grid; place-items: center; width: 2.25rem; height: 2.25rem; border-radius: 50%;
+  background: var(--ink); color: var(--paper); font-size: .75rem; font-weight: 700; letter-spacing: .02em;
+}
+.console-email { font-size: .8125rem; color: var(--ink-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.console-signout {
+  grid-column: 1 / -1;
+  display: inline-flex; align-items: center; justify-content: center; gap: .45rem;
+  min-height: 44px; margin-top: .35rem; padding: .5rem .9rem;
+  border: 0; border-radius: var(--radius-pill);
+  background: color-mix(in oklab, var(--ink) 5%, transparent); color: var(--ink);
+  font: inherit; font-size: .875rem; font-weight: 550; cursor: pointer;
+  transition: background-color var(--dur-fast) var(--console-ease), transform var(--dur-press) var(--console-ease);
+}
+.console-signout:hover { background: color-mix(in oklab, var(--ink) 10%, transparent); }
+.console-signout:active { transform: scale(.98); }
+.console-signout:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.console-signout:disabled { cursor: progress; opacity: .8; }
+
+/* ------------------------------------------------------------- main page */
+
+.console-main { display: grid; gap: clamp(2.75rem, 5vw, 4.5rem); min-width: 0; }
+.console-main > * { animation: console-enter 700ms var(--console-ease) both; animation-delay: calc(var(--i, 0) * 70ms); }
+.console-main > :nth-child(2) { --i: 1; }
+.console-main > :nth-child(3) { --i: 2; }
+.console-main > :nth-child(4) { --i: 3; }
+.console-main > :nth-child(n + 5) { --i: 4; }
+@keyframes console-enter {
+  from { opacity: 0; transform: translateY(14px); filter: blur(6px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .console-main > * { animation: none; }
+  .console *, .console *::before, .console *::after { transition-duration: 0ms !important; }
+}
+
+.console-head {
+  display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 1.25rem 2rem;
+}
+.console-head-copy { max-width: 44rem; }
+.console-eyebrow, .console .admin-intro .eyebrow {
+  display: inline-flex; margin: 0 0 1rem; padding: .3rem .75rem; border-radius: var(--radius-pill);
+  background: color-mix(in oklab, var(--ink) 5%, transparent);
+  box-shadow: inset 0 0 0 1px var(--console-line);
+  font-family: var(--mono); font-size: var(--micro); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.console-head h1, .console .admin-intro h1 {
+  margin: 0; font-size: clamp(2rem, 1.4rem + 2.2vw, 3.25rem); line-height: 1.02;
+  letter-spacing: -.045em; font-weight: 700; text-wrap: balance;
+}
+.console-lede, .console .admin-intro > p:not(.eyebrow) {
+  margin: .9rem 0 0; max-width: 60ch; color: var(--ink-muted); font-size: 1rem; line-height: 1.55; text-wrap: pretty;
+}
+.console-head-actions { display: flex; flex-wrap: wrap; gap: .6rem; }
+
+/* Existing admin pages keep their markup; inside the console it reads as the header. */
+.console .admin-intro { margin: 0; padding: 0; text-align: left; }
+.console .admin-intro > p:not(.eyebrow) { margin-inline: 0; }
+
+/* ------------------------------------------------------------------ CTA */
+
+.console-cta {
+  display: inline-flex; align-items: center; gap: .75rem;
+  min-height: 48px; padding: .35rem .4rem .35rem 1.25rem;
+  border: 0; border-radius: var(--radius-pill);
+  background: var(--accent); color: var(--on-accent);
+  font: inherit; font-size: .9375rem; font-weight: 600; text-decoration: none; cursor: pointer;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .18) inset, 0 10px 24px -14px color-mix(in oklab, var(--accent) 80%, transparent);
+  transition: transform var(--dur-press) var(--console-ease), background-color var(--dur-fast) var(--console-ease);
+}
+.console-cta:hover { background: color-mix(in oklab, var(--accent) 88%, var(--ink)); }
+.console-cta:active { transform: scale(.98); }
+.console-cta:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
+.console-cta-icon {
+  display: grid; place-items: center; width: 2.25rem; height: 2.25rem; border-radius: 50%;
+  background: color-mix(in oklab, var(--on-accent) 16%, transparent);
+  transition: transform 450ms var(--console-ease);
+}
+.console-cta:hover .console-cta-icon { transform: translate(2px, -1px) scale(1.05); }
+.console-cta.is-quiet { background: color-mix(in oklab, var(--ink) 6%, transparent); color: var(--ink); box-shadow: inset 0 0 0 1px var(--console-line); }
+.console-cta.is-quiet:hover { background: color-mix(in oklab, var(--ink) 11%, transparent); }
+.console-cta.is-quiet .console-cta-icon { background: var(--paper-raised); box-shadow: 0 0 0 1px var(--console-line); }
+
+/* -------------------------------------------------------------- sections */
+
+.console-section { display: grid; gap: 1.1rem; }
+.console-section-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: .75rem 1.5rem; }
+.console-section-head h2 { margin: 0; font-size: clamp(1.25rem, 1.1rem + .6vw, 1.6rem); letter-spacing: -.03em; }
+.console-section-note { margin: .35rem 0 0; font-size: .9rem; color: var(--ink-muted); max-width: 62ch; text-wrap: pretty; }
+
+/* ---------------------------------------------------------------- bento */
+
+.console-bento {
+  display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 14px;
+  margin: 0; padding: 0; list-style: none;
+}
+.console-tile { grid-column: span 3; }
+.console-tile.is-hero { grid-column: span 6; grid-row: span 2; }
+.console-tile.is-wide { grid-column: span 6; }
+.console-tile > .bezel-core { height: 100%; display: flex; flex-direction: column; gap: .5rem; padding: 1.15rem 1.25rem; }
+.console-tile-label {
+  margin: 0; font-family: var(--mono); font-size: var(--micro); letter-spacing: .16em; text-transform: uppercase; color: var(--ink-faint);
+}
+.console-tile-value { margin: auto 0 0; font-size: clamp(1.6rem, 1.2rem + 1.2vw, 2.2rem); font-weight: 650; letter-spacing: -.04em; line-height: 1.05; }
+.console-tile-value small { font-size: .5em; color: var(--ink-faint); font-weight: 500; letter-spacing: 0; }
+.console-tile-note { margin: 0; font-size: .8125rem; color: var(--ink-muted); }
+.console-tile.is-hero > .bezel-core { padding: 1.5rem 1.6rem; gap: .9rem; background:
+  radial-gradient(120% 90% at 100% 0%, var(--accent-soft), transparent 60%), var(--paper-raised); }
+.console-tile.is-hero .console-tile-value { font-size: clamp(2.8rem, 2rem + 3vw, 4.25rem); }
+.console-tile.is-hero .console-tile-note { font-size: .9375rem; max-width: 40ch; }
+.console-tile-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .25rem; }
+
+.console-meter { height: 8px; border-radius: var(--radius-pill); background: color-mix(in oklab, var(--ink) 8%, transparent); overflow: hidden; }
+.console-meter > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transform-origin: left center;
+  animation: console-meter 900ms var(--console-ease) both 200ms; }
+@keyframes console-meter { from { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) { .console-meter > span { animation: none; } }
+
+.console-list { display: grid; gap: .1rem; margin: .25rem 0 0; padding: 0; list-style: none; }
+.console-list li { display: flex; justify-content: space-between; gap: 1rem; padding: .5rem 0; border-top: 1px solid var(--console-line); font-size: .875rem; }
+.console-list li:first-child { border-top: 0; }
+.console-list small { color: var(--ink-faint); white-space: nowrap; }
+
+/* --------------------------------------------------- existing components */
+
+/* Admin tiles become the bento: the first (the queue) leads. */
+.console .kpi-row { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 14px; margin: 0; padding: 0; }
+.console .kpi-tile {
+  grid-column: span 3; min-width: 0; min-height: 0; aspect-ratio: auto;
+  padding: 1.1rem 1.25rem; border: 0; border-radius: var(--radius-lg);
+  background: var(--paper-raised);
+  box-shadow: 0 0 0 var(--shell-pad) color-mix(in oklab, var(--ink) 3.5%, transparent),
+              0 0 0 calc(var(--shell-pad) + 1px) var(--console-line),
+              var(--console-highlight), var(--console-shadow);
+  margin: calc(var(--shell-pad) + 1px);
+  display: flex; flex-direction: column; gap: .35rem;
+}
+.console .kpi-value { font-size: clamp(1.6rem, 1.2rem + 1.2vw, 2.2rem); letter-spacing: -.04em; margin-top: auto; }
+
+/* Cards that already exist (charts, applications, orders, plans) get frames. */
+.console :is(.chart-card, .application-card, .review-card, .order-card, .plan-card) {
+  border: 0; border-radius: calc(var(--radius-lg) - var(--shell-pad));
+  background: var(--paper-raised);
+  box-shadow: 0 0 0 var(--shell-pad) color-mix(in oklab, var(--ink) 3.5%, transparent),
+              0 0 0 calc(var(--shell-pad) + 1px) var(--console-line),
+              var(--console-highlight), var(--console-shadow);
+  margin: calc(var(--shell-pad) + 1px);
+}
+.console .chart-card { padding: 1.2rem 1.3rem; }
+.console .review-card { padding: clamp(1.1rem, 2.5vw, 1.5rem); }
+.console .review-card:has(.review-confirm) { outline: 2px solid color-mix(in oklab, var(--accent) 45%, transparent); outline-offset: calc(var(--shell-pad) + 3px); }
+.console .review-list { gap: calc(1rem + var(--shell-pad) * 2); }
+
+/* The review tabs as a segmented pill: a tray with the current option lifted. */
+.console .mode-switch {
+  display: inline-flex; justify-self: start; width: max-content; max-width: 100%; gap: 2px; margin: 0 0 1.25rem; padding: 4px; border: 0;
+  border-radius: var(--radius-pill); background: color-mix(in oklab, var(--ink) 5%, transparent);
+  box-shadow: inset 0 0 0 1px var(--console-line);
+}
+.console .mode-option {
+  flex: none; min-height: 40px; padding: .45rem 1.1rem; border: 0; border-radius: var(--radius-pill);
+  font-family: inherit; font-size: .875rem; font-weight: 550; letter-spacing: 0; text-transform: none;
+  color: var(--ink-muted); background: transparent; touch-action: manipulation;
+  transition: background-color var(--dur-fast) var(--console-ease), color var(--dur-fast) var(--console-ease), box-shadow var(--dur-fast) var(--console-ease);
+}
+.console .mode-option:hover { color: var(--ink); }
+.console .mode-option.is-active { background: var(--paper-raised); color: var(--ink); box-shadow: var(--console-highlight), 0 1px 2px rgba(18, 38, 46, .08), 0 4px 12px -6px rgba(18, 38, 46, .2); }
+.console .mode-option:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.console .chart-grid { gap: calc(14px + var(--shell-pad) * 2); }
+.console .order-card { padding: 1.15rem 1.3rem; gap: .6rem; }
+.console .plan-card { padding: 1.3rem 1.4rem; }
+.console .plan-card.is-current { background: radial-gradient(120% 90% at 100% 0%, var(--accent-soft), transparent 60%), var(--paper-raised); }
+.console .orders-list { gap: calc(.85rem + var(--shell-pad) * 2); }
+
+.console .inventory-table-wrap {
+  border: 0; border-radius: calc(var(--radius-lg) - var(--shell-pad)); background: var(--paper-raised);
+  box-shadow: 0 0 0 var(--shell-pad) color-mix(in oklab, var(--ink) 3.5%, transparent),
+              0 0 0 calc(var(--shell-pad) + 1px) var(--console-line),
+              var(--console-highlight), var(--console-shadow);
+  margin: calc(var(--shell-pad) + 1px);
+}
+.console .inventory-table-wrap th { position: sticky; top: 0; background: var(--paper-raised); }
+.console .inventory-table-wrap tbody tr { transition: background-color var(--dur-fast) var(--console-ease); }
+.console .inventory-table-wrap tbody tr:hover { background: color-mix(in oklab, var(--ink) 3%, transparent); }
+.console .inventory-table-wrap td { vertical-align: middle; }
+
+.console .activity-rail li { padding: .85rem 0; }
+
+.console .billing-summary { gap: 1rem; }
+.console .billing-summary > div {
+  flex: 1 1 10rem; padding: 1rem 1.15rem; border-radius: var(--radius);
+  background: color-mix(in oklab, var(--ink) 3.5%, transparent); box-shadow: inset 0 0 0 1px var(--console-line);
+}
+.console .billing-summary dd { font-size: 1.35rem; font-weight: 650; letter-spacing: -.03em; }
+
+.console .console-panel > .bezel-core { padding: clamp(1.1rem, 2.5vw, 1.6rem); }
+
+.console .button, .console .icon-button { transition: background-color var(--dur-fast) var(--console-ease),
+  border-color var(--dur-fast) var(--console-ease), color var(--dur-fast) var(--console-ease),
+  transform var(--dur-press) var(--console-ease); }
+.console :is(.button, .icon-button):active { transform: scale(.98); }
+.console :is(.button, .icon-button):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.console .button .loading-spinner { margin-right: .45rem; }
+
+.console-empty {
+  display: grid; justify-items: start; gap: .6rem; padding: clamp(1.5rem, 4vw, 2.5rem);
+}
+.console-empty h3 { margin: 0; font-size: 1.05rem; }
+.console-empty p { margin: 0; color: var(--ink-muted); font-size: .9rem; max-width: 50ch; }
+
+/* Anchors the badges' screen-reader text: absolutely positioned with no
+   positioned ancestor, it escaped the phone pill bar's scroller and widened
+   the whole page. */
+.console-link { position: relative; }
+.console .table-actions { flex-wrap: nowrap; }
+.console .table-actions .icon-button { flex: none; width: auto; min-width: max-content; white-space: nowrap; padding-inline: .7rem; }
+
+li.console-empty { list-style: none; padding: 1rem 0; }
+.console-list-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.console .chart-empty { margin: .5rem 0 0; }
+
+/* The decline dialog: one reason, written for the buyer. */
+.decline-reason { display: grid; gap: .4rem; margin-top: .9rem; font-size: .875rem; font-weight: 550; }
+.decline-reason textarea {
+  width: 100%; min-height: 6.5rem; resize: vertical; padding: .7rem .8rem; font: inherit; font-weight: 400;
+  color: var(--ink); background-color: var(--paper); border: 1px solid var(--console-line);
+  border-radius: calc(var(--radius-md, 12px) - 2px);
+  transition: border-color var(--dur-fast) var(--console-ease), box-shadow var(--dur-fast) var(--console-ease);
+}
+.decline-reason textarea:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring); }
+.decline-reason small { color: var(--ink-faint); font-weight: 400; }
+.console dialog { overscroll-behavior: contain; }
+@media (max-width: 48rem) { .decline-reason textarea { font-size: 16px; } }
+
+/* ------------------------------------------------------------ responsive */
+
+@media (max-width: 80rem) {
+  .console-tile { grid-column: span 6; }
+  .console-tile.is-hero { grid-column: span 12; grid-row: auto; }
+  .console .kpi-tile { grid-column: span 4; }
+  .console .kpi-tile:first-child { grid-column: span 8; }
+}
+
+@media (max-width: 64rem) {
+  .console { grid-template-columns: minmax(0, 1fr); gap: 1.75rem; }
+  .console-rail { position: static; }
+  .console-rail-core { grid-template-columns: minmax(0, 1fr) auto; align-items: center; padding: .9rem; gap: .9rem 1rem; }
+  .console-brand { padding: 0 .25rem; }
+  .console-rail nav { grid-column: 1 / -1; grid-row: 2; margin: 0 -.9rem; }
+  .console-nav {
+    display: flex; gap: .35rem; overflow-x: auto; padding: 0 .9rem .15rem; scroll-snap-type: x proximity;
+    scrollbar-width: none; overscroll-behavior-x: contain;
+  }
+  .console-nav::-webkit-scrollbar { display: none; }
+  .console-nav li { flex: none; scroll-snap-align: start; }
+  .console-link { padding: .5rem .85rem; border-radius: var(--radius-pill); background: color-mix(in oklab, var(--ink) 4%, transparent); white-space: nowrap; }
+  .console-account { grid-column: 2; grid-row: 1; border: 0; padding: 0; grid-template-columns: auto auto; }
+  .console-email { display: none; }
+  .console-signout { grid-column: auto; margin: 0; }
+  .console-avatar { display: none; }
+}
+
+@media (max-width: 48rem) {
+  .console-bento, .console .kpi-row { gap: 12px; }
+  .console-tile, .console-tile.is-wide, .console-tile.is-hero,
+  .console .kpi-tile, .console .kpi-tile:first-child { grid-column: 1 / -1; }
+  .console-head { align-items: stretch; }
+  .console-head-actions { width: 100%; }
+  .console-head-actions > * { flex: 1 1 auto; justify-content: space-between; }
+}
+
+@media print {
+  .console { display: block; }
+  .console-rail { display: none; }
+  .console-main > * { animation: none; }
+}

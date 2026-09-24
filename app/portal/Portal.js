@@ -7,7 +7,11 @@ import ProductFormDialog from './ProductFormDialog.js';
 import PasswordField from '../PasswordField.js';
 import useAlert from '../alerts/useAlert.js';
 import ConfirmDialog from '../ConfirmDialog.js';
-import { peso } from '../format.js';
+import { SquaresFour, Package, ShoppingBag, Receipt, Crown, Plus, ArrowRight, ArrowUpRight } from '@phosphor-icons/react/dist/ssr';
+import ConsoleShell, { ConsoleHeader, ConsoleSection, ConsoleCta } from '../console/ConsoleShell.js';
+
+/* One currency format across the portal: pesos with centavos, as orders and fees show them. */
+const money = value => `₱${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 import StoreOrders from '../billing/StoreOrders.js';
 
 const FREEMIUM_LIMIT = 8;
@@ -28,7 +32,7 @@ const PLANS = [
   {
     id: 'premium',
     name: 'Premium',
-    price: '₱499',
+    price: '₱499.00',
     cadence: 'per store, per month',
     features: [
       'Unlimited products',
@@ -63,7 +67,7 @@ function PlanPanel({ plan, used }) {
         const isCurrent = entry.id === plan;
         return (
           <article key={entry.id} className={`plan-card${isCurrent ? ' is-current' : ''}`}>
-            <p className="eyebrow">{entry.name}{isCurrent ? ' · current' : ''}</p>
+            <p className="eyebrow">{entry.name}{isCurrent ? ' · Current' : ''}</p>
             <p className="plan-price">{entry.price}</p>
             <p className="plan-cadence">{entry.cadence}</p>
             {entry.id === 'freemium' && isCurrent && (
@@ -75,14 +79,25 @@ function PlanPanel({ plan, used }) {
             {isCurrent
               ? <p className="plan-note">Your current plan.</p>
               : (
-                <a className="button button-outline" href="mailto:hello@furnishar.ph?subject=FurnishAR%20Premium">
-                  Ask about {entry.name}
+                <a className="button button-outline" href={`mailto:hello@furnishar.ph?subject=${encodeURIComponent(`FurnishAR ${entry.name}`)}`}>
+                  Ask About {entry.name}
                 </a>
               )}
           </article>
         );
       })}
     </div>
+  );
+}
+
+/** The portal's opening, for the screens before the dashboard. */
+function PortalIntro() {
+  return (
+    <section className="admin-intro">
+      <p className="eyebrow">For Local Partners</p>
+      <h1 id="portal-title">Store Owner Portal</h1>
+      <p>Keep your catalog current so shoppers always see available, accurate furniture.</p>
+    </section>
   );
 }
 
@@ -275,6 +290,7 @@ export default function Portal({ initialProducts }) {
   // Whether to show a way through to the platform console. The server answers
   // this; it decides what to render and grants nothing on its own.
   const [isAdmin, setIsAdmin] = useState(false);
+  const [openOrders, setOpenOrders] = useState(0);   // for the rail's Orders badge
 
   // Applying had no address of its own: it was a button on the login panel and
   // nothing else, so the footer, a poster or a message to a shop owner could
@@ -553,6 +569,8 @@ export default function Portal({ initialProducts }) {
        order, which is the standard way to land somebody on a region.
     */
     return (
+      <>
+      <PortalIntro />
       <div id="apply" tabIndex={-1}>
         {mode === 'signup' ? (
           <SignupPanel
@@ -572,11 +590,12 @@ export default function Portal({ initialProducts }) {
           />
         )}
       </div>
+      </>
     );
   }
 
   if (awaitingApproval) {
-    return <PendingPanel email={user.email} onLogout={handleLogout} isAdmin={isAdmin} />;
+    return <><PortalIntro /><PendingPanel email={user.email} onLogout={handleLogout} isAdmin={isAdmin} /></>;
   }
 
   const plan = usingSupabase()
@@ -597,69 +616,110 @@ export default function Portal({ initialProducts }) {
   const placeable = ownProducts.filter(product => product.modelGlb).length;
   const missingModels = ownProducts.length - placeable;
 
+  const accountEmail = user.email || session?.user?.email || '';
+  const readyShare = ownProducts.length ? Math.round((placeable / ownProducts.length) * 100) : 0;
+  const railItems = [
+    { href: '#overview', label: 'Overview', icon: SquaresFour },
+    { href: '#inventory', label: 'Inventory', icon: Package, count: missingModels, countLabel: 'without a 3D model' },
+    ...(usingSupabase() && user.storeUuid
+      ? [{ href: '#orders', label: 'Orders', icon: ShoppingBag, count: openOrders, countLabel: 'open' },
+         { href: '#billing', label: 'Billing', icon: Receipt }]
+      : []),
+    { href: '#plan', label: 'Plan', icon: Crown }
+  ];
+
   return (
-    <section className="dashboard">
-      <div className="dashboard-top">
-        <div>
-          <p className="eyebrow">{user.store}</p>
-          <h2>Welcome back</h2>
-        </div>
-        <div>
-          {isAdmin && (
-            <Link className="button button-outline" href="/admin">Platform console</Link>
-          )}
-          <button className="button button-primary" type="button" onClick={() => setEditing(null)}>
-            + Add product
-          </button>
-          <button className="button button-outline" type="button" onClick={handleLogout}>Sign out</button>
-        </div>
+    <ConsoleShell kicker="Store Portal" org={user.store} items={railItems} email={accountEmail}
+      onSignOut={handleLogout} spy>
+      <div id="overview" className="console-overview">
+        <ConsoleHeader
+          eyebrow={user.store}
+          title="Welcome Back"
+          id="portal-title"
+          actions={<>
+            {isAdmin && <ConsoleCta href="/admin" icon={ArrowUpRight} className="is-quiet">Platform Console</ConsoleCta>}
+            <ConsoleCta icon={Plus} onClick={() => setEditing(null)}>Add Product</ConsoleCta>
+          </>}
+        >
+          {ownProducts.length
+            ? <p>{placeable} of {ownProducts.length} listings can be placed in a shopper&rsquo;s room.</p>
+            : <p>Add your first piece so shoppers can find it and measure it at home.</p>}
+        </ConsoleHeader>
+
+        <ul className="console-bento" aria-label="Store at a glance">
+          <li className="console-tile is-hero bezel">
+            <div className="bezel-core">
+              <p className="console-tile-label">Ready for AR</p>
+              <p className="console-tile-value">
+                {placeable}<small>&nbsp;/&nbsp;{ownProducts.length}</small>
+              </p>
+              <div className="console-meter" role="img" aria-label={`${readyShare}% of listings have a 3D model`}>
+                <span style={{ width: `${readyShare}%` }} />
+              </div>
+              <p className="console-tile-note">
+                {missingModels > 0
+                  ? <>{missingModels} {missingModels === 1 ? 'listing has' : 'listings have'} no 3D model. Shoppers see the
+                      measurements but can&rsquo;t place {missingModels === 1 ? 'it' : 'them'} in their room.
+                      Add a <code translate="no">.glb</code> from Edit.</>
+                  : ownProducts.length
+                    ? 'Every listing can be placed in a room at true scale.'
+                    : 'Listings with a 3D model show up here.'}
+              </p>
+              <div className="console-tile-actions">
+                <ConsoleCta href="#inventory" icon={ArrowRight} className="is-quiet">
+                  {missingModels > 0 ? 'Fix Listings' : 'Open Inventory'}
+                </ConsoleCta>
+              </div>
+            </div>
+          </li>
+          <li className="console-tile bezel">
+            <div className="bezel-core">
+              <p className="console-tile-label">Listed Products</p>
+              <p className="console-tile-value">{ownProducts.length}{isFree && <small>&nbsp;/&nbsp;{FREEMIUM_LIMIT}</small>}</p>
+              <p className="console-tile-note">{isFree ? `${Math.max(FREEMIUM_LIMIT - ownProducts.length, 0)} left on Freemium` : 'Unlimited on Premium'}</p>
+            </div>
+          </li>
+          <li className="console-tile bezel">
+            <div className="bezel-core">
+              <p className="console-tile-label">Units in Stock</p>
+              <p className="console-tile-value">{units}</p>
+              <p className="console-tile-note">Across {ownProducts.length} {ownProducts.length === 1 ? 'listing' : 'listings'}</p>
+            </div>
+          </li>
+          <li className="console-tile bezel">
+            <div className="bezel-core">
+              <p className="console-tile-label">Catalog Value</p>
+              <p className="console-tile-value">{money(value)}</p>
+              <p className="console-tile-note">Price × units in stock</p>
+            </div>
+          </li>
+          <li className="console-tile bezel">
+            <div className="bezel-core">
+              <p className="console-tile-label">Plan</p>
+              <p className="console-tile-value">{isFree ? 'Freemium' : 'Premium'}</p>
+              <p className="console-tile-note"><a href="#plan">Compare plans</a></p>
+            </div>
+          </li>
+        </ul>
       </div>
 
-      <div className="inventory-summary">
-        <div className="inventory-stat"><span>Plan</span><strong>{isFree ? 'Freemium' : 'Premium'}</strong></div>
-        <div className="inventory-stat">
-          <span>Listed products</span>
-          <strong>{ownProducts.length}{isFree ? `/${FREEMIUM_LIMIT}` : ''}</strong>
-        </div>
-        <div className="inventory-stat">
-          <span>Can be placed in AR</span>
-          <strong>{placeable}<small>/{ownProducts.length}</small></strong>
-        </div>
-        <div className="inventory-stat"><span>Units available</span><strong>{units}</strong></div>
-        <div className="inventory-stat"><span>Catalog value</span><strong>{peso(value)}</strong></div>
-      </div>
-
-      {/* Said once, plainly, with the number — rather than leaving it to be
-          inferred from reading every row of the table. */}
-      {missingModels > 0 && (
-        <p className="dashboard-nudge">
-          <b>{missingModels} {missingModels === 1 ? 'listing has' : 'listings have'} no 3D model.</b>
-          {' '}Shoppers can see {missingModels === 1 ? 'it' : 'them'} and read the
-          measurements, but cannot place {missingModels === 1 ? 'it' : 'them'} in
-          their room. Add a <code>.glb</code> from Edit to change that.
-        </p>
-      )}
-
-      <section className="plan-section" aria-labelledby="plan-title">
-        <div className="section-heading">
-          <div><p className="eyebrow">Subscription</p><h2 id="plan-title">Your plan</h2></div>
-        </div>
-        <PlanPanel plan={plan} used={ownProducts.length} />
-      </section>
-
-      {/* Orders and billing live in the database (0009); the demo backend has neither. */}
-      {usingSupabase() && user.storeUuid && <StoreOrders storeUuid={user.storeUuid} />}
-
-      <div className="inventory-table-wrap">
-        <table role="table">
-          <thead>
-            <tr>
-              <th>Product</th><th>Dimensions</th><th>Price</th><th>In stock</th>
-              <th>Updated</th><th><span className="sr-only">Actions</span></th>
-            </tr>
-          </thead>
-          <tbody>
-            {ownProducts.length ? ownProducts.map(product => (
+      <ConsoleSection
+        id="inventory"
+        title="Inventory"
+        note="Your listings as shoppers see them. A listing without a 3D model can’t be placed in a room."
+        action={<ConsoleCta icon={Plus} onClick={() => setEditing(null)}>Add Product</ConsoleCta>}
+      >
+        {ownProducts.length ? (
+          <div className="inventory-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Product</th><th scope="col">Dimensions</th><th scope="col">Price</th>
+                  <th scope="col">In Stock</th><th scope="col">Updated</th><th scope="col"><span className="sr-only">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {ownProducts.map(product => (
               <tr key={product.id} role="row">
                 <td data-label="Product">
                   <div className="inventory-product">
@@ -691,24 +751,40 @@ export default function Portal({ initialProducts }) {
                 <td data-label="Dimensions">
                   {product.dimensions.width} × {product.dimensions.depth} × {product.dimensions.height} cm
                 </td>
-                <td data-label="Price">{peso(product.price)}</td>
-                <td data-label="In stock">{product.stock}</td>
+                <td data-label="Price" className="num">{money(product.price)}</td>
+                <td data-label="In stock" className="num">{product.stock}</td>
                 <td data-label="Updated"><small>{relativeTime(product.updatedAt)}</small></td>
                 <td data-label="Actions">
                   <div className="table-actions">
-                    <button className="icon-button" type="button" onClick={() => setEditing(product)}>Edit</button>
-                    <button className="icon-button delete" type="button" onClick={() => handleDelete(product)}>
-                      Delete
+                    <button className="icon-button" type="button" onClick={() => setEditing(product)} aria-label={`Edit ${product.name}`}>Edit</button>
+                    <button className="icon-button delete" type="button" onClick={() => handleDelete(product)}
+                      aria-label={`Delete ${product.name}…`}>
+                      Delete…
                     </button>
                   </div>
                 </td>
               </tr>
-            )) : (
-              <tr><td colSpan={6}>No products listed yet. Add your first product above.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="bezel">
+            <div className="bezel-core console-empty">
+              <h3>No Products Yet</h3>
+              <p>Add a piece with its real measurements. Attach a <code translate="no">.glb</code> model so shoppers can place it in their room.</p>
+              <ConsoleCta icon={Plus} onClick={() => setEditing(null)}>Add Your First Product</ConsoleCta>
+            </div>
+          </div>
+        )}
+      </ConsoleSection>
+
+      {/* Orders and billing live in the database (0009); the demo backend has neither. */}
+      {usingSupabase() && user.storeUuid && <StoreOrders storeUuid={user.storeUuid} onOpenCount={setOpenOrders} />}
+
+      <ConsoleSection id="plan" title="Your Plan" note="Premium lifts the listing limit and features your pieces at the top of the catalog.">
+        <PlanPanel plan={plan} used={ownProducts.length} />
+      </ConsoleSection>
 
       {editing !== undefined && (
         <ProductFormDialog
@@ -725,15 +801,13 @@ export default function Portal({ initialProducts }) {
 
       {pendingDelete && (
         <ConfirmDialog
-          title="Delete this product?"
-          body={`"${pendingDelete.name}" will be removed from your catalog and from any
-                 shopper's saved plan. This cannot be undone.`}
-          confirmLabel="Delete product"
+          title={`Delete “${pendingDelete.name}”?`}
+          body="It will be removed from your catalog and from any shopper’s saved plan. This can’t be undone."
+          confirmLabel="Delete Product"
           onConfirm={() => performDelete(pendingDelete)}
           onCancel={() => setPendingDelete(null)}
         />
       )}
-
-    </section>
+    </ConsoleShell>
   );
 }

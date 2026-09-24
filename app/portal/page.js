@@ -19,12 +19,6 @@ export default async function PortalPage() {
 
   return (
     <section className="view admin-view active" aria-labelledby="portal-title">
-      <section className="admin-intro">
-        <p className="eyebrow">For local partners</p>
-        <h1 id="portal-title">Store owner portal</h1>
-        <p>Keep the catalog current so shoppers always see available, accurate furniture.</p>
-      </section>
-
       <Portal initialProducts={products} />
     </section>
   );

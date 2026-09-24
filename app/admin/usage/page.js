@@ -20,8 +20,8 @@ export default function AdminUsage() {
   return (
     <>
       <section className="admin-intro">
-        <p className="eyebrow">Against your storage plan</p>
-        <h1 id="console-title">Usage by store</h1>
+        <p className="eyebrow">Against Your Storage Plan</p>
+        <h1 id="console-title">Usage by Store</h1>
         <p>{formatBytes(total)} across {usage.length} store{usage.length === 1 ? '' : 's'}.</p>
       </section>
 

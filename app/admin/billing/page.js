@@ -54,7 +54,7 @@ export default function AdminBilling() {
   return (
     <>
       <section className="admin-intro">
-        <p className="eyebrow">10% service fee</p>
+        <p className="eyebrow">10% Service Fee</p>
         <h1 id="console-title">Billing</h1>
         <p>
           {rows === null ? 'Loading…'
@@ -63,34 +63,40 @@ export default function AdminBilling() {
       </section>
 
       {settling && (
-        <form className="product-form order-quote" onSubmit={settle} aria-label={`Record a payment from ${settling.store_name}`}>
-          <label>Amount received (₱)
-            <input name="amount" type="number" min="0.01" step="0.01" required inputMode="decimal"
+        <div className="bezel console-panel">
+        <form className="bezel-core product-form order-quote" onSubmit={settle} aria-label={`Record a payment from ${settling.store_name}`}>
+          <label>Amount Received (₱)
+            <input name="amount" type="text" required inputMode="decimal" pattern="[0-9]+([.][0-9]{1,2})?"
+              autoComplete="off" autoFocus
               defaultValue={Number(settling.outstanding) > 0 ? Number(settling.outstanding).toFixed(2) : ''} />
           </label>
-          <label>Reference<input name="reference" maxLength={120} placeholder="GCash / PayPal ref…" /></label>
-          <label>Note<input name="note" maxLength={500} placeholder="Optional…" /></label>
+          <label>Reference<input name="reference" maxLength={120} autoComplete="off" spellCheck={false} placeholder="GCash or PayPal reference…" /></label>
+          <label>Note<input name="note" maxLength={500} autoComplete="off" placeholder="Optional…" /></label>
           <div className="order-actions">
-            <button className="button button-primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Record settlement'}</button>
+            <button className="button button-primary" type="submit" disabled={busy} aria-busy={busy || undefined}>
+              {busy && <span className="loading-spinner" aria-hidden="true" />}Record Settlement
+            </button>
             <button className="button" type="button" onClick={() => setSettling(null)}>Cancel</button>
           </div>
         </form>
+        </div>
       )}
 
       <PagedTable
         rows={list}
         colSpan={6}
         empty={rows === null ? 'Loading…' : 'No stores yet.'}
-        head={<tr><th>Store</th><th>Type</th><th>Paid to shop</th><th>Fees accrued</th><th>Outstanding</th><th><span className="sr-only">Actions</span></th></tr>}
+        head={<tr><th scope="col">Store</th><th scope="col">Type</th><th scope="col" className="num">Paid to Shop</th><th scope="col" className="num">Fees Accrued</th><th scope="col" className="num">Outstanding</th><th><span className="sr-only">Actions</span></th></tr>}
         renderRow={row => (
           <tr key={row.store_id}>
-            <td>{row.store_name}</td>
+            <td translate="no">{row.store_name}</td>
             <td>{row.fulfilment === 'custom' ? 'Custom' : 'Stocked'}</td>
-            <td>{money(row.sales)}</td>
-            <td>{money(row.accrued)}</td>
-            <td><b>{money(row.outstanding)}</b></td>
+            <td className="num">{money(row.sales)}</td>
+            <td className="num">{money(row.accrued)}</td>
+            <td className="num"><b>{money(row.outstanding)}</b></td>
             <td>
-              <button className="icon-button" type="button" onClick={() => setSettling(row)}>Record payment</button>
+              <button className="icon-button" type="button" onClick={() => setSettling(row)}
+                aria-label={`Record a payment from ${row.store_name}`}>Record Payment…</button>
             </td>
           </tr>
         )}

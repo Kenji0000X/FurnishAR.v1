@@ -1135,12 +1135,12 @@ export async function listAllStores() {
 export async function listUploadedModels(limit = 200) {
   const query =
     'product_assets?select=id,kind,object_path,byte_size,mime_type,created_at,' +
-    'product:products(name,slug,status,store:stores(name,slug))' +
+    'product:products(id,name,slug,status,store:stores(name,slug))' +
     `&order=created_at.desc&limit=${Number(limit) || 200}`;
   if (mode === 'direct') {
     const supabase = await getDirectClient();
     const { data, error } = await supabase.from('product_assets')
-      .select('id,kind,object_path,byte_size,mime_type,created_at,product:products(name,slug,status,store:stores(name,slug))')
+      .select('id,kind,object_path,byte_size,mime_type,created_at,product:products(id,name,slug,status,store:stores(name,slug))')
       .order('created_at', { ascending: false })
       .limit(Number(limit) || 200);
     if (error) throw new Error(friendlyError(error));

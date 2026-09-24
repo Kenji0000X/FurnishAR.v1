@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useAdmin } from '../AdminGate.js';
 import ApplicationCard from '../ApplicationCard.js';
 
@@ -14,7 +14,13 @@ import ApplicationCard from '../ApplicationCard.js';
  */
 export default function AdminApplications() {
   const { applications, accounts, busy, onApprove, onReject } = useAdmin();
-  const [tab, setTab] = useState('pending');
+  /* Which list is showing lives in the URL (?show=all), so "all
+     applications" is a link you can send, and refresh keeps it. */
+  const router = useRouter();
+  const pathname = usePathname();
+  const search = useSearchParams();
+  const tab = search?.get('show') === 'all' ? 'all' : 'pending';
+  const setTab = next => router.replace(next === 'all' ? `${pathname}?show=all` : pathname, { scroll: false });
 
   const shown = tab === 'pending'
     ? applications.filter(a => a.status === 'pending')
@@ -23,8 +29,8 @@ export default function AdminApplications() {
   return (
     <>
       <section className="admin-intro">
-        <p className="eyebrow">Platform administration</p>
-        <h1 id="console-title">Store applications</h1>
+        <p className="eyebrow">Platform Administration</p>
+        <h1 id="console-title">Store Applications</h1>
         <p>
           Check each applicant before approving. Approving creates their store and lets
           them publish furniture that shoppers will see.
@@ -35,12 +41,12 @@ export default function AdminApplications() {
         <button type="button" role="tab" aria-selected={tab === 'pending'}
           className={`mode-option${tab === 'pending' ? ' is-active' : ''}`}
           onClick={() => setTab('pending')}>
-          Awaiting review
+          Awaiting Review
         </button>
         <button type="button" role="tab" aria-selected={tab === 'all'}
           className={`mode-option${tab === 'all' ? ' is-active' : ''}`}
           onClick={() => setTab('all')}>
-          All applications
+          All Applications
         </button>
       </div>
 

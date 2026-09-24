@@ -124,12 +124,12 @@ await page.waitForSelector('form.login-form', { timeout: 20000 });
 await page.fill('input[name="email"]', 'owner@furnishar.ph');
 await page.fill('input[name="password"]', 'x');
 await page.click('form.login-form button[type="submit"]');
-await page.waitForSelector('.dashboard', { timeout: 20000 }).catch(() => {});
+await page.waitForSelector('.console', { timeout: 20000 }).catch(() => {});
 
 /** Uploads one oversized model through the real dialog and inspects the result. */
 async function uploadAndInspect(name, bytes) {
   uploadedBytes = null;
-  await page.click('button:has-text("+ Add product")');
+  await page.click('.console-head button:has-text("Add Product")');
   await page.waitForSelector('dialog.form-dialog[open]', { timeout: 10000 });
   await page.fill('input[name="name"]', name);
   await page.fill('input[name="price"]', '7500');
