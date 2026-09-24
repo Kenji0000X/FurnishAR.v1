@@ -43,6 +43,15 @@ BOUNDARY = 'rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#333333;
 GROUP = 'text;html=1;align=left;verticalAlign=middle;fontStyle=1;fontColor=#666666;fontSize=12;'
 NOTE = 'shape=note;whiteSpace=wrap;html=1;size=14;fillColor=#fffbe6;strokeColor=#d6b656;align=left;spacingLeft=8;fontSize=11;'
 
+# Gane–Sarson notation for the levelled DFDs.
+DFD_PROCESS = 'rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;arcSize=18;'
+DFD_REF = 'rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;dashed=1;fontColor=#555555;arcSize=18;'
+DFD_STORE = 'shape=partialRectangle;whiteSpace=wrap;html=1;right=0;fillColor=#fff2cc;strokeColor=#d6b656;align=left;spacingLeft=8;'
+DFD_EXTERNAL = 'rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;'
+TITLE = 'text;html=1;align=left;verticalAlign=middle;fontStyle=1;fontSize=16;'
+DIALOG = 'startArrow=block;startFill=1;'   # a request and its reply on one line (Gane–Sarson)
+JUMP = 'jumpStyle=arc;jumpSize=8;'
+
 EDGE_ORTHO = 'edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=11;labelBackgroundColor=#ffffff;'
 EDGE_STRAIGHT = 'rounded=0;html=1;fontSize=11;labelBackgroundColor=#ffffff;endArrow=block;endFill=1;'
 ASSOC = 'rounded=0;html=1;endArrow=none;'
@@ -115,17 +124,19 @@ class Page:
             y0 = y - (len(lines) - 1) * size * 0.6
             style = 'font-style:italic;' if italic else ''
             return ''.join(f'<text x="{x}" y="{y0 + i * size * 1.2 + size * 0.35}" font-size="{size}" '
-                           f'font-weight="{weight}" text-anchor="{anchor}" style="{style}" '
-                           f'font-family="Helvetica,Arial,sans-serif">{escape(l)}</text>' for i, l in enumerate(lines))
+                           f'font-weight="{weight}" text-anchor="{anchor}"' + (f' style="{style}"' if style else '') + f'>{escape(l)}</text>' for i, l in enumerate(lines))
 
         def fill(style, key, default):
             m = re.search(key + r'=([^;]+)', style)
             return m.group(1) if m else default
 
         parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{self.width}" height="{self.height}" '
-                 f'viewBox="0 0 {self.width} {self.height}"><rect width="100%" height="100%" fill="#fff"/>',
+                 f'viewBox="0 0 {self.width} {self.height}" font-family="Helvetica,Arial,sans-serif">'
+                 '<rect width="100%" height="100%" fill="#fff"/>',
                  '<defs><marker id="a" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">'
                  '<path d="M0,0 L10,4 L0,8 z" fill="#333"/></marker>'
+                 '<marker id="s" markerWidth="10" markerHeight="8" refX="1" refY="4" orient="auto">'
+                 '<path d="M10,0 L0,4 L10,8 z" fill="#333"/></marker>'
                  '<marker id="o" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">'
                  '<path d="M0,0 L10,4 L0,8" fill="none" stroke="#333"/></marker>'
                  '<marker id="t" markerWidth="16" markerHeight="14" refX="15" refY="7" orient="auto">'
@@ -147,8 +158,13 @@ class Page:
                              f'M{cx},{y + h*0.62} L{x + w*0.25},{y + h} M{cx},{y + h*0.62} L{x + w*0.75},{y + h}" stroke="#333" fill="none"/>')
                 label_y = y + h + 14
             elif 'partialRectangle' in s:
+                d = f'M{x},{y} H{x + w} M{x},{y + h} H{x + w}'
+                if 'left=0' not in s:
+                    d += f' M{x},{y} V{y + h}'
+                if 'right=0' not in s:
+                    d += f' M{x + w},{y} V{y + h}'
                 parts.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="{f}" stroke="none"/>'
-                             f'<path d="M{x},{y} H{x + w} M{x},{y + h} H{x + w}" stroke="{st}"/>')
+                             f'<path d="{d}" stroke="{st}"/>')
             elif 'shape=note' in s:
                 parts.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="{f}" stroke="{st}"/>')
             elif s.startswith('text'):
@@ -172,14 +188,16 @@ class Page:
             pts = [p0] + e['points'] + [p1]
             if 'orthogonal' in e['style']:
                 ortho = [pts[0]]
-                for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
-                    if x1 != x2 and y1 != y2:
-                        horizontal_first = e['exit'] and e['exit'][1] in (0.5,) and e['exit'][0] in (0, 1) or \
-                            (e['exit'] and 0 < e['exit'][1] < 1 and e['exit'][0] in (0, 1))
-                        if (x1, y1) == pts[0] and not horizontal_first and e['exit'] is not None:
-                            ortho.append((x1, y2))
+                last = len(pts) - 2
+                for i, ((x1, y1), (x2, y2)) in enumerate(zip(pts, pts[1:])):
+                    if abs(x1 - x2) > 0.5 and abs(y1 - y2) > 0.5:
+                        if i == 0 and e['exit'] is not None:
+                            sideways = e['exit'][0] in (0, 1)
+                        elif i == last and e['entry'] is not None:
+                            sideways = e['entry'][0] not in (0, 1)
                         else:
-                            ortho.append((x2, y1))
+                            sideways = True
+                        ortho.append((x2, y1) if sideways else (x1, y2))
                     ortho.append((x2, y2))
                 pts = ortho
             d = 'M' + ' L'.join(f'{x:.1f},{y:.1f}' for x, y in pts)
@@ -187,7 +205,8 @@ class Page:
             marker = '' if 'endArrow=none' in s else ('url(#t)' if 'endFill=0;endSize' in s else
                                                       ('url(#o)' if 'endArrow=open' in s else 'url(#a)'))
             dash = ' stroke-dasharray="6 4"' if 'dashed=1' in s else ''
-            parts.append(f'<path d="{d}" fill="none" stroke="#333"{dash}' + (f' marker-end="{marker}"' if marker else '') + '/>')
+            start = ' marker-start="url(#s)"' if 'startArrow=block' in s else ''
+            parts.append(f'<path d="{d}" fill="none" stroke="#333"{dash}{start}' + (f' marker-end="{marker}"' if marker else '') + '/>')
             if e['label']:
                 # Label at the middle of the longest segment, like draw.io's default.
                 segs = list(zip(pts, pts[1:]))
@@ -262,7 +281,7 @@ def level0():
 # 3. Level 2 — Protected 3D access
 # =========================================================================
 def access3d():
-    p = Page('level-2-3d', 'Level 2 — Protected 3D Access', 1560, 820)
+    p = Page('flow-3d', 'Flow — Protected 3D Access (step by step)', 1560, 820)
     p.node('title', 'Protected 3D Access — Authentication ≠ Authorization', GROUP + 'fontSize=16;', 40, 10, 700, 30)
     p.node('U', 'Guest / Buyer', EXTERNAL, 40, 205, 130, 70)
     p.node('P', 'Product Page<br>/furniture/[slug]', PAGE_ROUTE, 220, 205, 150, 70)
@@ -308,7 +327,7 @@ def access3d():
 # 4. Level 2 — Orders & payments
 # =========================================================================
 def payments():
-    p = Page('level-2-p10', 'Level 2 — Orders & Payments (P10)', 1400, 1000)
+    p = Page('flow-p10', 'Flow — Checkout & Custom-Build Stages', 1400, 1000)
     p.node('title', 'P10 Orders & Payments — stocked checkout', GROUP + 'fontSize=16;', 40, 10, 600, 30)
     p.node('U', 'Buyer', EXTERNAL, 40, 185, 120, 70)
     p.node('PG', 'Product Page<br>purchase panel', PAGE_ROUTE, 200, 185, 150, 70)
@@ -442,17 +461,370 @@ def usecases():
     return p
 
 
-def main():
-    source = DRAWIO.read_text(encoding='utf-8')
-    diagrams = re.findall(r'<diagram [^>]*>.*?</diagram>', source, flags=re.S)
-    level1 = next(d for d in diagrams if 'id="furnishar-dfd-v2"' in d)
-    level1 = re.sub(r'name="[^"]*"', 'name="Level 1 — System DFD"', level1, count=1)
+# =========================================================================
+# Levelled DFDs (Gane–Sarson): Level 1, three Level 2s, two Level 3s.
+# =========================================================================
+def proc(p, nid, num, name, x, y, w=240, h=64):
+    return p.node(nid, f'<b>{num}</b><br>{name}', DFD_PROCESS, x, y, w, h)
 
-    pages = [level0(), None, access3d(), payments(), usecases()]
-    body = [level1 if page is None else page.xml() for page in pages]
+
+def ref(p, nid, num, name, x, y, w=220, h=56):
+    """A process drawn on another diagram, shown here only as a source or sink."""
+    return p.node(nid, f'<b>{num}</b><br>{name}', DFD_REF, x, y, w, h)
+
+
+def store(p, nid, code, name, x, y, w=270, h=44):
+    return p.node(nid, f'<b>{code}</b>&nbsp;&nbsp;|&nbsp;&nbsp;{name}', DFD_STORE, x, y, w, h)
+
+
+def ext(p, nid, name, x, y, w=170, h=64):
+    return p.node(nid, name, DFD_EXTERNAL, x, y, w, h)
+
+
+O = EDGE_ORTHO + JUMP
+S = EDGE_STRAIGHT
+D = EDGE_STRAIGHT + DIALOG
+
+
+def level1():
+    p = Page('dfd-1', 'Level 1 — System DFD', 1720, 1330)
+    p.node('title', 'Level 1 DFD — FurnishAR System (processes 1.0–10.0)', TITLE, 40, 10, 800, 30)
+    ext(p, 'B', 'Buyer / Guest', 40, 250, 160, 200)
+    ext(p, 'O', 'Store Owner', 40, 880, 160, 120)
+    ext(p, 'A', 'Platform Admin', 40, 1075, 160, 70)
+    ext(p, 'EM1', 'Email Service', 1480, 95, 170, 54)
+    ext(p, 'PP', 'PayPal', 1480, 690, 170, 64)
+    ext(p, 'EM', 'Email Service', 1480, 830, 170, 64)
+
+    proc(p, 'P1', '1.0', 'Authentication &amp; Session', 420, 60)
+    proc(p, 'P2', '2.0', 'Browse Collection', 420, 175)
+    proc(p, 'P3', '3.0', 'Product Details', 420, 290)
+    proc(p, 'P4', '4.0', 'Planner / Device Check', 420, 405)
+    proc(p, 'P6', '6.0', 'Profile / Account', 420, 545)
+    proc(p, 'P10', '10.0', 'Orders &amp; Payments', 420, 715)
+    proc(p, 'P7', '7.0', 'Store Portal', 420, 895)
+    proc(p, 'P8', '8.0', 'Admin Console', 420, 1075)
+    proc(p, 'P5', '5.0', '3D Access &amp; Authorization', 800, 405, 240, 110)
+    proc(p, 'P9', '9.0', 'Notifications / Alerts', 420, 1215, 620, 64)
+
+    store(p, 'D1', 'D1', 'Accounts &amp; Roles', 1120, 70)
+    store(p, 'D2', 'D2', 'Catalogue / Products', 1120, 190, 270, 150)
+    store(p, 'D3', 'D3', 'Private 3D Assets', 1120, 420, 270, 60)
+    store(p, 'D1b', 'D1', 'Accounts &amp; Roles (copy)', 1120, 490)
+    store(p, 'D2b', 'D2', 'Catalogue / Products (copy)', 1120, 680)
+    store(p, 'D5', 'D5', 'Orders / Payments / Fees', 1120, 745, 270, 80)
+    store(p, 'D2c', 'D2', 'Catalogue / Products (copy)', 1120, 885)
+    store(p, 'D3b', 'D3', 'Private 3D Assets (copy)', 1120, 940)
+    store(p, 'D4', 'D4', 'Applications / Audit / Usage', 1120, 1050, 270, 60)
+    store(p, 'D5b', 'D5', 'Orders / Payments / Fees (copy)', 1120, 1120)
+
+    # Buyer, owner and admin dialogs (request and reply on one line).
+    p.edge('B', 'P1', 'credentials / session, role', D, exit=(1, 0.08), entry=(0, 0.5))
+    p.edge('B', 'P2', 'catalogue request / results', D, exit=(1, 0.22), entry=(0, 0.5))
+    p.edge('B', 'P3', 'product request / details', D, exit=(1, 0.42), entry=(0, 0.5))
+    p.edge('B', 'P4', 'planner request / placement, fit', D, exit=(1, 0.62), entry=(0, 0.5))
+    p.edge('B', 'P6', 'profile changes / profile', D, exit=(1, 0.8), entry=(0, 0.5))
+    p.edge('B', 'P10', 'buy, request, pay /<br>order status, approval link', D, exit=(1, 0.92), entry=(0, 0.4))
+    p.edge('O', 'P10', 'quote, ready, delivery, billing /<br>incoming orders, fees owed', D, exit=(1, 0.1), entry=(0, 0.85))
+    p.edge('O', 'P7', 'inventory, uploads, application /<br>store results', D, exit=(1, 0.5), entry=(0, 0.5))
+    p.edge('A', 'P8', 'review, settle / console data', D, exit=(1, 0.5), entry=(0, 0.5))
+
+    # 1.0
+    p.edge('P1', 'D1', 'new account', O, exit=(1, 0.3), entry=(0, 0.2))
+    p.edge('D1', 'P1', 'identity, role', O, exit=(0, 0.8), entry=(1, 0.7))
+    p.edge('P1', 'EM1', 'confirmation request', O, exit=(1, 0.95), entry=(0, 0.5))
+    # 2.0, 3.0
+    p.edge('D2', 'P2', 'published products', O, exit=(0, 0.15), entry=(1, 0.6))
+    p.edge('D2', 'P3', 'product record', O, exit=(0, 0.75), entry=(1, 0.2))
+    # 4.0 <-> 5.0, 4.0 -> 1.0
+    p.edge('P4', 'P5', 'model request + token', O, exit=(1, 0.3), entry=(0, 0.175))
+    p.edge('P5', 'P4', 'signed URL / refusal', O, exit=(0, 0.545), entry=(1, 0.93))
+    p.edge('P4', 'P1', 'session check', O, exit=(1, 0.62), entry=(1, 0.95), points=[(685, 444.7), (685, 120.8)])
+    # 5.0
+    p.edge('D2', 'P5', 'product / store status', O, exit=(0, 0.95), entry=(0.8, 0), points=[(992, 332.5)])
+    p.edge('P5', 'D3', 'sign object (as user)', O, exit=(1, 0.2), entry=(0, 0.117))
+    p.edge('D3', 'P5', 'signed URL / refusal', O, exit=(0, 0.85), entry=(1, 0.6))
+    p.edge('D1b', 'P5', 'session, admin / member', O, exit=(0, 0.4), entry=(1, 0.93))
+    # 6.0
+    p.edge('P6', 'D1b', 'profile update', O, exit=(1, 0.2), entry=(0.1, 1), points=[(1147, 557.8)])
+    p.edge('D1b', 'P6', 'own profile', O, exit=(0.25, 1), entry=(1, 0.7), points=[(1187.5, 589.8)])
+    # 10.0
+    p.edge('P10', 'D2b', 'stock hold', O, exit=(1, 0.1), entry=(0, 0.9))
+    p.edge('D2b', 'P10', 'price, stock', O, exit=(0, 0.2), entry=(0.9, 0), points=[(636, 688.8)])
+    p.edge('P10', 'PP', 'create / capture order (payee = shop)', O, exit=(1, 0.3), entry=(0, 0.69))
+    p.edge('PP', 'P10', 'approval / capture result', O, exit=(0.3, 0), entry=(0.7, 0), points=[(1531, 650), (588, 650)])
+    p.edge('P10', 'D5', 'orders, verified payments', O, exit=(1, 0.6), entry=(0, 0.1))
+    p.edge('D5', 'P10', 'amount due, order state', O, exit=(0, 0.4), entry=(1, 0.95))
+    p.edge('P10', 'EM', 'receipt / order emails', O, exit=(0.8, 1), entry=(0, 0.3), points=[(612, 849.2)])
+    # 7.0
+    p.edge('P7', 'D2c', 'product CRUD', O, exit=(1, 0.2), entry=(0, 0.6))
+    p.edge('P7', 'D3b', 'model upload (signed)', O, exit=(1, 0.85), entry=(0, 0.2))
+    p.edge('P7', 'D4', 'store application', O, exit=(0.95, 1), entry=(0, 0.13), points=[(648, 1010), (770, 1010), (770, 1057.8)])
+    # 8.0
+    p.edge('P8', 'D4', 'applications, audit, usage', O, exit=(1, 0.3), entry=(0, 0.73))
+    p.edge('P8', 'D5b', 'fee overview, settlements', O, exit=(1, 0.9), entry=(0, 0.3))
+    p.edge('P8', 'D3b', 'model review', O, exit=(1, 0.05), entry=(0, 0.8), points=[(790, 1078.2), (790, 975.2)])
+    # 9.0: every process reports its events on one bus; alerts go back to the three people.
+    for pid in ('P1', 'P2', 'P3', 'P4', 'P6', 'P10', 'P7', 'P8'):
+        n = p.nodes[pid]
+        y = n['y'] + n['h'] * 0.97
+        p.edge(pid, 'P9', 'events' if pid == 'P8' else '', O, exit=(1, 0.97), entry=(0.45, 0), points=[(705, y), (705, 1215)])
+    p.edge('P5', 'P9', '', O, exit=(0, 0.95), entry=(0.45, 0), points=[(705, 509.5), (705, 1215)])
+    for eid, entry in (('B', (1, 0.97)), ('O', (1, 0.95)), ('A', (1, 0.9))):
+        n = p.nodes[eid]
+        p.edge('P9', eid, 'alerts' if eid == 'A' else '', O, exit=(0, 0.5), entry=entry, points=[(300, 1247), (300, n['y'] + n['h'] * entry[1])])
+
+    p.node('legend', '<b>Notation (Gane–Sarson)</b><br>Rounded box = process (numbered)<br>'
+                     'Open box = data store (D1–D5); "(copy)" = the same store drawn again to avoid crossings<br>'
+                     'Blue box = external entity · Two-headed arrow = a request and its reply',
+           NOTE, 1120, 1190, 560, 90)
+    return p
+
+
+def level2_auth():
+    p = Page('dfd-2-auth', 'Level 2 — 1.0 Authentication & Session', 1500, 900)
+    p.node('title', 'Level 2 DFD — Process 1.0 Authentication &amp; Session', TITLE, 40, 10, 800, 30)
+    ext(p, 'U', 'Buyer / Store Owner /<br>Platform Admin', 40, 300, 180, 260)
+    ext(p, 'EM', 'Email Service', 1320, 60, 160, 64)
+    ref(p, 'R4', '4.0 / 10.0', 'Planner · Orders', 40, 700, 180, 60)
+    ref(p, 'R9', '9.0', 'Notifications / Alerts', 420, 820, 240, 56)
+
+    proc(p, 'P11', '1.1', 'Register Account', 420, 60)
+    proc(p, 'P12', '1.2', 'Log In', 420, 210)
+    proc(p, 'P13', '1.3', 'Resolve Role (my_role)', 420, 360)
+    proc(p, 'P14', '1.4', 'Renew Session', 420, 510)
+    proc(p, 'P15', '1.5', 'Log Out', 420, 660)
+
+    store(p, 'D11', 'D1.1', 'Auth Users &amp; Sessions (GoTrue)', 900, 190, 300, 560)
+    store(p, 'D12', 'D1.2', 'Roles: buyers · store_members · platform_admins', 900, 40, 380, 110)
+    store(p, 'D12b', 'D1.2', 'Roles (copy)', 690, 372, 170, 40)
+
+    p.edge('U', 'P11', 'name, email, password, town /<br>created or "check your email"', D, exit=(1, 0.05), entry=(0, 0.5))
+    p.edge('U', 'P12', 'email, password / session tokens', D, exit=(1, 0.25), entry=(0, 0.5))
+    p.edge('P13', 'U', 'role → destination', S, exit=(0, 0.5), entry=(1, 0.5))
+    p.edge('U', 'P14', 'refresh token / new session or expiry', D, exit=(1, 0.75), entry=(0, 0.5))
+    p.edge('U', 'P15', 'sign-out / signed out', D, exit=(1, 0.97), entry=(0, 0.4))
+
+    p.edge('P11', 'D12', 'buyer row (trigger)', O, exit=(1, 0.3), entry=(0, 0.388))
+    p.edge('P11', 'D11', 'new user', O, exit=(1, 0.8), entry=(0, 0.02), points=[(860, 111.2), (860, 201.2)])
+    p.edge('P11', 'EM', 'confirmation request', O, exit=(0.5, 0), entry=(0, 0.3), points=[(540, 30), (1300, 30), (1300, 79.2)])
+    p.edge('P12', 'D11', 'password grant', O, exit=(1, 0.3), entry=(0, 0.06))
+    p.edge('D11', 'P12', 'access + refresh token', O, exit=(0, 0.14), entry=(1, 0.8))
+    p.edge('P12', 'P13', 'access token', O, exit=(0.5, 1), entry=(0.5, 0))
+    p.edge('D12b', 'P13', 'role rows', O, exit=(0, 0.5), entry=(1, 0.5))
+    p.edge('R4', 'P13', 'session check', O, exit=(1, 0.3), entry=(0, 0.8), points=[(320, 718), (320, 411.2)])
+    p.edge('P13', 'R4', 'role / guest', O, exit=(0, 0.95), entry=(1, 0.8), points=[(340, 420.8), (340, 748)])
+    p.edge('P14', 'D11', 'rotate refresh token', O, exit=(1, 0.3), entry=(0, 0.6))
+    p.edge('D11', 'P14', 'new tokens / refused', O, exit=(0, 0.66), entry=(1, 0.8))
+    p.edge('P15', 'D11', 'revoke session', O, exit=(1, 0.4), entry=(0, 0.87))
+    p.edge('P15', 'R9', 'auth events (from 1.1–1.5)', O, exit=(0.5, 1), entry=(0.5, 0))
+    return p
+
+
+def level2_access():
+    p = Page('dfd-2-3d', 'Level 2 — 5.0 3D Access & Authorization', 1500, 820)
+    p.node('title', 'Level 2 DFD — Process 5.0 3D Access &amp; Authorization', TITLE, 40, 10, 800, 30)
+    ref(p, 'R4', '4.0', 'Planner / 3D Viewer', 40, 330, 190, 70)
+    ref(p, 'R9', '9.0', 'Notifications / Alerts', 560, 720, 240, 56)
+
+    proc(p, 'P51', '5.1', 'Validate Model Request', 330, 190)
+    proc(p, 'P52', '5.2', 'Verify Session', 330, 420)
+    proc(p, 'P53', '5.3', 'Authorize &amp; Sign Object', 700, 420)
+    proc(p, 'P54', '5.4', 'Deliver Signed URL', 700, 190)
+
+    store(p, 'D11', 'D1.1', 'Auth Users &amp; Sessions (GoTrue)', 330, 600, 240, 44)
+    store(p, 'D12', 'D1.2', 'Roles: platform_admins · store_members', 1080, 330, 380, 44)
+    store(p, 'D2', 'D2', 'Products · Stores · Product Assets', 1080, 430, 380, 44)
+    store(p, 'D3', 'D3', 'Private 3D Assets (furniture-models)', 1080, 540, 380, 60)
+
+    p.edge('R4', 'P51', 'model request<br>(path, user token)', O, exit=(0.5, 0), entry=(0, 0.5), points=[(135, 222)])
+    p.edge('P51', 'P52', 'token, path', O, exit=(0.5, 1), entry=(0.5, 0))
+    p.edge('P52', 'D11', 'is this session live?', O, exit=(0.3, 1), entry=(0.3, 0))
+    p.edge('D11', 'P52', 'user / none', O, exit=(0.8, 0), entry=(0.8, 1))
+    p.edge('P52', 'P53', 'user, token, path', O, exit=(1, 0.5), entry=(0, 0.5))
+    p.edge('D12', 'P53', 'admin / member rows', O, exit=(0, 0.5), entry=(1, 0.1), points=[(1000, 352), (1000, 426.4)])
+    p.edge('D2', 'P53', 'published? active?', O, exit=(0, 0.5), entry=(1, 0.5))
+    p.edge('P53', 'D3', 'sign object as user', O, exit=(1, 0.9), entry=(0, 0.2), points=[(1000, 477.6), (1000, 552)])
+    p.edge('D3', 'P53', 'signed URL / refusal', O, exit=(0, 0.8), entry=(0.7, 1), points=[(868, 588)])
+    p.edge('P53', 'P54', 'signed URL (300 s)', O, exit=(0.5, 0), entry=(0.5, 1))
+    p.edge('P54', 'R4', '{url, expiresIn: 300}', O, exit=(0.5, 0), entry=(0.8, 0), points=[(820, 150), (192, 150)])
+    p.edge('D3', 'R4', 'model file (via signed URL)', O, exit=(0.5, 1), entry=(0.5, 1), points=[(1270, 700), (135, 700)])
+    p.edge('P51', 'R9', '400 bad path / 401 sign in', O, exit=(0, 0.9), entry=(0.1, 0), points=[(290, 247.6), (290, 560), (584, 560)])
+    p.edge('P52', 'R9', '401 session expired', O, exit=(1, 0.9), entry=(0.3, 0), points=[(632, 477.6)])
+    p.edge('P53', 'R9', '403 unavailable / 502', O, exit=(0.3, 1), entry=(0.6, 0), points=[(772, 560), (704, 560)])
+    return p
+
+
+def level2_orders():
+    p = Page('dfd-2-p10', 'Level 2 — 10.0 Orders & Payments', 1760, 1100)
+    p.node('title', 'Level 2 DFD — Process 10.0 Orders &amp; Payments', TITLE, 40, 10, 800, 30)
+    ext(p, 'B', 'Buyer', 40, 150, 160, 580)
+    ext(p, 'O', 'Store Owner', 1560, 300, 160, 460)
+    ext(p, 'PP', 'PayPal', 760, 20, 300, 60)
+    ext(p, 'EM', 'Email Service', 1170, 910, 230, 64)
+    ref(p, 'R1', '1.0', 'Authentication &amp; Session', 40, 60, 200, 56)
+
+    proc(p, 'P101', '10.1', 'Place / Cancel Order', 300, 150, 230)
+    proc(p, 'P103', '10.3', 'Start Payment', 300, 330, 230)
+    proc(p, 'P104', '10.4', 'Capture &amp; Record Payment', 300, 510, 230)
+    proc(p, 'P108', '10.8', 'View Orders &amp; Receipts', 300, 690, 230)
+    proc(p, 'P102', '10.2', 'Quote / Decline Request', 1170, 330, 230)
+    proc(p, 'P105', '10.5', 'Fulfil &amp; Deliver', 1170, 510, 230)
+    proc(p, 'P107', '10.7', 'Manage Store Billing', 1170, 690, 230)
+    proc(p, 'P106', '10.6', 'Notify Parties', 760, 900, 300, 64)
+
+    store(p, 'D2', 'D2', 'Products (price, stock)', 760, 150, 300, 44)
+    store(p, 'D53c', 'D5.3', 'Store Payout (copy)', 760, 230, 300, 44)
+    store(p, 'D51', 'D5.1', 'Orders', 760, 300, 300, 420)
+    store(p, 'D52', 'D5.2', 'Payments &amp; Fees', 300, 800, 230, 44)
+    store(p, 'D52c', 'D5.2', 'Payments &amp; Fees (copy)', 1170, 790, 230, 44)
+    store(p, 'D53', 'D5.3', 'Store Payout', 1170, 850, 230, 44)
+
+    # Buyer and owner.
+    p.edge('B', 'P101', 'product, qty, delivery /<br>custom request / cancel', D, exit=(1, 0.0552), entry=(0, 0.5))
+    p.edge('B', 'P103', 'pay order / approval link', D, exit=(1, 0.3655), entry=(0, 0.5))
+    p.edge('B', 'P104', 'PayPal return / payment result', D, exit=(1, 0.6759), entry=(0, 0.5))
+    p.edge('P108', 'B', 'orders, receipt', O, exit=(0, 0.3), entry=(1, 0.9641))
+    p.edge('O', 'P102', 'quote (price, lead days) /<br>decline reason', S, exit=(0, 0.1348), entry=(1, 0.5))
+    p.edge('O', 'P105', 'ready / out for delivery /<br>ready for pickup / delivered', S, exit=(0, 0.5261), entry=(1, 0.5))
+    p.edge('O', 'P107', 'store type, PayPal email, days /<br>fees owed', D, exit=(0, 0.9174), entry=(1, 0.5))
+    p.edge('P108', 'O', 'incoming orders', O, exit=(0, 0.9), entry=(0.5, 1),
+           points=[(280, 747.6), (280, 1060), (1640, 1060)])
+
+    # 10.1
+    p.edge('P101', 'R1', 'session check', O, exit=(0.3, 0), entry=(1, 0.5), points=[(369, 88)])
+    p.edge('D2', 'P101', 'price, stock', O, exit=(0, 0.3), entry=(1, 0.36))
+    p.edge('P101', 'D2', 'stock hold / release', O, exit=(1, 0.7), entry=(0, 0.8))
+    p.edge('P101', 'D51', 'new order', O, exit=(0.9, 1), entry=(0, 0.024), points=[(507, 310)])
+    # 10.3 and 10.4 with PayPal (four lanes between the processes and the stores)
+    p.edge('P103', 'PP', 'create order (payee = shop) / approval link', O + DIALOG, exit=(1, 0.3), entry=(0, 0.3),
+           points=[(575, 349.2), (575, 38)], label_pos=0.75)
+    p.edge('P104', 'PP', 'get order, capture / order facts, capture result', O + DIALOG, exit=(1, 0.25), entry=(0, 0.75),
+           points=[(610, 526), (610, 65)], label_pos=0.8)
+    p.edge('D53c', 'P103', 'shop PayPal email', O, exit=(0, 0.5), entry=(0.95, 0), points=[(518.5, 252)])
+    p.edge('D51', 'P103', 'amount due, stage', O, exit=(0, 0.186), entry=(1, 0.75), label_pos=-0.5)
+    p.edge('P104', 'D51', 'status, amount paid, ETA', O, exit=(1, 0.6), entry=(0, 0.591))
+    p.edge('P104', 'D52', 'payment + fee', O, exit=(1, 0.85), entry=(1, 0.5), points=[(545, 564.4), (545, 822)], label_pos=0.6)
+    # 10.8
+    p.edge('D51', 'P108', 'orders', O, exit=(0, 0.95), entry=(1, 0.14))
+    p.edge('D52', 'P108', 'payments', O, exit=(0.5, 0), entry=(0.5, 1))
+    # 10.2, 10.5, 10.7
+    p.edge('D51', 'P102', 'requested orders', O, exit=(1, 0.1), entry=(0, 0.2))
+    p.edge('P102', 'D51', 'quoted / declined', O, exit=(0, 0.55), entry=(1, 0.155))
+    p.edge('P105', 'D51', 'order / delivery status', O, exit=(0, 0.4), entry=(1, 0.561))
+    p.edge('D52c', 'P107', 'fee summary', O, exit=(0.5, 0), entry=(0.5, 1))
+    p.edge('P107', 'D53', 'payout settings', O, exit=(1, 0.8), entry=(1, 0.5), points=[(1430, 741.2), (1430, 872)])
+    # 10.6: events arrive on two buses, contacts come from D5.1, emails go out.
+    p.edge('P101', 'P106', 'requested / cancelled', O, exit=(1, 0.95), entry=(0, 0.3), points=[(650, 210.8), (650, 919.2)],
+           label_pos=0.8)
+    p.edge('P104', 'P106', 'paid / deposit paid / unapplied', O, exit=(0.9, 1), entry=(0, 0.3),
+           points=[(507, 600), (650, 600), (650, 919.2)], label_pos=0.3)
+    p.edge('P102', 'P106', 'quoted / declined', O, exit=(0, 0.9), entry=(1, 0.2), points=[(1130, 387.6), (1130, 912.8)],
+           label_pos=-0.66)
+    p.edge('P105', 'P106', 'balance due / delivery step', O, exit=(0, 0.9), entry=(1, 0.2),
+           points=[(1130, 567.6), (1130, 912.8)], label_pos=-0.52)
+    p.edge('D51', 'P106', 'order contacts', O, exit=(0.5, 1), entry=(0.5, 0))
+    p.edge('P106', 'EM', 'receipt / update emails', O, exit=(1, 0.5), entry=(0, 0.34375))
+    return p
+
+
+def level3_authz():
+    p = Page('dfd-3-53', 'Level 3 — 5.3 Authorize & Sign Object', 1500, 860)
+    p.node('title', 'Level 3 DFD — Process 5.3 Authorize &amp; Sign Object', TITLE, 40, 10, 800, 30)
+    ref(p, 'R52', '5.2', 'Verify Session', 20, 94, 190, 56)
+    ref(p, 'R54', '5.4', 'Deliver Signed URL', 1240, 254, 200, 56)
+    ref(p, 'R9', '9.0', 'Notifications / Alerts', 1240, 744, 200, 56)
+
+    proc(p, 'P1', '5.3.1', 'Request Signature as User', 320, 90)
+    proc(p, 'P2', '5.3.2', 'Check Platform Admin', 320, 250)
+    proc(p, 'P3', '5.3.3', 'Check Store Membership', 320, 410)
+    proc(p, 'P4', '5.3.4', 'Check Published &amp; Active', 320, 570)
+    proc(p, 'P5', '5.3.5', 'Issue Signed URL (5 min)', 820, 250)
+    proc(p, 'P6', '5.3.6', 'Classify Refusal', 820, 740)
+
+    store(p, 'Da', 'D1.2', 'platform_admins', 20, 262, 200, 40)
+    store(p, 'Db', 'D1.2', 'store_members', 20, 422, 200, 40)
+    store(p, 'Dc', 'D2', 'products · stores · assets', 20, 582, 200, 40)
+    store(p, 'D3', 'D3', 'Private 3D Assets (bucket)', 820, 90, 240, 44)
+
+    p.edge('R52', 'P1', 'user token, object path', O)
+    p.edge('P1', 'P2', 'uid, path', O, exit=(0.5, 1), entry=(0.5, 0))
+    p.edge('Da', 'P2', 'admin row?', O)
+    p.edge('P2', 'P5', 'allowed: platform admin', O)
+    p.edge('P2', 'P3', 'not an admin', O, exit=(0.5, 1), entry=(0.5, 0))
+    p.edge('Db', 'P3', 'member?', O)
+    p.edge('P3', 'P5', 'allowed: own store (drafts too)', O, exit=(1, 0.5), entry=(0.33, 1), points=[(899, 442)])
+    p.edge('P3', 'P4', 'not a member', O, exit=(0.5, 1), entry=(0.5, 0))
+    p.edge('Dc', 'P4', 'published? active?', O)
+    p.edge('P4', 'P5', 'allowed: published piece', O, exit=(1, 0.3), entry=(0.67, 1), points=[(980.8, 589.2)])
+    p.edge('P4', 'P6', 'refused', O, exit=(0.5, 1), entry=(0, 0.5), points=[(440, 772)])
+    p.edge('P5', 'D3', 'sign request', O, exit=(0.3, 0), entry=(0.3, 1))
+    p.edge('D3', 'P5', 'signed URL', O, exit=(0.7, 1), entry=(0.7, 0))
+    p.edge('P5', 'R54', 'signed URL, expires in 300 s', O)
+    p.edge('P6', 'R9', '403 unavailable / 502', O)
+    p.node('note', '5.3.2–5.3.4 are the three rules of the storage policy <b>can_view_model(path)</b> '
+                   '(migration 0007). They run inside the database as the user, so no browser or server code can skip them. '
+                   'A refused file and a missing file get the same answer, so a store\'s drafts are never revealed.',
+           NOTE, 1100, 420, 360, 120)
+    return p
+
+
+def level3_capture():
+    p = Page('dfd-3-104', 'Level 3 — 10.4 Capture & Record Payment', 1600, 1080)
+    p.node('title', 'Level 3 DFD — Process 10.4 Capture &amp; Record Payment', TITLE, 40, 10, 800, 30)
+    ext(p, 'B', 'Buyer', 40, 120, 160, 440)
+    ext(p, 'PP', 'PayPal', 1380, 120, 180, 300)
+    ref(p, 'R106', '10.6', 'Notify Parties', 1340, 860, 220, 56)
+
+    proc(p, 'P1', '10.4.1', 'Fetch PayPal Order', 320, 120)
+    proc(p, 'P2', '10.4.2', 'Re-check Amount Due', 320, 300)
+    proc(p, 'P3', '10.4.3', 'Match &amp; Capture', 780, 300)
+    proc(p, 'P4', '10.4.4', 'Verify Recorder Secret', 780, 520)
+    proc(p, 'P5', '10.4.5', 'Record Payment &amp; Advance Order', 780, 720, 280, 70)
+    proc(p, 'P6', '10.4.6', 'Report Outcome', 320, 860)
+
+    store(p, 'D51', 'D5.1', 'Orders', 260, 450, 190, 44)
+    store(p, 'D53', 'D5.3', 'Store Payout', 470, 450, 200, 44)
+    store(p, 'D54', 'D5.4', 'Recorder Secret Hash', 1240, 520, 260, 44)
+    store(p, 'D52', 'D5.2', 'Payments &amp; Fees', 1240, 722, 260, 44)
+    store(p, 'D2', 'D2', 'Products (stock)', 1240, 770, 260, 44)
+    store(p, 'D51b', 'D5.1', 'Orders (copy)', 780, 880, 280, 44)
+
+    p.edge('B', 'P1', 'PayPal order id (return)', O, exit=(1, 0.05), entry=(0, 0.5))
+    p.edge('P1', 'PP', 'get order', O, exit=(1, 0.3), entry=(0, 0.1))
+    p.edge('PP', 'P1', 'status, stage, amount, payee', O, exit=(0, 0.2), entry=(1, 0.8))
+    p.edge('P1', 'P2', 'order id, stage', O, exit=(0.5, 1), entry=(0.5, 0))
+    p.edge('P1', 'P3', 'PayPal facts', O, exit=(0.9, 1), entry=(0.3, 0), points=[(536, 230), (852, 230)])
+    p.edge('D51', 'P2', 'order (buyer, status, totals)', O, exit=(0.5, 0), entry=(0.25, 1), label_pos=0.55)
+    p.edge('D53', 'P2', 'shop PayPal email', O, exit=(0.25, 0), entry=(0.8333, 1), label_pos=0.55)
+    p.edge('P2', 'P3', 'stage, amount due, payee', O)
+    p.edge('P3', 'PP', 'capture', O, exit=(1, 0.3), entry=(0, 0.7))
+    p.edge('PP', 'P3', 'capture id, capture status', O, exit=(0, 0.93), entry=(1, 0.8))
+    p.edge('P3', 'B', 'mismatch / declined / pending', O, exit=(0.2, 1), entry=(1, 0.659), points=[(828, 410)],
+           label_pos=-0.55)
+    p.edge('P3', 'P4', 'capture facts + server secret', O, exit=(0.5, 1), entry=(0.5, 0))
+    p.edge('D54', 'P4', 'SHA-256 of secret', O)
+    p.edge('P4', 'P5', 'verified capture', O, exit=(0.5, 1), entry=(0.5, 0))
+    p.edge('D52', 'P5', 'capture already recorded?', O, exit=(0, 0.2), entry=(1, 0.15))
+    p.edge('P5', 'D52', 'payment + 10% fee share', O, exit=(1, 0.5), entry=(0, 0.75))
+    p.edge('P5', 'D2', 'restock expired hold', O, exit=(1, 0.85), entry=(0, 0.216))
+    p.edge('P5', 'D51b', 'status, amount paid, paid_at', O, exit=(0.5, 1), entry=(0.5, 0))
+    p.edge('P5', 'P6', 'status, applied, duplicate', O, exit=(0, 0.5), entry=(0.5, 0), points=[(440, 755)])
+    p.edge('P6', 'B', 'payment result', O, exit=(0, 0.5), entry=(0.5, 1), points=[(120, 892)])
+    p.edge('P6', 'R106', 'paid / deposit paid / unapplied', O, exit=(0.5, 1), entry=(0.5, 1), points=[(440, 960), (1450, 960)])
+    p.node('note', '10.4.2 runs <b>begin_payment</b> as the buyer, which also releases expired stock holds. '
+                   '10.4.4–10.4.5 are <b>record_capture</b>: only the server knows the secret, the payee must be the shop, '
+                   'and a repeated capture id is answered rather than recorded twice.',
+           NOTE, 40, 990, 900, 60)
+    return p
+
+
+def main():
+    pages = [level0(), level1(), level2_auth(), level2_access(), level2_orders(),
+             level3_authz(), level3_capture(), access3d(), payments(), usecases()]
     DRAWIO.write_text('<mxfile host="app.diagrams.net" modified="2026-09-24T00:00:00.000Z" '
-                      'agent="FurnishAR DFD v2" version="24.7.17" pages="5">\n' + '\n'.join(body) + '\n</mxfile>\n',
-                      encoding='utf-8')
+                      f'agent="FurnishAR DFD v2" version="24.7.17" pages="{len(pages)}">\n'
+                      + '\n'.join(page.xml() for page in pages) + '\n</mxfile>\n', encoding='utf-8')
     print(f'wrote {DRAWIO.relative_to(ROOT)} ({len(pages)} pages)')
 
     if '--preview' in sys.argv:
