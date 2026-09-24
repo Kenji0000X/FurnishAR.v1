@@ -127,21 +127,35 @@ await page.click('form.login-form button[type="submit"]');
 await page.waitForSelector('.console', { timeout: 20000 }).catch(() => {});
 
 /** Uploads one oversized model through the real dialog and inspects the result. */
-async function uploadAndInspect(name, bytes) {
+async function uploadAndInspect(name, bytes, size = { width: 100, height: 100, depth: 100 }) {
   uploadedBytes = null;
   await page.click('.console-head button:has-text("Add Product")');
   await page.waitForSelector('dialog.form-dialog[open]', { timeout: 10000 });
   await page.fill('input[name="name"]', name);
   await page.fill('input[name="price"]', '7500');
   await page.fill('input[name="stock"]', '1');
-  await page.fill('input[name="width"]', '100');
-  await page.fill('input[name="height"]', '100');
-  await page.fill('input[name="depth"]', '100');
+  // The model's own proportions: the portal now refuses a model whose shape
+  // cannot be the entered size, so these have to describe the same piece.
+  await page.fill('input[name="width"]', String(size.width));
+  await page.fill('input[name="height"]', String(size.height));
+  await page.fill('input[name="depth"]', String(size.depth));
   // Through a file on disk, not a buffer: Playwright refuses to marshal more
   // than 50 MB inline, and an oversized model is by definition more than that.
   const staged = join(scratch, `oversized-${Date.now()}.glb`);
   writeFileSync(staged, bytes);
   await page.setInputFiles('input[name="modelFile"]', staged);
+  // The portal reads the model and checks its proportions before it will
+  // save it. On a headless browser with no GPU, a dense model takes a while
+  // to draw, so wait for the check the owner would see, then save.
+  const checkStarted = Date.now();
+  const settled = await page.waitForSelector(
+    '.upload-state[data-state="ready"], .upload-state[data-state="scale-mismatch"], .upload-state[data-state="error"]',
+    { timeout: 240000 }
+  ).then(el => el.getAttribute('data-state')).catch(() => 'timeout');
+  // …and for the first frame of the preview, which is what keeps a GPU-less
+  // browser busy longest.
+  await page.waitForSelector('.model-preview-stage[data-drawn="true"]', { timeout: 240000 }).catch(() => {});
+  console.log(`  local check: ${settled}, preview drawn after ${((Date.now() - checkStarted) / 1000).toFixed(1)} s`);
 
   const statuses = new Set();
   const poll = setInterval(async () => {
@@ -194,7 +208,8 @@ console.log('--- a texture-heavy model (4k maps) ---');
     45 * 1024 * 1024
   );
   console.log(`  built ${(bytes.length / 1048576).toFixed(1)} MB, limit is ${LIMIT / 1048576} MB`);
-  const run = await uploadAndInspect('Texture Heavy Cabinet', bytes);
+  // Built from the cane-back armchair, so it is the armchair's size.
+  const run = await uploadAndInspect('Texture Heavy Cabinet', bytes, { width: 70, height: 88, depth: 78 });
   check('texture-heavy: the owner saw it being worked on',
     run.statuses.some(s => /shrink|compress|reading|checking|simplif/i.test(s)),
     run.statuses.join(' | ').slice(0, 120));

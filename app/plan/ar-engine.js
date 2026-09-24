@@ -19,7 +19,9 @@
  */
 'use client';
 
-import { resolveScale } from '../../lib/spatial/model-scale.mjs';
+import { SCALE_STATUS } from '../../lib/spatial/model-scale.mjs';
+import { normalizeModel } from '../../lib/spatial/model-transform.mjs';
+import { formatDimensions, FURNITURE_UNITS } from '../../lib/spatial/units.mjs';
 import { OneEuroFilter, Steadiness, displayPrecision } from '../../lib/spatial/smoothing.mjs';
 import { roomDimensions, fitInRoom, minimumAreaRectangle } from '../../lib/spatial/room.mjs';
 import { SweepCoverage, scanReadiness } from '../../lib/spatial/coverage.mjs';
@@ -144,6 +146,10 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     user: JSON.parse((typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('furnishar-user') : null) || 'null'),
     loadedModel: null,
     modelBounds: null,
+    // How furniture sizes are WRITTEN in the AR readout: cm, in or ft. Text
+    // only. It never touches model.scale, the fit check or placement — those
+    // read product.dimensions, in centimetres, and nothing else.
+    dimensionUnit: 'cm',
     xrRenderer: null,
     xrScene: null,
     xrCamera: null,
@@ -299,6 +305,7 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
           <button class="tray-btn tray-wide" id="toggle-occlusion" aria-pressed="true"
             aria-label="Hide furniture behind real walls">Occlusion</button>
           <button class="tray-btn tray-wide" id="reset-model" aria-label="Reset model">Reset</button>
+          <button class="tray-btn" id="dimension-unit" aria-label="Sizes in centimetres. Switch unit">cm</button>
         </div>
       </div>
       <button id="place-button" class="ar-place" aria-label="Confirm placement" disabled><span></span></button>
@@ -396,6 +403,17 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       arTransform.spinning = !arTransform.spinning;
       $('#spin-toggle').setAttribute('aria-pressed', String(arTransform.spinning));
       $('#spin-toggle').classList.toggle('is-on', arTransform.spinning);
+    });
+
+    /* cm → in → ft → cm. Changes how the size chip is written, nothing else:
+       the piece in the room stays exactly the size it was. */
+    const UNIT_NAMES = { cm: 'centimetres', in: 'inches', ft: 'feet' };
+    $('#dimension-unit').addEventListener('click', () => {
+      const ids = FURNITURE_UNITS.map(unit => unit.id);
+      state.dimensionUnit = ids[(ids.indexOf(state.dimensionUnit) + 1) % ids.length];
+      const button = $('#dimension-unit');
+      button.textContent = state.dimensionUnit;
+      button.setAttribute('aria-label', `Sizes in ${UNIT_NAMES[state.dimensionUnit]}. Switch unit`);
     });
   }
 
@@ -998,16 +1016,13 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     if (!THREE || !model) return positionAnchorChip(null);
     const box = new THREE.Box3().setFromObject(model);
     const top = new THREE.Vector3((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2);
-    // Read the size off the product's own footprint, not the world-aligned box,
-    // so turning the piece never inflates the numbers.
-    // The real size, full stop. There is no user scale to multiply by any
-    // more, and quoting anything else here would be quoting a piece of
-    // furniture that does not exist.
-    const shown = state.scaleDecision?.actualCm || product.modelBounds || product.dimensions;
+    // The product's verified dimensions: the size the model was scaled to
+    // (lib/spatial/model-transform.mjs), not the world-aligned box, which
+    // grows diagonally as the piece turns. The unit only changes the writing.
     positionAnchorChip(
       projectToScreen(top, camera),
-      `${Math.round(shown.width)} × ${Math.round(shown.depth)} cm`,
-      `${Math.round(shown.height)} cm tall · ${product.name}`
+      formatDimensions(product.dimensions, state.dimensionUnit),
+      `W × D × H · ${product.name}`
     );
   }
 
@@ -1797,11 +1812,14 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
     if (issue.kind === 'network') {
       return `The model could not be reached. Check your connection and try again.${measure}`;
     }
-    // The file is fine; its scale is not. Placing it would mean guessing how
-    // big it is, and a guessed size in somebody's room is worse than no
-    // preview at all — the measurements below are still true.
-    if (issue.kind === 'unknown-scale') {
-      return `${issue.detail}${measure}`;
+    // The file is fine; its shape does not match the listed size, so it
+    // cannot be shown at that size without stretching it. A distorted piece
+    // in somebody's room is worse than no preview at all, and the
+    // measurements below are still true.
+    if (issue.kind === 'scale-attention') {
+      return issue.status === SCALE_STATUS.PROPORTION_MISMATCH
+        ? `This 3D model's shape does not match the listed size, so it is not shown in AR. The listed dimensions are still correct.${measure}`
+        : `This 3D model cannot be shown at its listed size right now. The listed dimensions are still correct.${measure}`;
     }
     return `3D preview unavailable on this device.${measure}`;
   }
@@ -1898,46 +1916,27 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
       });
 
       /*
-         How big is this, really? One question, answered in one place
-         (lib/spatial/model-scale.mjs), and the answer is always ONE factor.
+         How big is this? The product's verified dimensions say; the model
+         supplies only the shape. lib/spatial/model-transform.mjs measures the
+         mesh, asks lib/spatial/model-scale.mjs for ONE factor, applies it to
+         all three axes, stands the piece on the floor, and measures again.
+         The store portal's preview calls the same function, so the owner saw
+         exactly this size before publishing.
 
-         This used to compute three independent factors and apply them, which
-         forced the mesh into whatever box the shop had typed — squeezing the
-         cane-back armchair, whose geometry measures 79.3 × 88.5 × 100.0 cm,
-         into a listed 70 × 78 × 88. The shopper then judged a piece of
-         furniture that does not exist, and the fit verdict answered for it.
-
-         glTF's unit is the metre, so a correct export already carries true
-         scale and is the only measured quantity here; the typed dimensions
-         are a human's claim about the same object. The claim is now a
-         cross-check that surfaces disagreement, not an instruction that
-         silently overrules the geometry.
+         A model whose proportions cannot be that size without stretching is
+         not stretched and not placed: a distorted sofa in somebody's room
+         answers the fit question for furniture that does not exist.
       */
-      const bbox = new THREE.Box3().setFromObject(model);
-      const size = bbox.getSize(new THREE.Vector3());
-      const decision = resolveScale({
-        meshExtent: { width: size.x, depth: size.z, height: size.y },
-        declaredCm: product.dimensions,
-        overrideCm: product.modelBounds || null
-      });
+      const { decision, verified, finalMeters } = normalizeModel(THREE, model, product.dimensions);
       state.scaleDecision = decision;
 
-      if (!decision.usable) {
-        // No honest size exists for this file, so it is not placed in anyone's
-        // room at a guessed one. §24: never silently return false data.
-        state.modelIssue = { kind: 'unknown-scale', detail: decision.message };
+      if (!verified) {
+        // §24: never silently return false data. The measurements below the
+        // viewer are still true; only the 3D stand-in is withheld.
+        state.modelIssue = { kind: 'scale-attention', status: decision.status, detail: decision.message };
         console.error(`[AR] ${product.name}: ${decision.message}`);
         return null;
       }
-
-      model.scale.setScalar(decision.scale);
-      if (decision.verdict !== 'agrees') console.warn(`[AR] ${product.name}: ${decision.message}`);
-
-      const scaledBbox = new THREE.Box3().setFromObject(model);
-      const center = scaledBbox.getCenter(new THREE.Vector3());
-      model.position.x = -center.x;
-      model.position.y = -scaledBbox.min.y;
-      model.position.z = -center.z;
 
       // Store original materials for later restoration during flat-surface detection
       model.traverse(child => {
@@ -1948,10 +1947,10 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
         }
       });
 
-      const shown = decision.actualCm;
       console.log(
-        `[AR] ${product.name} at ${shown.width}×${shown.depth}×${shown.height} cm ` +
-        `(×${decision.scale.toFixed(4)} from ${decision.units.unit}, source: ${decision.source})`
+        `[AR] ${product.name} at ${formatDimensions(product.dimensions)} `
+        + `(measured ${(finalMeters.width * 100).toFixed(1)} × ${(finalMeters.depth * 100).toFixed(1)} × `
+        + `${(finalMeters.height * 100).toFixed(1)} cm, ×${decision.scale.toPrecision(4)} from the file)`
       );
       return model;
     } catch (error) {
@@ -2429,7 +2428,8 @@ export async function createPlanner({ products = [], selectedId = null, autoStar
            rather than reporting against a room nobody measured.
         */
         if (state.scannedRoom?.rectangle) {
-          const shown = state.scaleDecision?.actualCm || product.dimensions;
+          // The same canonical size the fit check and the model use.
+          const shown = product.dimensions;
           const verdict = assessPlacement(
             state.scannedRoom,
             { width: shown.width / 100, depth: shown.depth / 100, height: shown.height / 100 },
