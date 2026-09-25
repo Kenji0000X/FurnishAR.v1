@@ -547,6 +547,7 @@ def level1():
     store(p, 'D2', 'D2', 'Catalogue / Products', 1120, 190, 270, 150)
     store(p, 'D3', 'D3', 'Private 3D Assets', 1120, 420, 270, 60)
     store(p, 'D1b', 'D1', 'Accounts &amp; Roles (copy)', 1120, 490)
+    store(p, 'D6', 'D6', 'Catalogue Posters (public)', 1120, 600)
     store(p, 'D2b', 'D2', 'Catalogue / Products (copy)', 1120, 680)
     store(p, 'D5', 'D5', 'Orders / Payments / Fees', 1120, 745, 270, 80)
     store(p, 'D2c', 'D2', 'Catalogue / Products (copy)', 1120, 885)
@@ -578,7 +579,7 @@ def level1():
     p.edge('P4', 'P1', 'session check', O, exit=(1, 0.62), entry=(1, 0.95), points=[(685, 444.7), (685, 120.8)])
     # 5.0
     p.edge('D2', 'P5', 'product / store status', O, exit=(0, 0.95), entry=(0.8, 0), points=[(992, 332.5)])
-    p.edge('P5', 'D3', 'sign object (as user)', O, exit=(1, 0.2), entry=(0, 0.117))
+    p.edge('P5', 'D3', 'sign object (as user); record last use', O, exit=(1, 0.2), entry=(0, 0.117))
     p.edge('D3', 'P5', 'signed URL / refusal', O, exit=(0, 0.85), entry=(1, 0.6))
     p.edge('D1b', 'P5', 'session, admin / member', O, exit=(0, 0.4), entry=(1, 0.93))
     # 6.0
@@ -595,11 +596,14 @@ def level1():
     # 7.0
     p.edge('P7', 'D2c', 'product CRUD', O, exit=(1, 0.2), entry=(0, 0.6))
     p.edge('P7', 'D3b', 'model upload (signed)', O, exit=(1, 0.85), entry=(0, 0.2))
+    # 0012: the poster rendered from the model, and the only image a card loads.
+    p.edge('P7', 'D6', 'poster (rendered from the model)', O, exit=(0.9, 0), entry=(1, 0.5), points=[(636, 872), (1430, 872), (1430, 622)])
+    p.edge('D6', 'P2', 'poster images (public, cached)', O, exit=(1, 0.2), entry=(1, 0.85), points=[(1450, 608.8), (1450, 170), (700, 170), (700, 229.4)])
     p.edge('P7', 'D4', 'store application', O, exit=(0.95, 1), entry=(0, 0.13), points=[(648, 1010), (770, 1010), (770, 1057.8)])
     # 8.0
     p.edge('P8', 'D4', 'applications, audit, usage', O, exit=(1, 0.3), entry=(0, 0.73))
     p.edge('P8', 'D5b', 'fee overview, settlements', O, exit=(1, 0.9), entry=(0, 0.3))
-    p.edge('P8', 'D3b', 'model review', O, exit=(1, 0.05), entry=(0, 0.8), points=[(790, 1078.2), (790, 975.2)])
+    p.edge('P8', 'D3b', 'model review; delete a model unused 365 days', O, exit=(1, 0.05), entry=(0, 0.8), points=[(790, 1078.2), (790, 975.2)])
     # 9.0: every process reports its events on one bus; alerts go back to the three people.
     for pid in ('P1', 'P2', 'P3', 'P4', 'P6', 'P10', 'P7', 'P8'):
         n = p.nodes[pid]
@@ -611,7 +615,7 @@ def level1():
         p.edge('P9', eid, 'alerts' if eid == 'A' else '', O, exit=(0, 0.5), entry=entry, points=[(300, 1247), (300, n['y'] + n['h'] * entry[1])])
 
     p.node('legend', '<b>Notation (Gane–Sarson)</b><br>Rounded box = process (numbered)<br>'
-                     'Open box = data store (D1–D5); "(copy)" = the same store drawn again to avoid crossings<br>'
+                     'Open box = data store (D1–D6); "(copy)" = the same store drawn again to avoid crossings<br>'
                      'Blue box = external entity · Two-headed arrow = a request and its reply',
            NOTE, 1120, 1190, 560, 90)
     return p
@@ -757,11 +761,57 @@ def level2_access():
     p.edge('P53', 'D3', 'sign object as user', O, exit=(1, 0.9), entry=(0, 0.2), points=[(1000, 477.6), (1000, 552)])
     p.edge('D3', 'P53', 'signed URL / refusal', O, exit=(0, 0.8), entry=(0.7, 1), points=[(868, 588)])
     p.edge('P53', 'P54', 'signed URL (300 s)', O, exit=(0.5, 0), entry=(0.5, 1))
+    # 0012: the model lifecycle's one input — only after a URL was signed.
+    proc(p, 'P55', '5.5', 'Record Model Use<br>(at most once a day)', 1080, 190)
+    p.edge('P54', 'P55', 'granted: path, user token', O, exit=(1, 0.5), entry=(0, 0.5))
+    p.edge('P55', 'D2', 'product_assets.last_accessed_at', O, exit=(1, 0.5), entry=(1, 0.5), points=[(1480, 222), (1480, 452)])
     p.edge('P54', 'R4', '{url, expiresIn: 300}', O, exit=(0.5, 0), entry=(0.8, 0), points=[(820, 150), (192, 150)])
     p.edge('D3', 'R4', 'model file (via signed URL)', O, exit=(0.5, 1), entry=(0.5, 1), points=[(1270, 700), (135, 700)])
     p.edge('P51', 'R9', '400 bad path / 401 sign in', O, exit=(0, 0.9), entry=(0.1, 0), points=[(290, 247.6), (290, 560), (584, 560)])
     p.edge('P52', 'R9', '401 session expired', O, exit=(1, 0.9), entry=(0.3, 0), points=[(632, 477.6)])
     p.edge('P53', 'R9', '403 unavailable / 502', O, exit=(0.3, 1), entry=(0.6, 0), points=[(772, 560), (704, 560)])
+    return p
+
+
+def level2_lifecycle():
+    p = Page('dfd-2-lifecycle', 'Level 2 — 7.0/8.0 Posters & Model Lifecycle', 1640, 980)
+    p.node('title', 'Level 2 DFD — Catalogue posters and the 3D model lifecycle (0012)', TITLE, 40, 10, 900, 30)
+    ext(p, 'O', 'Store Owner', 40, 90, 170, 64)
+    ext(p, 'B', 'Buyer / Guest', 40, 400, 170, 64)
+    ext(p, 'A', 'Platform Admin', 40, 690, 170, 64)
+    ref(p, 'R5', '5.0', '3D Access &amp; Authorization', 330, 520, 240, 56)
+
+    proc(p, 'P71', '7.1', 'Check Model &amp; Render Poster<br>(owner\'s browser)', 330, 90)
+    proc(p, 'P72', '7.2', 'Upload Model &amp; Poster', 720, 90)
+    proc(p, 'P21', '2.1', 'Show Catalogue Card<br>(poster only, no model)', 330, 390)
+    proc(p, 'P81', '8.1', 'Review Model Lifecycle', 330, 680)
+    proc(p, 'P82', '8.2', 'Delete Stale Model<br>(365 days unused, manual)', 720, 810)
+
+    store(p, 'D3', 'D3', 'Private 3D Assets (furniture-models)', 1160, 60, 400, 44)
+    store(p, 'D6', 'D6', 'Catalogue Posters (product-posters, public)', 1160, 160, 400, 44)
+    store(p, 'D2', 'D2', 'product_assets: glb · poster · last_accessed_at', 1160, 420, 340, 60)
+    store(p, 'D4', 'D4', 'admin_audit', 1160, 880, 400, 44)
+
+    p.edge('O', 'P71', '.glb + width × depth × height', D, exit=(1, 0.5), entry=(0, 0.5))
+    p.edge('P71', 'P72', 'checked model + poster (WebP)', O, exit=(1, 0.5), entry=(0, 0.5))
+    p.edge('P72', 'D3', 'model (signed upload)', O, exit=(1, 0.2), entry=(0, 0.5), points=[(1040, 102.8), (1040, 82)])
+    p.edge('P72', 'D6', 'poster, named by its content', O, exit=(1, 0.8), entry=(0, 0.5), points=[(1040, 141.2), (1040, 182)])
+    p.edge('P72', 'D2', 'asset rows (glb, poster)', O, exit=(1, 0.95), entry=(0, 0.3), points=[(1090, 150.8), (1090, 438)])
+    p.edge('D2', 'P21', 'poster path (published only)', O, exit=(0, 0.6), entry=(1, 0.5), points=[(700, 456), (700, 422)])
+    p.edge('D6', 'P21', 'poster image (cached a year)', O, exit=(0.3, 1), entry=(1, 0.2), points=[(1280, 360), (660, 360), (660, 402.8)])
+    p.edge('P21', 'B', 'card: picture, price, 3D badge', O, exit=(0, 0.5), entry=(1, 0.5))
+    p.edge('B', 'R5', 'View in 3D / AR', O, exit=(0.8, 1), entry=(0, 0.5), points=[(176, 548)])
+    p.edge('R5', 'D2', 'last use (after a signed URL)', O, exit=(1, 0.5), entry=(0.2, 1), points=[(1240, 548)])
+    p.edge('A', 'P81', 'open 3D Files', D, exit=(1, 0.5), entry=(0, 0.5))
+    p.edge('D2', 'P81', 'admin_model_lifecycle(): last used, idle days, eligible', O, exit=(0.5, 1), entry=(1, 0.3), points=[(1330, 700), (660, 700)])
+    p.edge('A', 'P82', 'Delete Model (typed DELETE)', D, exit=(0.8, 1), entry=(0, 0.5), points=[(176, 842)])
+    p.edge('P82', 'D3', 'delete file (re-checked)', O, exit=(1, 0.1), entry=(1, 0.5), points=[(1600, 816.4), (1600, 82)])
+    p.edge('P82', 'D6', 'delete its poster', O, exit=(1, 0.3), entry=(1, 0.8), points=[(1580, 829.2), (1580, 195.2)])
+    p.edge('P82', 'D2', 'delete rows (re-checked; product kept)', O, exit=(0.8, 0), entry=(0.8, 1), points=[(912, 760), (1480, 760)])
+    p.edge('P82', 'D4', 'model.deleted_stale', O, exit=(1, 0.9), entry=(0, 0.5))
+    p.node('note', '<b>Idle, not old:</b> last used = the later of upload and last access. Eligible at 365 days, decided by the database '
+                   'at the moment of deletion. Nothing is deleted automatically; the product, its dimensions and orders are never deleted.',
+           NOTE, 330, 890, 360, 80)
     return p
 
 
@@ -930,7 +980,7 @@ def level3_capture():
 
 
 def main():
-    pages = [level0(), level1(), level2_auth(), level2_google(), level2_access(), level2_orders(), level2_paypal(),
+    pages = [level0(), level1(), level2_auth(), level2_google(), level2_access(), level2_lifecycle(), level2_orders(), level2_paypal(),
              level3_authz(), level3_capture(), access3d(), payments(), usecases()]
     DRAWIO.write_text('<mxfile host="app.diagrams.net" modified="2026-09-24T00:00:00.000Z" '
                       f'agent="FurnishAR DFD v2" version="24.7.17" pages="{len(pages)}">\n'

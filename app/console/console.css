@@ -465,6 +465,10 @@ li.console-empty { list-style: none; padding: 1rem 0; }
 .workspace-sheet-account { padding-inline: .35rem; }
 
 @media (max-width: 48rem) {
+  /* A segmented control with more options than a phone is wide wraps into
+     rows rather than pushing the page sideways (the 3D Files filters). */
+  .console .mode-switch { flex-wrap: wrap; width: auto; border-radius: 22px; }
+  .console .mode-option { flex: 1 1 auto; }
   .console-bento, .console .kpi-row { gap: 12px; }
   /* Phones: the hero keeps the full width; the plain figures pair up two to
      a row, so four numbers take two short rows instead of four cards. */

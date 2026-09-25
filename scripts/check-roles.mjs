@@ -121,7 +121,7 @@ const supabase = createServer((req, res) => {
          lib/catalog.mjs. A row in any other shape renders an empty grid and
          the check below would be measuring this fixture, not the app. */
       return send(200, [{
-        id: 'p1', slug: 'armchair-cane-back', name: 'Cane Back Armchair',
+        id: 'p1', slug: 'wooden-desk', name: 'Wooden Desk',
         store_slug: 'sc-variety', store_id: 's1', store_name: 'S&C Variety Store',
         category: 'Chair', style: 'Modern', color: 'Natural',
         price_php: 4500, stock: 3,

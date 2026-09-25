@@ -59,7 +59,7 @@ test('the same holds for an arbitrary unit nobody would guess (a 7.3× export)',
 });
 
 test('the real cane-back armchair is now shown at its listed size, not its mesh size', () => {
-  // Mesh 0.7935 × 0.8853 × 0.9995 m (measured from data/models/cane-back-armchair.glb);
+  // Mesh 0.7935 × 0.8853 × 0.9995 m (measured from tests/fixtures/models/armchair.glb);
   // listed 70 × 78 × 88 cm. Same proportions within 0.2%, so it is sized to the listing.
   const decision = resolveScale({ meshExtent: extent(0.7935, 0.8853, 0.9995), dimensionsCm: { width: 70, depth: 78, height: 88 } });
   assert.equal(decision.status, SCALE_STATUS.READY);

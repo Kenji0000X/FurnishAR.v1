@@ -45,38 +45,23 @@ test('catalog and health endpoints serve the expected data', async () => {
   const catalog = await fetch(`http://127.0.0.1:${port}/api/products`).then(response => response.json());
   const privateSource = await fetch(`http://127.0.0.1:${port}/server.js`);
   assert.equal(health.status, 'ok');
-  assert.ok(catalog.products.length >= 1);
-  assert.ok(catalog.products.every(product => product.dimensions.width > 0 && product.arReady));
+  assert.ok(Array.isArray(catalog.products));
+  // The repository ships no furniture: an empty catalogue is the honest
+  // starting point, and nothing fills it in.
+  assert.equal(catalog.products.length, 0, 'data/catalog.json must ship empty');
   // Source files must never be readable over HTTP, whatever else changes.
   assert.equal(privateSource.status, 404);
 });
 
-test('catalog products with a GLB carry AR bounds and the file is served', async () => {
-  const catalog = await fetch(`http://127.0.0.1:${port}/api/products`).then(response => response.json());
-  const withModel = catalog.products.filter(p => p.modelGlb);
-  assert.ok(withModel.length >= 1, 'Should have at least one product with a GLB model');
-  for (const product of withModel) {
-    assert.ok(product.modelBounds, `${product.id} should declare AR bounds`);
-    assert.ok(product.modelBounds.width > 0);
-    assert.ok(product.modelBounds.height > 0);
-    assert.ok(product.modelBounds.depth > 0);
-    /* Whether the file itself is handed out depends on whether a database is
-       configured, and both answers are asserted — not skipped.
-       Bundled models moved out of /public to data/models: with a database,
-       products are protected by 0007 and a product model must never be a
-       plain download, even when the database is momentarily unreachable and
-       the catalogue has fallen back to the bundled copy (fail closed). With
-       no database at all there are no accounts to require, so the offline
-       demo serves it. The server decides with this same isConfigured(). */
-    const asset = await fetch(`http://127.0.0.1:${port}/${product.modelGlb}`);
-    if (require('../lib/supabase-proxy.js').isConfigured()) {
-      assert.equal(asset.status, 404,
-        `${product.modelGlb} must not be a plain download on a deployment with a database`);
-    } else {
-      assert.equal(asset.status, 200, `${product.modelGlb} should be served in offline demo mode`);
-      assert.equal(asset.headers.get('content-type'), 'model/gltf-binary');
-    }
+test('no bundled model is served, and the demo-model route is gone', async () => {
+  // The demo armchair lived in data/models and was served here and at
+  // /api/demo-model. Both are removed; a test fixture is not a download.
+  for (const route of ['/models/cane-back-armchair.glb', '/api/demo-model/cane-back-armchair.glb']) {
+    const response = await fetch(`http://127.0.0.1:${port}${route}`);
+    assert.notEqual(response.status, 200, `${route} must not be served`);
+    assert.notEqual(response.headers.get('content-type'), 'model/gltf-binary');
   }
+  assert.equal(fs.existsSync(path.resolve(__dirname, '../data/models')), false);
 });
 
 test('the USDZ field stays optional so GLB-only products still work', async () => {

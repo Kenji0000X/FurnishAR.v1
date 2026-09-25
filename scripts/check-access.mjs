@@ -31,7 +31,7 @@ const PUBLISHED = '22222222-2222-4222-8222-222222222222';
 const DRAFT = '33333333-3333-4333-8333-333333333333';
 const PUBLISHED_PATH = `${STORE}/${PUBLISHED}/model.glb`;
 const DRAFT_PATH = `${STORE}/${DRAFT}/model.glb`;
-const GLB = readFileSync(new URL('../data/models/cane-back-armchair.glb', import.meta.url));
+const GLB = readFileSync(new URL('../tests/fixtures/models/armchair.glb', import.meta.url));
 
 const TOWNS = ['Mamburao', 'Sablayan', 'San Jose'];
 const buyers = new Map();          // email -> profile
@@ -98,7 +98,7 @@ const supabase = createServer((req, res) => {
     if (url.startsWith('/rest/v1/catalog')) {
       /* Only the published piece is in the catalogue — as in the real view. */
       return send(200, [{
-        id: PUBLISHED, slug: 'cane-armchair', name: 'Cane Back Armchair',
+        id: PUBLISHED, slug: 'cane-armchair', name: 'Test Armchair',
         store_slug: 'sc-variety', store_id: STORE, store_name: 'S&C Variety Store',
         category: 'Chair', style: 'Modern', color: 'Natural', price_php: 4500, stock: 3,
         width_cm: 62, height_cm: 86, depth_cm: 70, preview_shape: 'chair',
@@ -204,7 +204,7 @@ await noNotice(guest);
 await guest.goto(`${BASE}/furniture/cane-armchair`, { waitUntil: 'domcontentloaded' });
 await guest.waitForSelector('.viewer[data-state="locked"]', { timeout: 15000 }).catch(() => {});
 const productBody = await guest.locator('body').innerText();
-check('product details load for a guest', /Cane Back Armchair/.test(productBody) && /62/.test(productBody));
+check('product details load for a guest', /Test Armchair/.test(productBody) && /62/.test(productBody));
 const html = await guest.content();
 check('the page source carries no public URL for the model',
   !/storage\/v1\/object\/public/.test(html) && !html.includes(`${SUPABASE}/storage`));
@@ -223,9 +223,9 @@ check('a guest asking the model endpoint directly is refused', anon.status === 4
   `${anon.status} ${anon.body?.code}`);
 check('and the answer is never cached by anything shared', /no-store/.test(anon.cache || ''), anon.cache);
 const demo = await fetch(`${BASE}/api/demo-model/cane-back-armchair.glb`);
-check('the bundled demo model is not a download on a deployment with a database', demo.status === 404, `${demo.status}`);
+check('the removed demo-model route serves nothing', demo.status === 404, `${demo.status}`);
 const oldStatic = await fetch(`${BASE}/models/cane-back-armchair.glb`);
-check('and it is no longer a static file in /public', oldStatic.status === 404, `${oldStatic.status}`);
+check('and there is no bundled product model as a static file', oldStatic.status === 404, `${oldStatic.status}`);
 
 console.log('--- TEST 02/03: asking for 3D opens a gate, not a wall ---');
 await guest.click('.product-actions a:has-text("View in my space")');

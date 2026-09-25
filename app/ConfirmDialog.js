@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 /**
  * An in-page confirmation for something that cannot be undone.
@@ -26,9 +26,16 @@ export default function ConfirmDialog({
   confirmLabel = 'Delete',
   cancelLabel = 'Cancel',
   destructive = true,
+  // For the rare action that cannot be undone AND costs someone else their
+  // work: the confirm button stays disabled until this word is typed.
+  confirmPhrase = null,
+  children = null,
   onConfirm,
   onCancel
 }) {
+  const [typed, setTyped] = useState('');
+  const phraseId = useId();
+  const phraseOk = !confirmPhrase || typed.trim() === confirmPhrase;
   const dialogRef = useRef(null);
   // Distinguishes "closed because the user confirmed" from every other way a
   // dialog can close, so confirming does not also fire onCancel.
@@ -53,6 +60,14 @@ export default function ConfirmDialog({
     >
       <h2 id="confirm-title">{title}</h2>
       <p id="confirm-body">{body}</p>
+      {children}
+      {confirmPhrase && (
+        <label className="confirm-phrase" htmlFor={phraseId}>
+          Type <b translate="no">{confirmPhrase}</b> to confirm
+          <input id={phraseId} type="text" autoComplete="off" autoCapitalize="characters" spellCheck={false}
+            value={typed} onChange={event => setTyped(event.target.value)} />
+        </label>
+      )}
       <div className="confirm-actions">
         <button
           className="button"
@@ -69,7 +84,9 @@ export default function ConfirmDialog({
           className={`button ${destructive ? 'button-danger' : 'button-primary'}`}
           type="button"
           autoFocus={!destructive}
+          disabled={!phraseOk}
           onClick={() => {
+            if (!phraseOk) return;
             confirmed.current = true;
             dialogRef.current?.close();
             onConfirm();

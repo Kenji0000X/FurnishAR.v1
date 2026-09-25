@@ -31,6 +31,7 @@ before(() => {
     calls.push({ url: String(url), options });
     if (String(url).endsWith('/auth/v1/user')) return answers.user();
     if (String(url).includes('/storage/v1/object/sign/')) return answers.sign(options);
+    if (String(url).endsWith('/rest/v1/rpc/record_model_access')) return (answers.record || (() => json(200, true)))(options);
     throw new Error(`unexpected request ${url}`);
   };
   ({ grantModelAccess } = require('../lib/supabase-proxy.js'));
@@ -108,4 +109,49 @@ test('an upstream that is down says so, rather than pretending the user lacks ac
   const result = await grantModelAccess(request('good-token'), PATH);
   assert.equal(result.status, 502);
   assert.equal(result.body.code, 'upstream');
+});
+
+/* ------------------------------------------------ 0012: model lifecycle --- */
+
+const recorded = () => calls.filter(c => c.url.endsWith('/rpc/record_model_access'));
+
+test('a granted model records its use once, as the same user, with only the path', async () => {
+  calls = [];
+  answers.user = () => json(200, { id: 'buyer-1', email: 'ana@example.ph' });
+  answers.sign = () => json(200, { signedURL: `/object/sign/furniture-models/${PATH}?token=abc` });
+  const result = await grantModelAccess(request('good-token'), PATH);
+  assert.equal(result.status, 200);
+  const records = recorded();
+  assert.equal(records.length, 1);
+  assert.equal(records[0].options.headers.Authorization, 'Bearer good-token');
+  assert.deepEqual(JSON.parse(records[0].options.body), { p_object_path: PATH },
+    'no user id, no location, no signed URL — only which file');
+});
+
+test('a refused, missing or failed model request records nothing', async () => {
+  answers.user = () => json(200, { id: 'buyer-1', email: 'ana@example.ph' });
+  for (const sign of [
+    () => json(400, { statusCode: '404', error: 'not_found' }),
+    () => json(403, { error: 'Unauthorized' }),
+    () => json(500, { error: 'boom' })
+  ]) {
+    calls = [];
+    answers.sign = sign;
+    await grantModelAccess(request('good-token'), PATH);
+    assert.equal(recorded().length, 0);
+  }
+  calls = [];
+  await grantModelAccess(request(null), PATH);
+  assert.equal(recorded().length, 0, 'a guest records nothing');
+});
+
+test('recording failing never costs the shopper their model', async () => {
+  calls = [];
+  answers.user = () => json(200, { id: 'buyer-1', email: 'ana@example.ph' });
+  answers.sign = () => json(200, { signedURL: `/object/sign/furniture-models/${PATH}?token=abc` });
+  answers.record = () => json(500, { message: 'db down' });
+  const result = await grantModelAccess(request('good-token'), PATH);
+  assert.equal(result.status, 200);
+  assert.ok(result.body.url);
+  answers.record = null;
 });

@@ -75,7 +75,8 @@ SUPABASE_DB_URL='postgresql://…' ./scripts/migrate.sh --seed
 `supabase/migrations/0001_init.sql`, **Run**.
 
 Then a second query with `supabase/seed.sql`, **Run**. That creates the three
-pilot shops and the Cane Back Armchair, so there is something to look at.
+pilot shops. There is no demo furniture: the collection stays empty until a
+store adds a product.
 
 This also creates the `furniture-models` storage bucket. Check
 **Storage** — you should see it, public, with a 100 MB limit.
@@ -176,8 +177,8 @@ here than after a deploy.
 npm run dev
 ```
 
-Open <http://localhost:3000>. You should see the seeded furniture rather than
-the bundled armchair.
+Open <http://localhost:3000>. The collection says "No furniture has been listed
+yet" until a store adds a product — there is no demo furniture.
 
 Then sign in at <http://localhost:3000/portal> with an account you create in
 Step 9, and confirm the dashboard opens.
@@ -203,10 +204,10 @@ Two things that catch people here:
   refuses to start rather than sign owner sessions with a secret that is
   published in this repository and therefore forgeable.
 
-**The first visitor after a deploy sees the bundled catalogue.** The build
-machine has no database access, so the first render falls back to the committed
-file; pages then refresh from Supabase on a 60-second cycle. Load the page,
-wait a minute, load it again — that is expected, not a fault.
+**Catalogue pages refresh at most once a minute** — and immediately when a
+store saves a product or model, or an admin cleans one up (those changes call
+`/api/sb/models/revalidate`). If a build had no database access, its first
+render shows an empty collection until that refresh.
 
 ---
 
@@ -248,7 +249,7 @@ They refresh and have their dashboard.
 
 ## How to tell it worked
 
-- The catalogue shows your database's furniture, not the Cane Back Armchair.
+- The catalogue shows your database's furniture — or, with none yet, "No furniture has been listed yet".
 - An owner can sign in at `/portal` and see their own products only.
 - Adding a product in the portal makes it appear in the catalogue within a
   minute.
@@ -264,7 +265,7 @@ They refresh and have their dashboard.
 
 | What you see | What it means |
 | --- | --- |
-| Catalogue still shows the armchair | The app could not reach Supabase and fell back to the bundled file. Open `/api/sb/status?probe=1` — it says whether the project answers. |
+| Collection says it "couldn't be loaded" | The app could not reach Supabase. Open `/api/sb/status?probe=1` — it says whether the project answers. |
 | `ENOTFOUND` in the logs, or `"reachable": false` from the probe | `SUPABASE_URL` points at a project that no longer exists — usually an old ref left behind after creating a new project. Update it and redeploy. |
 | "This deployment has no Supabase backend configured" | The server cannot see `SUPABASE_URL` / `SUPABASE_PUBLISHABLE_KEY`. |
 | "Sign-ups are turned off for this project" | Step 3. |

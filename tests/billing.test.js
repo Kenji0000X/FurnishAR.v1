@@ -85,8 +85,10 @@ test.before(() => {
         values ('payment_recorder', encode(sha256(convert_to('${SECRET}', 'UTF8')), 'hex'))`);
 
   // One priced, stocked piece in store A.
-  ids.product = psql(`update public.products set price_php = 1000, stock = 5, status = 'published'
-                      where id = (select id from public.products where store_id = '${ids.storeA}' limit 1)
+  // seed.sql creates stores and no furniture; the suite brings its own piece.
+  ids.product = psql(`insert into public.products (store_id, slug, name, category, price_php, stock,
+                        width_cm, height_cm, depth_cm, status)
+                      values ('${ids.storeA}', 'test-bench', 'Test Bench', 'Bench', 1000, 5, 120, 45, 40, 'published')
                       returning id`);
   // Store B builds to order.
   as(ids.ownerB, `select public.save_store_billing('${ids.storeB}', 'custom', 'pay-b@shop.ph', 'orders-b@shop.ph', 3, 1)`);

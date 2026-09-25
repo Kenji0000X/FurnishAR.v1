@@ -28,7 +28,7 @@ const BASE = process.argv[2] || 'http://localhost:4173';
 const ROUTES = [
   '/', '/collection', '/collection?q=armchair', '/collection?category=Chair',
   '/faq', '/plan', '/diagnose', '/portal', '/admin', '/login', '/login?as=buyer',
-  '/account', '/furniture/armchair-cane-back',
+  '/account', '/collection',
   '/this-route-does-not-exist'
 ];
 

@@ -16,8 +16,8 @@ const modulePromise = import(pathToFileURL(path.resolve(__dirname, '../public/su
 
 const CATALOG_ROW = {
   id: '6f1c4e4e-0000-4000-8000-000000000001',
-  slug: 'cane-back-armchair',
-  name: 'Cane Back Armchair',
+  slug: 'test-armchair',
+  name: 'Test Armchair',
   store_id: '2b1c4e4e-0000-4000-8000-000000000002',
   store_slug: 'sc-variety',
   store_name: 'S&C Variety Store',
@@ -45,7 +45,7 @@ test('a catalog row becomes the product shape the UI renders', async () => {
   const { toProduct } = await modulePromise;
   const product = toProduct(CATALOG_ROW);
 
-  assert.equal(product.name, 'Cane Back Armchair');
+  assert.equal(product.name, 'Test Armchair');
   assert.equal(product.storeId, 'sc-variety', 'storeId is the slug the filters use');
   assert.equal(product.store, 'S&C Variety Store');
   // Postgres numerics arrive as strings; the UI does arithmetic on them.

@@ -1553,6 +1553,18 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 }
 .no-results small { color: var(--ink-faint); }
 
+/* An empty collection: the message is the content, with nothing around it
+   pretending to be a catalogue. */
+.catalog-empty-state {
+  display: grid; justify-items: center; gap: .5rem;
+  max-width: 34rem; margin: 0 auto; padding: clamp(3rem, 10vw, 5rem) 1.5rem;
+  border: 1px solid var(--rule); border-radius: var(--radius-lg);
+  background: var(--paper-raised); text-align: center;
+}
+.catalog-empty-mark { font-size: 1.75rem; color: var(--ink-faint); }
+.catalog-empty-title { margin: 0; font-size: clamp(1.15rem, 1rem + .6vw, 1.4rem); font-weight: 600; letter-spacing: -.02em; color: var(--ink); }
+.catalog-empty-copy { margin: 0; color: var(--ink-muted); }
+
 /*
    The CSS-drawn furniture illustration lived here: about fifty rules that
    positioned a dozen <span>s into the silhouette of a sofa, a chair, a shelf.
@@ -3268,6 +3280,14 @@ body:has(.cookie-notice):not(:has(.bottom-nav)) {
 .confirm-dialog::backdrop { background: var(--scrim); backdrop-filter: blur(2px); }
 .confirm-dialog h2 { font-size: 1.15rem; margin-bottom: .55rem; }
 .confirm-dialog p { color: var(--ink-muted); font-size: .875rem; }
+.confirm-dialog .confirm-facts { display: grid; gap: .3rem; margin: .75rem 0 0; padding: 0; list-style: none; font-size: .875rem; }
+.confirm-dialog .confirm-facts li { color: var(--ink); }
+.confirm-phrase { display: grid; gap: .35rem; margin-top: 1rem; font-size: .8125rem; color: var(--ink-muted); }
+.confirm-phrase input {
+  min-height: var(--tap); padding: .45rem .6rem; border: 1px solid var(--rule-strong); border-radius: var(--radius-sm);
+  background: var(--paper); color: var(--ink); font: inherit; font-size: 16px; font-family: var(--mono); letter-spacing: .08em;
+}
+.confirm-phrase input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .confirm-actions { display: flex; justify-content: flex-end; gap: .6rem; margin-top: 1.4rem; }
 
 .button-danger { background: var(--danger); border-color: var(--danger); color: var(--on-accent); }
@@ -5543,6 +5563,9 @@ dialog, .drawer-panel { overscroll-behavior: contain; }
 
 .oauth-row { display: grid; gap: .6rem; justify-items: center; margin-top: 1rem; }
 .oauth-row .form-note { text-align: center; max-width: 34rem; }
+/* No Google sign-in on a deployment without a database (GoogleButton steps
+   aside): the "or" rule and the note about Google go with it. */
+.oauth-row:not(:has(.button-google)) { display: none; }
 .button-google {
   display: inline-flex; align-items: center; justify-content: center; gap: .65rem;
   min-height: var(--tap); min-width: 15rem; padding: .6rem 1.2rem;

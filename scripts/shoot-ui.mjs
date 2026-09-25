@@ -119,6 +119,22 @@ const supabase = createServer((req, res) => {
     if (u.startsWith('/rest/v1/product_assets')) {
       return send(200, who === 'admin' ? PRODUCTS.filter(p => p.product_assets.length).map((p, i) => ({ id: `as${i}`, kind: 'glb', object_path: `${STORE}/${p.id}/narra-three-seat-sofa-final-v7-compressed.glb`, byte_size: (i + 1) * 7.3e6, created_at: iso(i * day), product: { id: p.id, name: p.name, slug: p.slug, status: p.status, store: { name: STORES[0].name, slug: 'x' } } })) : []);
     }
+    if (u.startsWith('/rest/v1/rpc/admin_model_lifecycle')) {
+      // 0012: a spread of lifecycles — active, half a year idle, never opened,
+      // and two past the 365-day line.
+      const idle = [3, 12, 200, 30, 386, 540];
+      return send(200, who === 'admin' ? PRODUCTS.filter(p => p.product_assets.length).map((p, i) => {
+        const days = idle[i % idle.length];
+        return {
+          asset_id: `0000000${i}-0000-4000-8000-000000000000`, kind: 'glb', object_path: `${STORE}/${p.id}/model.glb`,
+          byte_size: (i + 1) * 7.3e6, uploaded_at: iso((days + 40) * day), last_accessed_at: i === 3 ? null : iso(days * day),
+          last_used_at: iso(days * day), idle_days: days, eligible: days >= 365,
+          eligible_on: new Date(Date.now() + (365 - days) * day).toISOString().slice(0, 10),
+          product_id: p.id, product_name: p.name, product_slug: p.slug, product_status: p.status,
+          store_id: STORE, store_name: STORES[0].name, poster_path: null
+        };
+      }) : []);
+    }
     if (u.startsWith('/rest/v1/rpc/storage_usage')) return send(200, [{ store_id: STORE, store_name: STORES[0].name, file_count: 5, total_bytes: 73e6 }, { store_id: 's1', store_name: 'Store 1', file_count: 1, total_bytes: 4e6 }]);
     if (u.startsWith('/rest/v1/rpc/fee_overview')) {
       return send(200, STORES.slice(0, 5).map((s, i) => ({ store_id: s.id, store_name: s.name, fulfilment: 'stocked', sales: 160050 - i * 30000, accrued: 14550 - i * 2000, collected: 0, refunded: 0, settled: 4850, outstanding: Math.max(0, 9700 - i * 2000), payment_status: i === 0 ? 'CONNECTED' : i === 2 ? 'ERROR' : 'NOT_CONNECTED', payment_environment: i === 0 ? 'sandbox' : null, merchant_id_masked: i === 0 ? '••••••••7KQ2X' : null })));

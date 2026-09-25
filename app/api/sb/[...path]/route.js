@@ -20,6 +20,7 @@
  *   POST /api/sb/orders/<action> checkout | pay | capture | request | cancel |
  *                               quote | decline | ready | fulfil | delivery | store-billing
  *   POST /api/sb/payments/<action> connect | refresh   (the shop's PayPal seller account)
+ *   POST /api/sb/models/<action>  poster | revalidate | admin-cleanup   (0012)
  *   GET  /api/sb/payments/admin PayPal configuration and problems, admins only
  */
 import proxy from '../../../../lib/supabase-proxy.js';
@@ -27,6 +28,8 @@ import orders from '../../../../lib/orders.js';
 import payments from '../../../../lib/payments.js';
 import account from '../../../../lib/account.js';
 import oauth from '../../../../lib/oauth.js';
+import models from '../../../../lib/models.js';
+import { revalidatePath, revalidateTag } from 'next/cache';
 
 const {
   isConfigured, serverCredentials, proxyRest, proxyAuth, createSignedUpload, grantModelAccess
@@ -142,10 +145,15 @@ async function route(request, context) {
       // project passes that and then fails on every real call, which is a
       // genuinely confusing way to be broken. Off by default so the portal's
       // start-up check stays fast.
+      // Where catalogue posters are served from (0012). Public on purpose:
+      // every poster URL in the catalogue HTML already carries it. Models are
+      // never addressed this way.
+      const { url: projectUrl } = serverCredentials();
+      const posterBase = projectUrl ? `${projectUrl}/storage/v1/object/public/product-posters/` : null;
       if (url.searchParams.get('probe') === '1') {
-        return json(200, { configured: isConfigured(), ...(await probeProject()) });
+        return json(200, { configured: isConfigured(), posterBase, ...(await probeProject()) });
       }
-      return json(200, { configured: isConfigured() });
+      return json(200, { configured: isConfigured(), posterBase });
     } catch (error) {
       if (!isConfigurationError(error)) throw error;
       return json(200, { configured: false, error: error.message });
@@ -238,6 +246,30 @@ async function route(request, context) {
   if (section === 'payments' && rest.length === 1) {
     const body = request.method === 'POST' ? await request.json().catch(() => ({})) : null;
     const result = await payments.handlePayments(asNodeRequest(request), rest[0], body, site);
+    return json(result.status, result.body, { 'Cache-Control': 'private, no-store' });
+  }
+
+  /*
+    3D model housekeeping (0012): link a catalogue poster, refresh the
+    catalogue after a store's change, and an admin's cleanup of a model
+    unused for a year. Each is decided by the database as the caller.
+
+    A change a store or admin just made should show at once, so the
+    catalogue's cached data is marked stale with expire 0 and the pages that
+    render it are marked for re-rendering: the next visitor to each gets
+    fresh data, and nothing else about the 60-second cache changes. Paths as
+    well as the tag, because a page first rendered without the catalogue
+    fetch (a build with no database) carries no tag to invalidate.
+  */
+  if (section === 'models' && rest.length === 1) {
+    const body = request.method === 'POST' ? await request.json().catch(() => ({})) : null;
+    const result = await models.handleModels(asNodeRequest(request), rest[0], body);
+    if (result.status === 200 && result.body?.revalidate) {
+      revalidateTag('catalog', { expire: 0 });
+      for (const page of ['/', '/collection', '/plan']) revalidatePath(page);
+      revalidatePath('/furniture/[slug]', 'page');
+      delete result.body.revalidate;
+    }
     return json(result.status, result.body, { 'Cache-Control': 'private, no-store' });
   }
 

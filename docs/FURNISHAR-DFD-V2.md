@@ -55,13 +55,13 @@ The DFD is aligned with the current repository routes:
 - `GET /api/cron/payment-reminders` (scheduler → P10 → Email)
 - `GET /api/sb/status`
 - `GET|HEAD|POST|PATCH|DELETE /api/sb/rest/<allowlisted-resource>`
-- `GET /api/sb/model/<store-id>/<product-id>/<file>`
-- `POST /api/sb/storage/sign`
+- `GET /api/sb/model/<store-id>/<product-id>/<file>` (also records the model's last use, 0012)
+- `POST /api/sb/storage/sign` (models into the private bucket; catalogue posters into the public one)
+- `POST /api/sb/models/poster|revalidate|admin-cleanup` (catalogue posters, catalogue refresh, 365-day model cleanup — 0012)
 - demo/fallback `GET /api/health`
 - demo/fallback `GET /api/products`
 - demo/fallback `GET /api/stores`
 - demo-only `POST /api/auth/login`, `POST|PUT|DELETE /api/products[/<id>]` — **404 on any deployment with a database**
-- demo-only `GET /api/demo-model/<name>.glb` — **404 on any deployment with a database**
 
 ### Endpoint → process
 
@@ -73,8 +73,11 @@ The DFD is aligned with the current repository routes:
 | `/api/sb/rest/buyers`, `/api/sb/rest/municipalities` | P6 Buyer Account (and P1 sign-up form) | D1 |
 | `/api/sb/rest/store_applications` | P7 apply, P8 review | D4 |
 | `/api/sb/rest/rpc/approve_store_application`, `reject_store_application`, `applicant_account`, `storage_usage`; `/api/sb/rest/admin_audit`, `platform_admins` | P8 Admin Console | D1, D4 |
-| `/api/sb/model/<store>/<product>/<file>` | P5 3D Access & Authorization | D3 |
-| `/api/sb/storage/sign` | P7 Store model upload | D3 |
+| `/api/sb/model/<store>/<product>/<file>` | P5 3D Access & Authorization; records last use (5.5) | D3, D2 (`product_assets.last_accessed_at`) |
+| `/api/sb/storage/sign` | P7 Store model and poster upload | D3, D6 |
+| `POST /api/sb/models/poster` | P7 link the catalogue poster rendered from the model | D2, D6 |
+| `POST /api/sb/models/revalidate` | P7 / P8 refresh the cached catalogue after a change | — |
+| `POST /api/sb/models/admin-cleanup`; `/api/sb/rest/rpc/admin_model_lifecycle` | P8 model lifecycle and 365-day cleanup | D2, D3, D6, D4 (audit) |
 | `/api/sb/status` | Health (no process data) | — |
 | `GET /api/sb/orders/config` | P10 — are payments / emails switched on (no secrets) | — |
 | `POST /api/sb/orders/checkout`, `pay`, `capture`, `request`, `cancel` | P10 Orders & Payments (buyer) | D2, D5, PayPal |
@@ -157,6 +160,7 @@ flowchart TB
     D3[(D3 Private 3D Assets)]
     D4[(D4 Applications / Audit / Usage)]
     D5[(D5 Orders / Payments / Fees)]
+    D6[(D6 Catalogue Posters, public)]
     P10(Orders & Payments)
     PP[PayPal]
     EM[Email Service]
@@ -213,6 +217,10 @@ flowchart TB
     P10 -->|price / stock hold| D2
     P10 -->|orders / verified captures| D5
     D5 -->|amount due / order state| P10
+    P7 -->|poster rendered from the model| D6
+    D6 -->|poster images| P2
+    P5 -->|last use, after signing| D2
+    P8 -->|delete a model unused 365 days| D3
     P10 -->|create / capture, payee = shop merchant id, fee mode| PP
     PP -->|approval / capture result| P10
     O -->|connect PayPal| P7
@@ -266,11 +274,40 @@ flowchart LR
     A --> V
     V --> M
     M -->|200 signed URL| R
+    M -->|after signing| T[record_model_access\nlast_accessed_at, at most daily]
     Z -->|denied| N
     M -->|401 / 403 / 5xx / network| N
     R -->|3D / AR result| U
     N -->|human-readable alert| U
 ```
+
+## Catalogue posters and the model lifecycle (0012)
+
+```mermaid
+flowchart LR
+    O[Store Owner] --> F[Upload GLB in the portal]
+    F --> C[Validate: geometry + physical size]
+    C --> PR[Render poster from the same scene\n640 px WebP, transparent]
+    PR --> UM[Private model storage\nfurniture-models]
+    PR --> UP[Public poster storage\nproduct-posters, content-addressed]
+    UM --> AR[(product_assets glb)]
+    UP --> AP[(product_assets poster)]
+    AP --> RV[revalidate catalogue]
+
+    S[Shopper] --> COL[/collection/] --> POS[Poster image only\nno model request]
+    S --> V3[View 3D / AR] --> AUTH[Authentication] --> AZ[Authorization\ncan_view_model] --> SIG[Signed GLB, 5 min] --> LA[last_accessed_at]
+
+    AD[Superadmin] --> FILES[/admin/models\nlast used · idle days · status/]
+    FILES -->|365+ days unused| CONF[Confirm: type DELETE]
+    CONF --> SD[Storage delete as admin\npolicy re-checks eligibility]
+    SD --> MD[admin_delete_stale_model\nre-checks, deletes rows]
+    MD --> AU[(admin_audit\nmodel.deleted_stale)]
+```
+
+- **Last used** = the later of the upload and the last access (`model_last_used()`); a model never opened is measured from its upload, and a replaced model starts again. **Old is not idle.**
+- **Eligible** = a glb/usdz whose last use is at least 365 days ago (`model_cleanup_eligible()`, the only copy of the rule). Nothing is deleted automatically.
+- Only a successful grant counts as use: never a poster load, a product page view, or a refused or failed request. Only the time is kept — no user, no count.
+- Cleanup removes the model file, its poster and their rows. The product, its dimensions and its orders stay; it is still listed, without AR.
 
 ## Payment flow (P10)
 
@@ -329,7 +366,7 @@ flowchart LR
 Handles buyer login/signup, store-owner login, admin sign-in, **Sign in with Google** (Supabase Auth, PKCE with the verifier held server-side, identity scopes only, Google's provider tokens discarded), refresh, logout, and role resolution. Role comes from `my_role()` only: `admin` (platform_admins — never from Google), `owner`, `pending`, `buyer`, or `onboarding` (signed in, no role yet → `/onboarding`: buyer asks only for a municipality; store files an application linked by account id).
 
 ### P2 Browse Collection
-Public catalogue browsing through `/` and `/collection`.
+Public catalogue browsing through `/` and `/collection`. A card shows the product's poster (D6) and never loads its model. A configured database that returns no products is an empty collection — the bundled demo catalogue is gone, and a failed read is shown as "couldn't be loaded", not filled in.
 
 ### P3 Product Details
 Public furniture information. The product page does not directly expose the protected 3D file.
@@ -338,16 +375,16 @@ Public furniture information. The product page does not directly expose the prot
 `/plan`, camera/device checks, room measurement, furniture placement, WebXR/Quick Look, and fallback behavior. The model is placed at the product's stored dimensions (D2), scaled uniformly; a model whose proportions cannot be those dimensions is not shown in AR. Sizes are displayed in cm, in or ft; the unit changes the text, never the size.
 
 ### P5 3D Access & Authorization
-Protected model boundary. Authentication asks who the caller is; authorization asks whether that caller may access the requested object.
+Protected model boundary. Authentication asks who the caller is; authorization asks whether that caller may access the requested object. After a URL is signed, 5.5 records the model's last use (`record_model_access`, at most once a day) — the lifecycle's only input.
 
 ### P6 Profile / Account
 `/account`. Buyer-owned profile operations only.
 
 ### P7 Store Portal
-`/portal`. Store application, owner authentication, inventory, product CRUD, and model upload. The owner's width × depth × height (entered in cm, in or ft, stored in cm) is the one physical size. A chosen model is read and checked in the browser against that size before it is uploaded; a model whose proportions do not match is refused, never stretched. The upload itself is unchanged: signed upload URL, private bucket.
+`/portal`. Store application, owner authentication, inventory, product CRUD, and model upload. The owner's width × depth × height (entered in cm, in or ft, stored in cm) is the one physical size. A chosen model is read and checked in the browser against that size before it is uploaded; a model whose proportions do not match is refused, never stretched. The upload itself is unchanged: signed upload URL, private bucket. Saving also renders the catalogue poster from the checked model in the browser and uploads it to the public `product-posters` bucket (D6); a poster failure is reported on its own and never fails the model.
 
 ### P8 Admin Console
-`/admin`. Platform-level application review, stores, models, usage, and audit activity.
+`/admin`. Platform-level application review, stores, models, usage, and audit activity. On `/admin/models` the admin sees each model's last use and may delete one unused for 365 days (0012) — the admin's only write over a shop's files.
 
 ### P9 Notifications / Alerts
 Centralized user feedback. Alerts represent actual events and do not replace the underlying operation.
@@ -456,8 +493,14 @@ Where this DFD and the code disagreed, and which one moved.
 - RECOMMENDED ARCHITECTURE: 10.9 "Link Seller" by default (`PAYPAL_SELLER_ONBOARDING=merchant_id`). The owner enters a Merchant ID. The member check runs in D5.4, then PayPal must accept the ID as a payee (a ₱1 order, never captured), then the store is recorded as CONNECTED in D5.4. Owner and admin can disconnect. Partner Referrals stays available as `partner_referrals` and is switched on when PayPal enables it. The flows are the same as before (Store Owner → 10.9 → PayPal → 10.9 → D5.4); only what crosses them changed.
 - REASON: requested. **Code and DFD changed** (`lib/payments.js` link / unlink / admin-unlink, `lib/paypal.js` verifyPayee, the drawio 10.9 label).
 
+**13. Demo catalogue removed; posters; model lifecycle (added 2026-09-25)**
+- DFD ISSUE: P2 fell back to a bundled catalogue whenever the database returned no products; card pictures came from a manifest written by hand-running a script over bundled files; nothing recorded whether a model was still used.
+- CURRENT CODE BEHAVIOR (before): an empty live catalogue showed the demo "Cane Back Armchair"; uploaded models had no card picture; `/api/demo-model` served the bundled file; `getStores()` filtered on a column that does not exist and always showed placeholder addresses.
+- RECOMMENDED ARCHITECTURE: an empty database is an empty collection; D6 public posters rendered from each model in the owner's browser; 5.5 records last use; P8 may delete a model unused for 365 days, re-checked by Storage and the database at the moment of deletion, audited, product kept.
+- REASON: requested. **Code, DFD and drawio changed together** (migration 0012, `lib/catalog.mjs`, `lib/models.js`, `app/portal/poster.js`, `/admin/models`; drawio: D6 on Level 1, 5.5 on Level 2 5.0, new Level 2 page "Posters & Model Lifecycle").
+
 **12. Database state**
-- Migrations 0005 (bucket limit), 0006 (buyers, `my_role`) and 0007 (private `furniture-models` bucket, `can_view_model` policy) are applied to the live project. 0008 takes trigger functions off the RPC surface and stops anonymous calls to `can_view_model`.
+- Migrations 0005 (bucket limit), 0006 (buyers, `my_role`) and 0007 (private `furniture-models` bucket, `can_view_model` policy) are applied to the live project. 0012 (public `product-posters` bucket, `last_accessed_at`, lifecycle functions and cleanup policies) is applied too (2026-09-25); the models bucket stays private. 0008 takes trigger functions off the RPC surface and stops anonymous calls to `can_view_model`.
 
 ## DFD artifact
 
@@ -466,11 +509,12 @@ The companion `FURNISHAR-DFD-V2.drawio` holds every diagram as a draw.io page. O
 | Page | Shows |
 |---|---|
 | Level 0 — Context DFD | the system as one process and its six external entities |
-| Level 1 — System DFD | processes 1.0–10.0 and data stores D1–D5 (this document's Level 1) |
+| Level 1 — System DFD | processes 1.0–10.0 and data stores D1–D6 (this document's Level 1) |
 | Level 2 — 1.0 Authentication & Session | 1.1 Register · 1.2 Log In · 1.3 Resolve Role · 1.4 Renew Session · 1.5 Log Out |
 | Level 2 — 1.0 Google Sign-in & Onboarding | 1.6 Start Google Sign-in (PKCE) · 1.7 Exchange Code · 1.3 Resolve Role · 1.8 Onboard (0011) |
 | Level 2 — 10.9–10.13 PayPal Seller, Webhooks & Reminders | seller onboarding and status, verified webhooks, fee mode, payment-setup reminders (0011) |
-| Level 2 — 5.0 3D Access & Authorization | 5.1 Validate · 5.2 Verify Session · 5.3 Authorize & Sign · 5.4 Deliver Signed URL |
+| Level 2 — 5.0 3D Access & Authorization | 5.1 Validate · 5.2 Verify Session · 5.3 Authorize & Sign · 5.4 Deliver Signed URL · 5.5 Record Model Use |
+| Level 2 — 7.0/8.0 Posters & Model Lifecycle | 7.1 Check & Render Poster · 7.2 Upload · 2.1 Show Card · 8.1 Review Lifecycle · 8.2 Delete Stale Model (0012) |
 | Level 2 — 10.0 Orders & Payments | 10.1–10.8: place/cancel, quote, start payment, capture, fulfil, notify, billing, view |
 | Level 3 — 5.3 Authorize & Sign Object | the three rules of `can_view_model` and the refusal handling |
 | Level 3 — 10.4 Capture & Record Payment | fetch, re-check, match & capture, secret check, record, report |

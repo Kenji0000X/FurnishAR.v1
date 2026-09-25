@@ -60,9 +60,9 @@ export function canPlaceInSpace(product) {
 /**
  * The thumbnail to show, which is always a render of THIS product's own model.
  *
- * scripts/render-thumbnails.mjs writes these from the exact .glb the shop
- * uploaded, so the picture on the card is the thing you get — not a stock
- * photo, not a generated lookalike, not another product's render. If there is
+ * The shop's own browser renders these from the exact .glb it uploaded
+ * (app/portal/poster.js), so the picture on the card is the thing you get —
+ * not a stock photo, not a generated lookalike, not another product's render. If there is
  * no thumbnail there is no picture, and the caller shows the empty state
  * rather than reaching for something that resembles the product.
  */
