@@ -40,12 +40,14 @@ export default function AdminOverview() {
 
   return (
     <>
-      <ConsoleHeader
-        eyebrow="Platform Administration"
-        title="Overview"
-        actions={<ConsoleCta href="/admin/applications" icon={ArrowRight}>Review Applications</ConsoleCta>}
-      >
-        <p>Every figure here is counted from the platform&rsquo;s own records. A figure that can&rsquo;t be counted isn&rsquo;t shown.</p>
+      {/* The decision comes first: the queue is the hero tile directly under
+          the title, with its own action. The header used to lead with a
+          sentence about how the figures are counted and a second, duplicate
+          "Review Applications" button, which pushed the queue down a screen. */}
+      <ConsoleHeader eyebrow="Platform Administration" title="Overview">
+        <p>{pending
+          ? `${pending} ${pending === 1 ? 'application needs' : 'applications need'} a decision.`
+          : 'Nothing is waiting for a decision.'}</p>
       </ConsoleHeader>
 
       <ul className="console-bento" aria-label="Platform at a glance">
@@ -68,8 +70,8 @@ export default function AdminOverview() {
               <p className="console-tile-note">Nobody is waiting. New applications from store owners land here first.</p>
             )}
             <div className="console-tile-actions">
-              <ConsoleCta href="/admin/applications" icon={ArrowRight} className="is-quiet">
-                {pending ? 'Open the Queue' : 'See Past Applications'}
+              <ConsoleCta href="/admin/applications" icon={ArrowRight} className={pending ? undefined : 'is-quiet'}>
+                {pending ? 'Review Applications' : 'See Past Applications'}
               </ConsoleCta>
             </div>
           </div>
@@ -86,7 +88,7 @@ export default function AdminOverview() {
       </ul>
 
       <ConsoleSection id="charts" title="Platform Health"
-        note="Each chart has a table view with the same numbers.">
+        note="Counted from the platform’s own records; a figure that can’t be counted isn’t shown. Each chart has a table view with the same numbers.">
         <div className="chart-grid">
           <StoresByPlan stores={stores} />
           <ListingsReady models={models} missingModels={missingModels} />

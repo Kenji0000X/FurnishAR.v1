@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 /**
@@ -45,9 +45,27 @@ export default function PagedTable({ rows, perPage = 10, head, renderRow, empty,
   const start = page * perPage;
   const shown = rows.slice(start, start + perPage);
 
+  /* On a phone each row becomes a card and each cell prints its column's
+     name from data-label (styles.css), because the header row is gone. Every
+     table here has its own header markup, so the labels are copied from it
+     rather than repeated by hand in each renderRow — before this the admin
+     cards were bare numbers nobody could tell apart. */
+  const wrap = useRef(null);
+  useLayoutEffect(() => {
+    const table = wrap.current?.querySelector('table');
+    if (!table) return;
+    const names = [...table.querySelectorAll('thead th')].map(th => th.textContent.trim());
+    for (const row of table.tBodies[0]?.rows || []) {
+      if (row.cells.length !== names.length) continue;   // the empty-state row spans every column
+      [...row.cells].forEach((cell, index) => {
+        if (!cell.hasAttribute('data-label')) cell.setAttribute('data-label', names[index]);
+      });
+    }
+  });
+
   return (
     <>
-      <div className="inventory-table-wrap">
+      <div className="inventory-table-wrap" ref={wrap}>
         <table>
           <thead>{head}</thead>
           <tbody>

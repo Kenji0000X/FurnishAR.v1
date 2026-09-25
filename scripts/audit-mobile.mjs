@@ -332,18 +332,19 @@ for (const device of [PHONES[1], PHONES[3]]) {
     }
     if (bar.overflow > 0) note('P0', 'layout', `the bottom nav causes ${bar.overflow}px of sideways scroll`, '');
 
-    // And it actually navigates.
-    await page.click('.bottom-nav-item[href="/portal"]');
+    // And it actually navigates. (The bar has had no Stores/portal item since
+    // buyer accounts landed; Collection is a tab every visitor has.)
+    await page.click('.bottom-nav-item[href="/collection"]');
     await page.waitForTimeout(1800);
     const landed = page.url();
     const nowActive = await page.evaluate(() =>
       [...document.querySelectorAll('.bottom-nav-item.is-active')]
         .map(a => a.getAttribute('href')));
     rows.push({ device: 'bottom nav nav-to', route: landed, active: nowActive });
-    if (!landed.endsWith('/portal')) {
-      note('P0', 'navigation', 'tapping Stores did not go to /portal', landed);
+    if (!landed.endsWith('/collection')) {
+      note('P0', 'navigation', 'tapping Collection did not go to /collection', landed);
     }
-    if (nowActive.length !== 1 || nowActive[0] !== '/portal') {
+    if (nowActive.length !== 1 || nowActive[0] !== '/collection') {
       note('P1', 'navigation', 'the active destination did not follow the navigation',
         nowActive.join(', ') || 'none');
     }
@@ -366,7 +367,8 @@ for (const device of [PHONES[1], PHONES[3]]) {
 /* --------------------------------------------- filters and search @360 --- */
 {
   const { context, page } = await phone(PHONES[1]);
-  await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
+  // The catalogue moved off the home page to /collection.
+  await page.goto(`${BASE}/collection`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(2000);
 
   const filters = await page.evaluate(() => {
@@ -407,7 +409,7 @@ for (const device of [PHONES[1], PHONES[3]]) {
   }
 
   // Search: type, get results, clear.
-  const search = await page.$('input[type="search"]');
+  const search = await page.$('.catalog-search input[type="search"]');   // the header has its own, hidden on a phone
   if (!search) note('P1', 'search', 'no search field found at 360px', '');
   else {
     const box = await search.boundingBox();
@@ -476,7 +478,9 @@ for (const device of [PHONES[1], PHONES[3]]) {
       const r = dlg.getBoundingClientRect();
       const fields = [...dlg.querySelectorAll('input, select, textarea')].filter(el => el.type !== 'hidden');
       const rowsOf = new Map();
-      for (const f of fields) {
+      // Radios are one segmented control (the cm / in / ft unit switch), not
+      // three fields side by side.
+      for (const f of fields.filter(el => el.type !== 'radio' && el.type !== 'checkbox')) {
         const top = Math.round(f.getBoundingClientRect().top);
         rowsOf.set(top, (rowsOf.get(top) || 0) + 1);
       }
@@ -486,7 +490,9 @@ for (const device of [PHONES[1], PHONES[3]]) {
         tallerThanScreen: r.height > window.innerHeight,
         fieldCount: fields.length,
         widestRow: Math.max(...rowsOf.values()),
-        inputTypes: fields.map(f => `${f.name || f.id || f.type}:${f.getAttribute('type') || f.tagName.toLowerCase()}`),
+        // inputmode="decimal"/"numeric" raises the number pad as surely as
+        // type="number", without the spinner and scroll-wheel surprises.
+        inputTypes: fields.map(f => `${f.name || f.id || f.type}:${f.getAttribute('type') || f.tagName.toLowerCase()}${f.inputMode ? `:${f.inputMode}` : ''}`),
         // Same rule as above: only fields somebody types into.
         smallFonts: fields.filter(f => {
           const typing = f.tagName !== 'INPUT'
@@ -507,7 +513,7 @@ for (const device of [PHONES[1], PHONES[3]]) {
     }
     // Numeric fields should raise the number pad.
     const numeric = form.inputTypes.filter(t => /width|height|depth|price|stock/.test(t));
-    const wrongKeyboard = numeric.filter(t => !/:number|:tel/.test(t));
+    const wrongKeyboard = numeric.filter(t => !/:number|:tel|:decimal|:numeric/.test(t));
     if (wrongKeyboard.length) {
       note('P2', 'forms', 'numeric fields do not request a numeric keyboard', wrongKeyboard.join(', '));
     }

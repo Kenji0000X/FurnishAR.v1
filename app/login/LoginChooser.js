@@ -233,6 +233,17 @@ export default function LoginChooser() {
           </p>
         </div>
 
+        {/* The quickest way in comes first: one Google button covers both
+            sides (a new account picks shopping or selling next). It used to
+            sit under both cards, about 780px down on a phone. */}
+        <div className="oauth-row">
+          <GoogleButton next={next} />
+          <p className="form-note">
+            Google tells FurnishAR only your name and email. New here? You choose shopping or selling next.
+          </p>
+          <p className="or-rule" aria-hidden="true"><span>or choose your side</span></p>
+        </div>
+
         <div className="role-cards">
           <button type="button" className="role-card" onClick={() => choose('buyer')}>
             <span className="role-card-mark" aria-hidden="true">⌂</span>
@@ -258,15 +269,8 @@ export default function LoginChooser() {
           </Link>
         </div>
 
-        <div className="oauth-row">
-          <GoogleButton next={next} />
-          <p className="form-note">
-            Google tells FurnishAR only your name and email. New here? You choose shopping or selling next.
-          </p>
-        </div>
-
         <p className="role-foot">
-          Just looking? <Link href="/collection">Browse the catalogue</Link> — no account needed.
+          Just looking? <Link href="/collection">Browse the catalogue</Link>. No account needed.
         </p>
       </div>
     );

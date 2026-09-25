@@ -476,9 +476,15 @@ export default function ProductFormDialog({ product, session, onClose, onSaved }
       >
         ×
       </button>
+      {/* On a phone this bar pins to the top of a full-screen sheet, so
+          Cancel is always one tap away however far down the form you are;
+          Save is pinned to the bottom the same way. */}
       <header className="product-dialog-head">
-        <p className="product-dialog-eyebrow">{product ? 'Catalog · edit' : 'Catalog · new piece'}</p>
-        <h2 id="product-form-title" ref={headingRef} tabIndex={-1}>{product ? 'Edit product' : 'Add a product'}</h2>
+        <button className="dialog-cancel" type="button" onClick={() => dialogRef.current?.close()}>Cancel</button>
+        <div>
+          <p className="product-dialog-eyebrow">{product ? 'Catalog · edit' : 'Catalog · new piece'}</p>
+          <h2 id="product-form-title" ref={headingRef} tabIndex={-1}>{product ? 'Edit product' : 'Add a product'}</h2>
+        </div>
       </header>
 
       <form className="product-form" onSubmit={handleSubmit}>

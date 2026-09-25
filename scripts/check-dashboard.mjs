@@ -262,8 +262,8 @@ console.log('--- signing out ---');
 await page.goto(`http://127.0.0.1:${APP_PORT}/admin`, { waitUntil: 'domcontentloaded' });
 await page.waitForSelector('.console-tile', { timeout: 20000 });
 check('the console says which account is signed in',
-  /admin@furnishar\.ph/.test(await page.locator('.console-account').innerText()));
-await page.click('.console-signout');
+  /admin@furnishar\.ph/.test(await page.locator('.console-rail .console-account').innerText()));
+await page.click('.console-rail .console-signout');
 await page.waitForSelector('form.login-form', { timeout: 10000 }).catch(() => {});
 check('signing out returns to the sign-in form',
   await page.locator('form.login-form').isVisible());
@@ -313,17 +313,35 @@ check('the headings start at the left edge of the screen, not off to the right',
   }));
 check('the shopper bottom bar is gone from the console too',
   await phone.locator('.bottom-nav').count() === 0);
-check('and Sign out is reachable without scrolling sideways',
-  await phone.locator('.console-signout').isVisible());
+/* The phone workspace nav: a tab bar at the bottom of the SCREEN (not of
+   the page), four destinations and More; Sign Out lives in the More sheet. */
+const bar = await phone.evaluate(() => {
+  const nav = document.querySelector('.workspace-tabbar');
+  if (!nav || getComputedStyle(nav).display === 'none') return null;
+  const r = nav.getBoundingClientRect();
+  return { bottom: Math.round(r.bottom), vh: window.innerHeight, tabs: nav.querySelectorAll('.workspace-tab').length };
+});
+check('a workspace tab bar sits at the bottom of the screen', bar && Math.abs(bar.bottom - bar.vh) <= 1, JSON.stringify(bar));
+check('with four destinations and More', bar?.tabs === 5, String(bar?.tabs));
+check('the desktop rail is not shown on a phone', !(await phone.locator('.console-rail').isVisible()));
+await phone.getByRole('button', { name: /^More/ }).click();
+check('More opens a sheet', await phone.locator('dialog.workspace-sheet[open]').isVisible());
+check('and Sign out is in it, reachable without scrolling sideways',
+  await phone.locator('dialog.workspace-sheet .console-signout').isVisible());
+await phone.keyboard.press('Escape');
+check('Escape closes the sheet', !(await phone.locator('dialog.workspace-sheet[open]').count()));
 
-console.log('--- the bento collapses to one column on a phone ---');
+console.log('--- the bento pairs up on a phone ---');
 const tiles = await phone.locator('.console-tile').evaluateAll(nodes => nodes.map(n => {
   const r = n.getBoundingClientRect();
-  return { l: Math.round(r.left), w: Math.round(r.width) };
+  return { l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width), hero: n.classList.contains('is-hero') };
 }));
-/* Asymmetric on a desktop; on a phone every tile is one full-width card, so
-   nothing is squeezed into a half-width column too narrow for its number. */
-check('every tile spans the column', tiles.every(t => t.l === tiles[0].l && t.w === tiles[0].w),
+/* The hero (the review queue) keeps the full width; the plain figures pair
+   up two to a row, and none is pushed past the edge of the screen. */
+const heroW = tiles.find(t => t.hero)?.w || 0;
+check('the hero tile spans the column', heroW >= 300, String(heroW));
+check('the figures sit two to a row, inside the screen',
+  tiles.filter(t => !t.hero).every(t => t.w < heroW * 0.6 && t.w > 120 && t.r <= 390),
   tiles.map(t => `${t.l}+${t.w}`).join(' '));
 await phone.close();
 

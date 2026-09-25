@@ -1176,6 +1176,9 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   color: var(--accent-ink);
 }
 .text-button:hover { color: var(--accent-ink); }
+/* Form buttons lose the padding above; the link under a form still needs a
+   44px target. */
+.login-form .text-button, .login-panel .login-form > .text-button { min-height: var(--tap); }
 .text-button:focus-visible { text-decoration: underline; }
 .play-icon {
   display: grid; place-items: center;
@@ -2679,8 +2682,38 @@ footer {
   font-family: var(--mono); font-size: .6875rem; color: var(--ink-faint);
 }
 
+/* Cancel lives in the phone sheet's top bar; on a wide screen the corner ×
+   does that job, so the text button only exists below 40rem. */
+.dialog-cancel { display: none; }
+
 @media (max-width: 40rem) {
-  .product-dialog-head { margin-bottom: 1rem; }
+  /* The product form becomes a full-screen sheet: no 20px of page showing
+     round a tiny modal, a pinned top bar (Cancel, title) and a pinned Save. */
+  .form-dialog.product-dialog {
+    width: 100%; max-width: 100%; height: 100dvh; max-height: 100dvh; margin: 0;
+    padding: 0 1.1rem; border: 0; background: var(--paper-raised);
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+  .product-dialog > .dialog-close { display: none; }
+  .product-dialog-head {
+    position: sticky; top: 0; z-index: 4;
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .5rem;
+    margin: 0 -1.1rem 1rem; padding: calc(.35rem + env(safe-area-inset-top)) .6rem .35rem;
+    border-bottom: 1px solid var(--rule); background: var(--paper-raised);
+  }
+  .product-dialog-head::after { content: ""; width: 4.5rem; }
+  .product-dialog-head > div { text-align: center; min-width: 0; }
+  .product-dialog-eyebrow { display: none; }
+  .product-dialog h2 { margin: 0; font-size: 1rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dialog-cancel {
+    display: inline-flex; align-items: center; width: 4.5rem; min-height: var(--tap); padding: 0 .5rem;
+    border: 0; background: none; color: var(--accent-ink); font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .dialog-cancel:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 8px; }
+  .product-dialog .product-form-footer {
+    bottom: 0; margin: .5rem -1.1rem 0;
+    padding: .75rem 1.1rem calc(.75rem + env(safe-area-inset-bottom));
+  }
   .size-grid { grid-template-columns: minmax(0, 1fr); }
   .product-form-footer { margin: .5rem -1.1rem -1.4rem; padding: .9rem 1.1rem; bottom: -1.4rem; }
   .product-form-footer .button-primary { flex: 1 1 100%; }
@@ -3228,7 +3261,11 @@ body:has(.cookie-notice):not(:has(.bottom-nav)) {
   color: var(--ink);
   box-shadow: var(--hard);
 }
-.confirm-dialog::backdrop { background: rgba(10, 14, 13, .45); backdrop-filter: blur(2px); }
+/* The dim behind a modal dialog or sheet, the same in both themes. Declared
+   on ::backdrop too: before 2024 a backdrop inherited nothing, not even
+   custom properties from :root. */
+:root, ::backdrop { --scrim: rgba(10, 14, 13, .45); }
+.confirm-dialog::backdrop { background: var(--scrim); backdrop-filter: blur(2px); }
 .confirm-dialog h2 { font-size: 1.15rem; margin-bottom: .55rem; }
 .confirm-dialog p { color: var(--ink-muted); font-size: .875rem; }
 .confirm-actions { display: flex; justify-content: flex-end; gap: .6rem; margin-top: 1.4rem; }
@@ -3583,8 +3620,34 @@ body:has(.cookie-notice):not(:has(.bottom-nav)) {
   .inventory-table-wrap td[data-label="Product"] { display: block; padding-top: .8rem; }
   .inventory-table-wrap td[data-label="Product"]::before { content: none; }
   .inventory-table-wrap td[data-label="Actions"] { padding-bottom: .7rem; }
+  .inventory-table-wrap td[data-label="Actions"]::before { content: none; }
+  /* Every other table's first column (Store, When…) is the card's title,
+     so it drops its label and reads as a heading. */
+  .inventory-table-wrap tr:not(:has(.row-edit)) > td:first-child:not([colspan]) {
+    display: block; padding-top: .8rem; font-size: .9375rem; font-weight: 600; overflow-wrap: anywhere;
+  }
+  .inventory-table-wrap tr:not(:has(.row-edit)) > td:first-child::before { content: none; }
+  .inventory-table-wrap td > :not(small) { min-width: 0; text-align: end; overflow-wrap: anywhere; }
   .table-actions { gap: .5rem; }
   .table-actions .icon-button { min-height: var(--tap); padding-inline: .9rem; }
+
+  /* The portal's own inventory card: name first, then size, price, stock and
+     age as a 2×2 of small facts, then Edit as the obvious action and Delete
+     set apart at the far end (it still asks before it deletes). */
+  .inventory-table-wrap tr:has(.row-edit) { grid-template-columns: repeat(2, minmax(0, 1fr)); border-radius: var(--radius); }
+  .inventory-table-wrap tr:has(.row-edit) td { display: grid; justify-content: stretch; align-content: start; gap: .15rem; border-bottom: 0; padding-block: .35rem; }
+  .inventory-table-wrap tr:has(.row-edit) td[data-label="Product"],
+  .inventory-table-wrap tr:has(.row-edit) td[data-label="Actions"] { grid-column: 1 / -1; }
+  .inventory-table-wrap tr:has(.row-edit) td[data-label="Product"] { padding-bottom: .5rem; border-bottom: 1px solid var(--rule); font-size: .9375rem; }
+  .inventory-table-wrap tr:has(.row-edit) td[data-label="Actions"] { margin-top: .35rem; padding-top: .7rem; border-top: 1px solid var(--rule); }
+  .inventory-table-wrap tr:has(.row-edit) td[data-label="Actions"]::before { content: none; }
+  .inventory-table-wrap tr:has(.row-edit) td.num { text-align: start; }
+  .table-actions:has(.row-edit) { justify-content: space-between; }
+  .table-actions .row-edit {
+    flex: 1 1 auto; max-width: 12rem; border-color: var(--accent); background: var(--accent); color: var(--on-accent);
+    border-radius: var(--radius-pill); font-size: .75rem;
+  }
+  .table-actions .row-delete { border-color: transparent; background: none; color: var(--danger); }
 
 
   .footer-columns { grid-template-columns: 1fr 1fr; }
@@ -4497,7 +4560,7 @@ body:has(.cookie-notice):not(:has(.bottom-nav)) {
 }
 .table-pager-controls button[aria-current="page"] {
   background: var(--accent); border-color: var(--accent);
-  color: var(--on-accent, #fff); font-weight: 600;
+  color: var(--on-accent); font-weight: 600;
 }
 .table-pager-controls button:disabled { opacity: .4; cursor: default; }
 
@@ -4611,7 +4674,7 @@ body:has(.cookie-notice):not(:has(.bottom-nav)) {
 .admin-nav-count {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 1.4rem; height: 1.4rem; padding: 0 .35rem; border-radius: 999px;
-  background: var(--accent); color: var(--on-accent, #fff);
+  background: var(--accent); color: var(--on-accent);
   font-size: .75rem; font-weight: 700; font-variant-numeric: tabular-nums;
 }
 
@@ -4752,6 +4815,10 @@ body:has(.cookie-notice):not(:has(.bottom-nav)) {
   padding: clamp(1.5rem, 5vw, 3rem) var(--gutter, 1.25rem);
 }
 .role-choice .login-copy { margin-bottom: clamp(1.5rem, 4vw, 2.25rem); }
+/* The band is --deep, so its paragraph takes the on-deep text token. It
+   inherited --ink-muted at .8 opacity: slate on forest green, about 1.5:1. */
+.role-choice .login-copy p { color: var(--on-deep-muted); opacity: 1; font-size: .9375rem; }
+.role-choice .oauth-row { margin-bottom: 1.25rem; }
 
 .role-cards {
   display: grid; gap: .9rem;
@@ -5186,9 +5253,9 @@ dialog, .drawer-panel { overscroll-behavior: contain; }
 @media (max-width: 30rem) { .form-grid-3, .request-dialog .form-grid { grid-template-columns: 1fr; } }
 
 /* Orders — account, portal, console */
-.orders-list { display: grid; gap: .85rem; margin: 0; padding: 0; list-style: none; }
+.orders-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: .85rem; margin: 0; padding: 0; list-style: none; }
 .order-card {
-  display: grid; gap: .5rem; padding: 1rem 1.1rem;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: .5rem; padding: 1rem 1.1rem; min-width: 0; overflow-wrap: anywhere;
   border: 1px solid var(--rule); background: var(--paper-raised);
 }
 .order-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: .5rem; }
@@ -5450,7 +5517,7 @@ dialog, .drawer-panel { overscroll-behavior: contain; }
 .ar-status[data-state="in-app"], .ar-status[data-state="refused"] { display: grid; gap: .5rem; justify-items: start; }
 .inapp-handoff { margin-top: .25rem; }
 .inapp-steps { font-size: .8125rem; color: var(--ink-muted); }
-.dims-key { font-family: var(--mono); font-size: .85em; opacity: .7; }
+.dims-key { font-family: var(--mono); font-size: max(.85em, .6875rem); opacity: .7; }  /* 11px floor, even inside small text */
 
 /* The scan panel sits under the header, so the instruction line and the
    capture button keep the thumb zone to themselves. Its title and tracking
@@ -5507,8 +5574,8 @@ td .status-chip { margin-inline-start: 0; }
 
 .payment-reminder {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem;
-  margin: 0 0 1.25rem; padding: 1rem 1.25rem;
-  border: 1px solid var(--rule-strong); border-inline-start: 3px solid var(--warn);
+  min-width: 0; margin: 0; padding: 1rem 1.25rem;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--rule-strong));
   border-radius: var(--radius); background: var(--paper-raised);
 }
 .payment-reminder p { margin: .35rem 0 0; color: var(--ink-muted); max-width: 46rem; }

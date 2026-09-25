@@ -35,7 +35,7 @@
   max-width: 1480px;
   padding-top: clamp(1.25rem, 3vw, 2.25rem);
 }
-.console-overview { display: grid; gap: clamp(1.5rem, 3vw, 2.25rem); }
+.console-overview { display: grid; grid-template-columns: minmax(0, 1fr); gap: clamp(1.5rem, 3vw, 2.25rem); }
 :root[data-theme="dark"] .console {
   --console-highlight: inset 0 1px 0 rgba(255, 255, 255, .06);
   --console-shadow:
@@ -130,7 +130,7 @@
 
 /* ------------------------------------------------------------- main page */
 
-.console-main { display: grid; gap: clamp(2.75rem, 5vw, 4.5rem); min-width: 0; }
+.console-main { display: grid; grid-template-columns: minmax(0, 1fr); gap: clamp(2.75rem, 5vw, 4.5rem); min-width: 0; }
 .console-main > * { animation: console-enter 700ms var(--console-ease) both; animation-delay: calc(var(--i, 0) * 70ms); }
 .console-main > :nth-child(2) { --i: 1; }
 .console-main > :nth-child(3) { --i: 2; }
@@ -195,10 +195,52 @@
 
 /* -------------------------------------------------------------- sections */
 
-.console-section { display: grid; gap: 1.1rem; }
+.console-section { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.1rem; }
 .console-section-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: .75rem 1.5rem; }
 .console-section-head h2 { margin: 0; font-size: clamp(1.25rem, 1.1rem + .6vw, 1.6rem); letter-spacing: -.03em; }
 .console-section-note { margin: .35rem 0 0; font-size: .9rem; color: var(--ink-muted); max-width: 62ch; text-wrap: pretty; }
+
+/* ------------------------------------------------------- needs attention
+   What is waiting on the owner, first. Plain rows on the page, not cards:
+   a count, what it is, where it gets fixed. */
+.attention { display: grid; gap: .6rem; min-width: 0; }
+.console .attention-title, .attention-title {
+  margin: 0; font-family: var(--mono); font-size: var(--micro); font-weight: 500;
+  letter-spacing: .16em; text-transform: uppercase; color: var(--ink-muted);
+}
+.attention-list { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--rule); }
+.attention-item {
+  display: grid; grid-template-columns: 2.75rem minmax(0, 1fr) auto; align-items: center; gap: .85rem;
+  min-height: var(--tap); padding: .8rem .25rem; border-bottom: 1px solid var(--rule);
+  color: var(--ink); text-decoration: none;
+  transition: background-color var(--dur-fast) var(--console-ease);
+}
+.attention-item:hover { background: color-mix(in oklab, var(--ink) 4%, transparent); }
+.attention-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 6px; }
+.attention-count {
+  display: grid; place-items: center; height: 2.75rem; border-radius: 12px;
+  background: var(--accent-soft); color: var(--accent-ink);
+  font-size: 1.125rem; font-weight: 650; font-variant-numeric: tabular-nums;
+}
+.attention-copy { display: grid; gap: .1rem; min-width: 0; }
+.attention-copy strong { font-weight: 600; }
+.attention-copy small { font-size: .8125rem; color: var(--ink-muted); }
+.attention-arrow { color: var(--ink-faint); }
+.attention-clear { display: flex; align-items: center; gap: .5rem; margin: 0; color: var(--ink-muted); }
+.attention-clear svg { color: var(--ok); }
+
+/* Closed orders: kept, counted, folded away under the open ones. */
+.orders-none { margin: 0; color: var(--ink-muted); }
+.orders-past { border-top: 1px solid var(--rule); }
+.orders-past > summary {
+  display: flex; align-items: center; gap: .5rem; min-height: var(--tap); padding: .6rem 0;
+  font-weight: 600; cursor: pointer; list-style: none;
+}
+.orders-past > summary::-webkit-details-marker { display: none; }
+.orders-past > summary::after { content: ""; width: .5rem; height: .5rem; margin-inline-start: auto; border: solid var(--ink-muted); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); transition: transform var(--dur-fast) var(--console-ease); }
+.orders-past[open] > summary::after { transform: rotate(-135deg); }
+.orders-past > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 6px; }
+.orders-past[open] > .orders-list { margin-top: .75rem; }
 
 /* ---------------------------------------------------------------- bento */
 
@@ -213,7 +255,7 @@
 .console-tile-label {
   margin: 0; font-family: var(--mono); font-size: var(--micro); letter-spacing: .16em; text-transform: uppercase; color: var(--ink-faint);
 }
-.console-tile-value { margin: auto 0 0; font-size: clamp(1.6rem, 1.2rem + 1.2vw, 2.2rem); font-weight: 650; letter-spacing: -.04em; line-height: 1.05; }
+.console-tile-value { margin: auto 0 0; overflow-wrap: anywhere; font-size: clamp(1.6rem, 1.2rem + 1.2vw, 2.2rem); font-weight: 650; letter-spacing: -.04em; line-height: 1.05; }
 .console-tile-value small { font-size: .5em; color: var(--ink-faint); font-weight: 500; letter-spacing: 0; }
 .console-tile-note { margin: 0; font-size: .8125rem; color: var(--ink-muted); }
 .console-tile.is-hero > .bezel-core { padding: 1.5rem 1.6rem; gap: .9rem; background:
@@ -228,8 +270,8 @@
 @keyframes console-meter { from { transform: scaleX(0); } }
 @media (prefers-reduced-motion: reduce) { .console-meter > span { animation: none; } }
 
-.console-list { display: grid; gap: .1rem; margin: .25rem 0 0; padding: 0; list-style: none; }
-.console-list li { display: flex; justify-content: space-between; gap: 1rem; padding: .5rem 0; border-top: 1px solid var(--console-line); font-size: .875rem; }
+.console-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: .1rem; margin: .25rem 0 0; padding: 0; list-style: none; }
+.console-list li { display: flex; justify-content: space-between; gap: 1rem; min-width: 0; padding: .5rem 0; border-top: 1px solid var(--console-line); font-size: .875rem; }
 .console-list li:first-child { border-top: 0; }
 .console-list small { color: var(--ink-faint); white-space: nowrap; }
 
@@ -353,36 +395,109 @@ li.console-empty { list-style: none; padding: 1rem 0; }
   .console .kpi-tile:first-child { grid-column: span 8; }
 }
 
+/* -------------------------------------------- phone / tablet workspace nav
+   Below 64rem the rail is REPLACED, not squeezed: the old layout turned it
+   into a sideways-scrolling pill row whose second half sat off-screen, with
+   Sign Out beside the store name. Now: a fixed tab bar under the thumb (up
+   to four destinations + More), and a More sheet holding the rest, the
+   account and Sign Out. Same slot and safe-area padding as the shopper bar,
+   which is never shown on these routes. */
+.workspace-tabbar { display: none; }
+
 @media (max-width: 64rem) {
-  .console { grid-template-columns: minmax(0, 1fr); gap: 1.75rem; }
-  .console-rail { position: static; }
-  .console-rail-core { grid-template-columns: minmax(0, 1fr) auto; align-items: center; padding: .9rem; gap: .9rem 1rem; }
-  .console-brand { padding: 0 .25rem; }
-  .console-rail nav { grid-column: 1 / -1; grid-row: 2; margin: 0 -.9rem; }
-  .console-nav {
-    display: flex; gap: .35rem; overflow-x: auto; padding: 0 .9rem .15rem; scroll-snap-type: x proximity;
-    scrollbar-width: none; overscroll-behavior-x: contain;
+  .console { grid-template-columns: minmax(0, 1fr); gap: 1.25rem;
+    padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+  .console-rail { display: none; }
+  .console-main { gap: clamp(2rem, 6vw, 3rem); }
+
+  .workspace-tabbar {
+    display: block; position: fixed; z-index: 40; left: 0; right: 0; bottom: 0;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    background: color-mix(in srgb, var(--paper) 97%, transparent);
+    backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+    border-top: 1px solid var(--rule-strong);
   }
-  .console-nav::-webkit-scrollbar { display: none; }
-  .console-nav li { flex: none; scroll-snap-align: start; }
-  .console-link { padding: .5rem .85rem; border-radius: var(--radius-pill); background: color-mix(in oklab, var(--ink) 4%, transparent); white-space: nowrap; }
-  .console-account { grid-column: 2; grid-row: 1; border: 0; padding: 0; grid-template-columns: auto auto; }
-  .console-email { display: none; }
-  .console-signout { grid-column: auto; margin: 0; }
-  .console-avatar { display: none; }
+  .workspace-tabbar ul {
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px;
+    max-width: 36rem; margin: 0 auto; padding: 0; list-style: none;
+  }
+  .workspace-tab {
+    position: relative; display: grid; justify-items: center; align-content: center; gap: 2px;
+    width: 100%; min-height: 56px; padding: 6px 2px; border: 0; border-radius: 14px;
+    background: transparent; color: var(--ink-muted); font: inherit; font-size: .6875rem; font-weight: 550;
+    text-decoration: none; cursor: pointer; touch-action: manipulation;
+    transition: background-color var(--dur-fast) var(--console-ease), color var(--dur-fast) var(--console-ease);
+  }
+  .workspace-tab[aria-current], .workspace-tab[data-current] { background: var(--accent-soft); color: var(--accent-ink); font-weight: 650; }
+  .workspace-tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+  .workspace-tab-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .workspace-tab .console-count {
+    position: absolute; top: 4px; left: calc(50% + 6px);
+    min-width: 1.15rem; padding: 0 .3rem; font-size: .6875rem; line-height: 1.15rem;
+  }
+
+  /* Pinned controls clear the bar, as they do the shopper's. */
+  body:has(.workspace-tabbar) :is(.back-to-top, .contact-float, .cookie-notice) {
+    bottom: calc(84px + env(safe-area-inset-bottom));
+  }
 }
+
+/* The More sheet: a real <dialog>, anchored to the bottom on phones. */
+.workspace-sheet {
+  width: min(100%, 36rem); max-width: 100%; max-height: min(85dvh, 40rem);
+  margin: auto auto 0; padding: 0; border: 0; border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--paper-raised); color: var(--ink);
+  box-shadow: var(--hard);
+}
+.workspace-sheet::backdrop { background: var(--scrim); }
+.workspace-sheet[open] { animation: sheet-rise 260ms cubic-bezier(.32, .72, 0, 1); }
+@keyframes sheet-rise { from { transform: translateY(24px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .workspace-sheet[open] { animation: none; } }
+.workspace-sheet-body { display: grid; gap: 1rem; padding: 1.1rem 1rem calc(1rem + env(safe-area-inset-bottom)); }
+.workspace-sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 0 .35rem; }
+.workspace-sheet-head .console-org { margin-top: .2rem; }
+.workspace-sheet-close {
+  display: grid; place-items: center; flex: none; width: 44px; height: 44px; border: 1px solid var(--rule); border-radius: 50%;
+  background: var(--paper); color: var(--ink); cursor: pointer;
+}
+.workspace-sheet-close:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.workspace-sheet-nav { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.workspace-sheet-account { padding-inline: .35rem; }
 
 @media (max-width: 48rem) {
   .console-bento, .console .kpi-row { gap: 12px; }
-  .console-tile, .console-tile.is-wide, .console-tile.is-hero,
+  /* Phones: the hero keeps the full width; the plain figures pair up two to
+     a row, so four numbers take two short rows instead of four cards. */
+  .console-tile.is-hero, .console-tile.is-wide,
   .console .kpi-tile, .console .kpi-tile:first-child { grid-column: 1 / -1; }
+  .console-tile { grid-column: span 6; }
+  .console-tile > .bezel-core { padding: .9rem 1rem; gap: .35rem; }
+  .console-tile-value { font-size: 1.35rem; }
+  .console-tile-note { font-size: .75rem; }
+  .console-tile.is-hero > .bezel-core { padding: 1.15rem 1.2rem; gap: .7rem; }
+  .console-tile.is-hero .console-tile-value { font-size: 2.5rem; }
   .console-head { align-items: stretch; }
   .console-head-actions { width: 100%; }
   .console-head-actions > * { flex: 1 1 auto; justify-content: space-between; }
 }
 
+/* Phones: the inventory rows are already cards (styles.css), so the table's
+   frame comes off rather than framing a stack of cards. Edit is the wide,
+   obvious action; Delete stays quiet at the far end and still confirms. */
+@media (max-width: 40rem) {
+  .console .table-actions { flex-wrap: wrap; justify-content: flex-start; }
+  .console .inventory-table-wrap td[data-label="Actions"] { display: block; }
+  .console .inventory-table-wrap { margin: 0; border-radius: 0; background: none; box-shadow: none; }
+  .console .inventory-table-wrap tbody tr:hover { background: var(--paper-raised); }
+  .console .table-actions .row-edit {
+    flex: 1 1 auto; max-width: 14rem; min-height: var(--tap); justify-content: center;
+    font-family: inherit; font-size: .875rem; font-weight: 600; letter-spacing: 0; text-transform: none;
+  }
+  .console .table-actions .row-delete { min-height: var(--tap); }
+}
+
 @media print {
   .console { display: block; }
-  .console-rail { display: none; }
+  .console-rail, .workspace-tabbar { display: none; }
   .console-main > * { animation: none; }
 }

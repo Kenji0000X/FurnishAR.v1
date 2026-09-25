@@ -5,6 +5,7 @@ import { supabase } from '../portal/backend.js';
 import useAlert from '../alerts/useAlert.js';
 import { ConsoleSection } from '../console/ConsoleShell.js';
 import OrderCard, { money } from './OrderCard.js';
+import ConfirmDialog from '../ConfirmDialog.js';
 import { describeStatus, maskMerchantId, currentAccount } from './payment-status.mjs';
 
 /**
@@ -34,6 +35,7 @@ export default function StoreOrders({ storeUuid, onOpenCount, onPaymentStatus })
   const [quoting, setQuoting] = useState(null);
   const [declining, setDeclining] = useState(null);
   const [dirty, setDirty] = useState(false);
+  const [confirmUnlink, setConfirmUnlink] = useState(false);
 
   const load = useCallback(async () => {
     const sb = supabase();
@@ -90,8 +92,10 @@ export default function StoreOrders({ storeUuid, onOpenCount, onPaymentStatus })
     setPaypalBusy('');
   }
 
+  // Asked in a real dialog (BRAND §9), never window.confirm: a browser can
+  // be told to stop showing those, and this one closes the shop's checkout.
   async function unlinkPaypal() {
-    if (!window.confirm('Disconnect PayPal? Buyers will not be able to pay you online until you connect again.')) return;
+    setConfirmUnlink(false);
     setPaypalBusy('unlink');
     try {
       await supabase().paymentsAction('unlink', { storeId: storeUuid });
@@ -176,6 +180,84 @@ export default function StoreOrders({ storeUuid, onOpenCount, onPaymentStatus })
   const isBusy = (order, action, status = '') => busy === `${order.id}:${action}:${status}`;
   const Spin = ({ on }) => (on ? <span className="loading-spinner" aria-hidden="true" /> : null);
 
+  /* One order, with the actions its state allows. Open orders are listed
+     first; closed ones sit behind "Past orders" so history never buries work. */
+  const renderOrder = order => (
+    <OrderCard key={order.id} order={order} perspective="store">
+      <div className="order-actions">
+        {['requested', 'quoted'].includes(order.status) && (
+          <>
+            <button className="button button-primary" type="button" onClick={() => setQuoting(order.id)}
+              aria-expanded={quoting === order.id}>
+              {order.status === 'quoted' ? 'Revise Quote…' : 'Send Quote…'}
+            </button>
+            <button className="button button-outline" type="button" onClick={() => setDeclining(order)}>
+              Decline…
+            </button>
+          </>
+        )}
+        {order.status === 'deposit_paid' && (
+          <button className="button button-primary" type="button" disabled={isBusy(order, 'ready')}
+            aria-busy={isBusy(order, 'ready') || undefined} onClick={() => act(order, 'ready')}>
+            <Spin on={isBusy(order, 'ready')} />Mark Ready &amp; Request Balance
+          </button>
+        )}
+        {order.status === 'paid' && order.fulfilment_method !== 'pickup'
+          && order.delivery_status !== 'out_for_delivery' && (
+          <button className="button button-primary" type="button"
+            disabled={isBusy(order, 'delivery', 'out_for_delivery')}
+            aria-busy={isBusy(order, 'delivery', 'out_for_delivery') || undefined}
+            onClick={() => act(order, 'delivery', { status: 'out_for_delivery' })}>
+            <Spin on={isBusy(order, 'delivery', 'out_for_delivery')} />Out for Delivery
+          </button>
+        )}
+        {order.status === 'paid' && order.fulfilment_method === 'pickup'
+          && order.delivery_status !== 'ready_for_pickup' && (
+          <button className="button button-primary" type="button"
+            disabled={isBusy(order, 'delivery', 'ready_for_pickup')}
+            aria-busy={isBusy(order, 'delivery', 'ready_for_pickup') || undefined}
+            onClick={() => act(order, 'delivery', { status: 'ready_for_pickup' })}>
+            <Spin on={isBusy(order, 'delivery', 'ready_for_pickup')} />Ready for Pickup
+          </button>
+        )}
+        {order.status === 'paid' && (
+          <button className="button button-outline" type="button"
+            disabled={isBusy(order, 'delivery', 'delivered')}
+            aria-busy={isBusy(order, 'delivery', 'delivered') || undefined}
+            onClick={() => act(order, 'delivery', { status: 'delivered' })}>
+            <Spin on={isBusy(order, 'delivery', 'delivered')} />
+            {order.fulfilment_method === 'pickup' ? 'Mark Picked Up' : 'Mark Delivered'}
+          </button>
+        )}
+      </div>
+      {quoting === order.id && (
+        <form className="order-quote" onSubmit={event => {
+          event.preventDefault();
+          const v = Object.fromEntries(new FormData(event.currentTarget));
+          act(order, 'quote', { price: String(v.price).trim(), leadDays: String(v.leadDays).trim(), note: v.note });
+        }}>
+          <label>Your price (₱)
+            <input name="price" type="text" inputMode="decimal" required autoComplete="off" placeholder="12500.00…" />
+          </label>
+          <label>Lead time (days)
+            <input name="leadDays" type="text" inputMode="numeric" required autoComplete="off" placeholder="14…" />
+          </label>
+          <label>Note to buyer
+            <input name="note" maxLength={1000} autoComplete="off" placeholder="Two coats of oil finish…" />
+          </label>
+          <div className="order-actions">
+            <button className="button button-primary" type="submit" disabled={isBusy(order, 'quote')}
+              aria-busy={isBusy(order, 'quote') || undefined}>
+              <Spin on={isBusy(order, 'quote')} />Send Quote
+            </button>
+            <button className="button" type="button" onClick={() => setQuoting(null)}>Cancel</button>
+          </div>
+          <p className="form-note">The buyer sees your price plus the 10% service fee and pays half as a deposit.</p>
+        </form>
+      )}
+    </OrderCard>
+  );
+
   if (billing === undefined) {
     return (
       <ConsoleSection id="orders" title="Orders" note="Loading orders…">
@@ -203,83 +285,19 @@ export default function StoreOrders({ storeUuid, onOpenCount, onPaymentStatus })
             <p>When a shopper buys a piece or requests a custom build, it appears here with everything you need to fulfil it.</p>
           </div></div>
         ) : (
-          <ul className="orders-list">
-            {[...open, ...past].map(order => (
-              <OrderCard key={order.id} order={order} perspective="store">
-                <div className="order-actions">
-                  {['requested', 'quoted'].includes(order.status) && (
-                    <>
-                      <button className="button button-primary" type="button" onClick={() => setQuoting(order.id)}
-                        aria-expanded={quoting === order.id}>
-                        {order.status === 'quoted' ? 'Revise Quote…' : 'Send Quote…'}
-                      </button>
-                      <button className="button button-outline" type="button" onClick={() => setDeclining(order)}>
-                        Decline…
-                      </button>
-                    </>
-                  )}
-                  {order.status === 'deposit_paid' && (
-                    <button className="button button-primary" type="button" disabled={isBusy(order, 'ready')}
-                      aria-busy={isBusy(order, 'ready') || undefined} onClick={() => act(order, 'ready')}>
-                      <Spin on={isBusy(order, 'ready')} />Mark Ready &amp; Request Balance
-                    </button>
-                  )}
-                  {order.status === 'paid' && order.fulfilment_method !== 'pickup'
-                    && order.delivery_status !== 'out_for_delivery' && (
-                    <button className="button button-primary" type="button"
-                      disabled={isBusy(order, 'delivery', 'out_for_delivery')}
-                      aria-busy={isBusy(order, 'delivery', 'out_for_delivery') || undefined}
-                      onClick={() => act(order, 'delivery', { status: 'out_for_delivery' })}>
-                      <Spin on={isBusy(order, 'delivery', 'out_for_delivery')} />Out for Delivery
-                    </button>
-                  )}
-                  {order.status === 'paid' && order.fulfilment_method === 'pickup'
-                    && order.delivery_status !== 'ready_for_pickup' && (
-                    <button className="button button-primary" type="button"
-                      disabled={isBusy(order, 'delivery', 'ready_for_pickup')}
-                      aria-busy={isBusy(order, 'delivery', 'ready_for_pickup') || undefined}
-                      onClick={() => act(order, 'delivery', { status: 'ready_for_pickup' })}>
-                      <Spin on={isBusy(order, 'delivery', 'ready_for_pickup')} />Ready for Pickup
-                    </button>
-                  )}
-                  {order.status === 'paid' && (
-                    <button className="button button-outline" type="button"
-                      disabled={isBusy(order, 'delivery', 'delivered')}
-                      aria-busy={isBusy(order, 'delivery', 'delivered') || undefined}
-                      onClick={() => act(order, 'delivery', { status: 'delivered' })}>
-                      <Spin on={isBusy(order, 'delivery', 'delivered')} />
-                      {order.fulfilment_method === 'pickup' ? 'Mark Picked Up' : 'Mark Delivered'}
-                    </button>
-                  )}
-                </div>
-                {quoting === order.id && (
-                  <form className="order-quote" onSubmit={event => {
-                    event.preventDefault();
-                    const v = Object.fromEntries(new FormData(event.currentTarget));
-                    act(order, 'quote', { price: String(v.price).trim(), leadDays: String(v.leadDays).trim(), note: v.note });
-                  }}>
-                    <label>Your price (₱)
-                      <input name="price" type="text" inputMode="decimal" required autoComplete="off" placeholder="12500.00…" />
-                    </label>
-                    <label>Lead time (days)
-                      <input name="leadDays" type="text" inputMode="numeric" required autoComplete="off" placeholder="14…" />
-                    </label>
-                    <label>Note to buyer
-                      <input name="note" maxLength={1000} autoComplete="off" placeholder="Two coats of oil finish…" />
-                    </label>
-                    <div className="order-actions">
-                      <button className="button button-primary" type="submit" disabled={isBusy(order, 'quote')}
-                        aria-busy={isBusy(order, 'quote') || undefined}>
-                        <Spin on={isBusy(order, 'quote')} />Send Quote
-                      </button>
-                      <button className="button" type="button" onClick={() => setQuoting(null)}>Cancel</button>
-                    </div>
-                    <p className="form-note">The buyer sees your price plus the 10% service fee and pays half as a deposit.</p>
-                  </form>
-                )}
-              </OrderCard>
-            ))}
-          </ul>
+          <>
+            {open.length ? (
+              <ul className="orders-list">{open.map(renderOrder)}</ul>
+            ) : (
+              <p className="orders-none">No open orders. Anything new appears here first.</p>
+            )}
+            {past.length > 0 && (
+              <details className="orders-past">
+                <summary>Past orders ({past.length})</summary>
+                <ul className="orders-list">{past.map(renderOrder)}</ul>
+              </details>
+            )}
+          </>
         )}
       </ConsoleSection>
 
@@ -300,7 +318,16 @@ export default function StoreOrders({ storeUuid, onOpenCount, onPaymentStatus })
           <>
             <PaypalCard account={account} config={config} busy={paypalBusy}
               onConnect={connectPaypal} onRefresh={() => refreshPaypal()}
-              onLink={linkPaypal} onUnlink={unlinkPaypal} />
+              onLink={linkPaypal} onUnlink={() => setConfirmUnlink(true)} />
+            {confirmUnlink && (
+              <ConfirmDialog
+                title="Disconnect PayPal?"
+                body="Buyers won’t be able to pay you online until you connect a PayPal account again. Orders already paid are not affected."
+                confirmLabel="Disconnect PayPal"
+                onConfirm={unlinkPaypal}
+                onCancel={() => setConfirmUnlink(false)}
+              />
+            )}
             <dl className="billing-summary">
               <div><dt>Fees Owed (Accrued)</dt><dd>{money(billing.fees.accrued)}</dd></div>
               {Number(billing.fees.collected) > 0 && (

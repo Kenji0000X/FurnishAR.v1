@@ -98,7 +98,7 @@ export default async function ProductPage({ params }) {
           <p className={`detail-availability${hasModel ? ' is-ar' : ''}`}>
             {hasModel
               ? 'Can be placed in your room at true scale'
-              : 'No 3D model — cannot be placed in AR yet'}
+              : 'No 3D model yet, so it can’t be placed in AR'}
             {product.fulfilment === 'custom' ? ' · Made to order' : inStock !== null && (
               <>
                 {' · '}
@@ -106,6 +106,15 @@ export default async function ProductPage({ params }) {
               </>
             )}
           </p>
+
+          {/* The purchase panel sits right under the price, before the
+              description and specs: on a phone the Buy button used to be
+              about 1000px down, below the whole spec table. Which AR button
+              to show depends on the device, which the server cannot know —
+              so only this part is a client component. */}
+          <PurchasePanel product={product} />
+
+          <ProductActions product={product} />
 
           {product.description && <p className="detail-description">{product.description}</p>}
 
@@ -119,12 +128,6 @@ export default async function ProductPage({ params }) {
               <dd>{hasModel ? 'Uploaded by the shop' : 'Not provided'}</dd>
             </div>
           </dl>
-
-          {/* Which AR button to show depends on the device, which the server
-              cannot know — so only this part is a client component. */}
-          <PurchasePanel product={product} />
-
-          <ProductActions product={product} />
 
           {store && (
             <section className="detail-store" aria-labelledby="store-heading">
