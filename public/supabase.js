@@ -63,6 +63,8 @@ let unavailableReason = null;
 let outageDetected = false;
 /** Whether the server holds database credentials at all, working or not. */
 let serverHasDatabase = false;
+/** Where catalogue posters are served from (0012); reported by the server. */
+let posterBase = null;
 
 /** Why the backend is unusable, if it is. Null once prepare() has succeeded. */
 export function unavailable() {
@@ -74,11 +76,7 @@ export function isOutage() {
   return outageDetected;
 }
 
-/**
- * Whether this deployment HAS a database, working or not. The bundled demo
- * model is served only by one that does not (/api/demo-model), so this is
- * how a page knows not to ask for it.
- */
+/** Whether this deployment HAS a database, working or not. */
 export function databaseConfigured() {
   return serverHasDatabase;
 }
@@ -96,6 +94,7 @@ export async function prepare() {
     if (response.ok) {
       const status = await response.json();
       serverHasDatabase = Boolean(status.configured);
+      posterBase = status.posterBase || null;
       // A project that answers but rejects the key is as unusable as one that
       // does not answer at all, and failing here gives a readable message
       // instead of an authentication error on the first sign-up.
@@ -119,6 +118,7 @@ export async function prepare() {
   }
 
   if (CONFIG.supabaseUrl && CONFIG.supabaseAnonKey) {
+    posterBase = `${CONFIG.supabaseUrl.replace(/\/$/, '')}/storage/v1/object/public/product-posters/`;
     await getDirectClient();
     mode = 'direct';
     return mode;
@@ -322,6 +322,16 @@ export async function resolveModelUrl(reference) {
   throw error;
 }
 
+/**
+ * The public address of a catalogue poster (0012), or null. Posters are
+ * public and content-addressed; models never are. Kept identical to
+ * posterUrl() in lib/catalog.mjs.
+ */
+export function posterUrl(posterPath) {
+  if (!posterPath || !posterBase) return null;
+  return `${posterBase}${posterPath}`;
+}
+
 /** A row of public.catalog in the shape the rest of the app already uses. */
 export function toProduct(row) {
   return {
@@ -356,7 +366,10 @@ export function toProduct(row) {
       depth: Number(row.bounds_depth_cm)
     },
     description: row.description || '',
-    arReady: row.ar_ready,
+    arReady: Boolean(row.model_glb_path),
+    // Same rule as lib/catalog.mjs: a poster is shown only with its model.
+    thumbnail: row.model_glb_path ? posterUrl(row.poster_path) : null,
+    posterPath: row.poster_path || null,
     featured: row.featured,
     updatedAt: row.updated_at
   };
@@ -433,7 +446,8 @@ export async function listOwnProducts(storeUuid) {
   const merge = row => toProduct({
     ...row,
     model_glb_path: row.product_assets?.find(a => a.kind === 'glb')?.object_path,
-    model_usdz_path: row.product_assets?.find(a => a.kind === 'usdz')?.object_path
+    model_usdz_path: row.product_assets?.find(a => a.kind === 'usdz')?.object_path,
+    poster_path: row.product_assets?.find(a => a.kind === 'poster')?.object_path
   });
   if (mode === 'direct') {
     const supabase = await getDirectClient();
@@ -492,12 +506,13 @@ export async function deleteProduct(id) {
  * browser primitive that still exposes progress on an upload body, so this
  * is the one place in the app that reaches for it instead of fetch.
  */
-function putWithProgress(url, file, mime, onProgress) {
+function putWithProgress(url, file, mime, onProgress, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url);
     xhr.setRequestHeader('Content-Type', mime);
     xhr.setRequestHeader('x-upsert', 'true');
+    for (const [name, value] of Object.entries(extraHeaders)) xhr.setRequestHeader(name, value);
     // Same ceiling GoTrue/PostgREST calls don't need, because those are small
     // and fast; a big file on a bad connection can legitimately take minutes,
     // but a connection that has gone fully silent should not hang forever.
@@ -677,6 +692,60 @@ async function listAssetPaths(productId, kind) {
     // answer counts as linked and the portal's own listing will show the truth.
     return [{ unverified: true }];
   }
+}
+
+/**
+ * The catalogue poster for a product (0012): a small image rendered from its
+ * own model in the owner's browser. Uploaded to the public product-posters
+ * bucket under a name made from its contents, then linked by the server,
+ * which also removes the poster it replaced.
+ *
+ * Separate from uploadModel on purpose: a model that uploaded is a model
+ * that works in AR, whatever happens to its picture. The caller reports a
+ * failure here as "the preview could not be created", never as a failed model.
+ */
+export async function uploadPoster(blob, { storeUuid, productId } = {}) {
+  if (!blob || !blob.size) throw new Error('There is no preview to upload.');
+  const extension = blob.type === 'image/webp' ? 'webp' : blob.type === 'image/png' ? 'png' : 'jpg';
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()));
+  const hash = [...digest.slice(0, 8)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+  const objectPath = `${storeUuid}/${productId}/poster-${hash}.${extension}`;
+  const token = session?.access_token;
+
+  const signed = await fetch('/api/sb/storage/sign', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ bucket: 'product-posters', objectPath })
+  }).then(r => r.json().then(body => ({ ok: r.ok, body })));
+  if (!signed.ok) throw new Error(friendlyError(signed.body));
+  // Immutable: the name changes whenever the picture does.
+  await putWithProgress(signed.body.uploadUrl, blob, blob.type || 'image/webp', () => {},
+    { 'cache-control': 'public, max-age=31536000, immutable' });
+
+  const linked = await fetch('/api/sb/models/poster', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ objectPath, byteSize: blob.size })
+  }).then(r => r.json().then(body => ({ ok: r.ok, body })));
+  if (!linked.ok) throw new Error(linked.body?.error || 'The preview could not be linked to this product.');
+  return { objectPath, url: posterUrl(objectPath) };
+}
+
+/**
+ * Ask the server to refresh the cached catalogue after this store changed it
+ * — a product saved, a model uploaded, a product deleted — so the change is
+ * on the collection page for the next visitor instead of in up to a minute.
+ * Advisory: if it fails, the normal 60-second refresh still happens.
+ */
+export async function refreshCatalog() {
+  try {
+    const token = session?.access_token;
+    await fetch('/api/sb/models/revalidate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: '{}'
+    });
+  } catch { /* the 60-second refresh covers it */ }
 }
 
 /* ----------------------------------------------------------------- auth --- */
@@ -1137,17 +1206,49 @@ export async function listUploadedModels(limit = 200) {
   const query =
     'product_assets?select=id,kind,object_path,byte_size,mime_type,created_at,' +
     'product:products(id,name,slug,status,store:stores(name,slug))' +
-    `&order=created_at.desc&limit=${Number(limit) || 200}`;
+    // 3D files only: catalogue posters (0012) are pictures, not models.
+    `&kind=in.(glb,usdz)&order=created_at.desc&limit=${Number(limit) || 200}`;
   if (mode === 'direct') {
     const supabase = await getDirectClient();
     const { data, error } = await supabase.from('product_assets')
       .select('id,kind,object_path,byte_size,mime_type,created_at,product:products(id,name,slug,status,store:stores(name,slug))')
+      .in('kind', ['glb', 'usdz'])
       .order('created_at', { ascending: false })
       .limit(Number(limit) || 200);
     if (error) throw new Error(friendlyError(error));
     return data || [];
   }
   return (await restCall(query)) || [];
+}
+
+/**
+ * Every model file with its lifecycle (0012), longest unused first. The
+ * database works out last use, idle days and cleanup eligibility; the console
+ * only displays them, so the 365-day rule lives in one place.
+ */
+export async function listModelLifecycle() {
+  return (await restCall('rpc/admin_model_lifecycle', { method: 'POST', body: '{}' })) || [];
+}
+
+/**
+ * Delete a model unused for 365 days (never its product). Everything is
+ * re-checked on the server; only the asset id goes from here.
+ * Resolves to the server's answer, or throws an Error with `code`.
+ */
+export async function cleanupStaleModel(assetId) {
+  const token = session?.access_token;
+  const response = await fetch('/api/sb/models/admin-cleanup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ assetId })
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(body.error || 'We couldn’t delete this model. Nothing was removed.');
+    error.code = body.code || null;
+    throw error;
+  }
+  return body;
 }
 
 /** Every product with no model file attached — the gap the queue above can't show. */

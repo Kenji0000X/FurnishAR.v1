@@ -76,7 +76,7 @@ for (const device of DEVICES) {
   });
   const page = await context.newPage();
 
-  for (const path of ['/', '/plan', '/portal', '/furniture/armchair-cane-back']) {
+  for (const path of ['/', '/plan', '/portal', '/collection']) {
     await page.goto(`${BASE}${path}`, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(1200);
     await audit(page, path);

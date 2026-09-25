@@ -197,7 +197,7 @@ const rows = [];
 
 /* ------------------------------------------------- every width, portrait -- */
 for (const device of PHONES) {
-  for (const route of ['/', '/plan', '/portal', '/furniture/armchair-cane-back']) {
+  for (const route of ['/', '/plan', '/portal', '/collection']) {
     const { context, page, viewport } = await phone(device);
     await page.goto(`${BASE}${route}`, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(2200);

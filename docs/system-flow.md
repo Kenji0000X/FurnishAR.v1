@@ -151,7 +151,7 @@ flowchart TB
 | P1 Registration | `app/login/LoginChooser.js` (sign-up form) → `public/supabase.js` `signUpBuyer()` → `/api/sb/auth/signup` → GoTrue; trigger `create_buyer_from_signup` (0006) writes `buyers` |
 | P2 Authentication | `LoginChooser.js` → `signIn()` → `/api/sb/auth/login` → GoTrue password grant |
 | P3 Session management | `public/supabase.js` (`storeSession`, single-flight `refreshSession`, `getSession`, `sessionLapsed`); server-side `verifySession()` in `lib/auth.js` |
-| P4 Product browsing | `/collection`, `lib/catalog.mjs` `getCatalog()` — the `catalog` view, cached 60 s, bundled catalogue if the database fails |
+| P4 Product browsing | `/collection`, `lib/catalog.mjs` `getCatalog()` — the `catalog` view, cached 60 s and refreshed on store/admin changes; an empty database is an empty collection, a failed read says so (no bundled catalogue) |
 | P5 Product details | `/furniture/[slug]` |
 | P6 3D access request | `ProductActions.js`, `ProductViewer.js`, `app/plan/ar-engine.js` → `resolveModelUrl()` → `GET /api/sb/model/<path>` |
 | P7 Authorization | `grantModelAccess()` in `lib/supabase-proxy.js` → Storage signs **as the user** → policy `can_view_model()` (migration 0007) |
@@ -430,7 +430,7 @@ flowchart LR
 | 3D access | model opens | not signed in → gate / sign-in alert · expired → critical "session has expired" · refused → critical "unavailable for this account" · server 5xx → "couldn't load" + Try again · offline → "Connection failed" + Try again · no model uploaded → says so, not "failed" · corrupt or HTML file → names the real cause |
 | Profile | "Profile updated successfully." | load failure → "can't be reached" + Try again · save failure → error alert, form keeps its values |
 | Logout | "You've been signed out." | server not told → "Sign-out incomplete": signed out on this device only |
-| Database | normal | configured but not answering → planner and account show "can't reach the server" with Try again; **the session is kept**, and it is never called an expiry · catalogue falls back to the bundled copy |
+| Database | normal | configured but not answering → planner and account show "can't reach the server" with Try again; **the session is kept**, and it is never called an expiry · the collection says it couldn't be loaded (never demo furniture) |
 | Network | normal | "Connection failed. Check your internet connection and try again." + Try again |
 | Authentication | valid | invalid → sign-in · expired → "session has expired" + sign in again to the same place |
 
@@ -510,7 +510,7 @@ Authenticated never means "everything".
 | Route | Kind | Who | Notes |
 |---|---|---|---|
 | `/` | static | everyone | hero scene, featured pieces |
-| `/collection` | server-rendered, 60 s cache | everyone | filters and search; bundled catalogue if the database fails |
+| `/collection` | server-rendered, 60 s cache | everyone | filters and search; cards show posters, never models; empty state when nothing is listed |
 | `/furniture/[slug]` | pre-rendered + ISR | everyone | details are public; the 3D viewer and "View in my space" need sign-in |
 | `/faq`, `/diagnose` | static | everyone | `/diagnose` checks the device's AR support |
 | `/login?as=buyer\|owner&next=…&mode=signup` | client | everyone | role chooser; `next` restores intent; `mode=signup` opens the create tab |
@@ -523,7 +523,7 @@ Authenticated never means "everything".
 | `POST /api/sb/auth/{login,signup,refresh,logout,resend}` | API | as the caller | signup metadata sanitised on the server |
 | `GET /api/sb/model/<store>/<product>/<file>` | API | signed-in, authorized | the only way to a product model; `private, no-store` |
 | `POST /api/sb/storage/sign` | API | store members | signed upload URLs |
-| `GET /api/demo-model/[name]` | API | everyone, **demo only** | serves the bundled model only when no database is configured; 404 otherwise |
+| `POST /api/sb/models/poster\|revalidate\|admin-cleanup` | API | store owner / admin | catalogue posters, catalogue refresh, 365-day model cleanup (0012) |
 
 ## 15. Database / data-store map
 
@@ -557,8 +557,8 @@ What each process reads, creates, updates and deletes:
 ## 16. Complete user journey
 
 1. **Maria** opens FurnishAR from a shared link. She is a guest.
-2. She browses `/collection`, filters by *Chair*, and opens the **Cane Back
-   Armchair**. Name, photo, dimensions, price and the shop are all there
+2. She browses `/collection`, filters by *Chair*, and opens an
+   **armchair**. Name, photo, dimensions, price and the shop are all there
    with no account. The viewer says "Sign in to view this furniture in 3D."
 3. She taps **View in my space**. The page does not navigate. A dialog
    says what happened, why, and what she can do: Log in · Create account ·

@@ -1,0 +1,162 @@
+[
+  {
+    "id": "fixture-1",
+    "slug": "fixture-rattan-chair",
+    "name": "Fixture Rattan Chair",
+    "storeId": "sc-variety",
+    "store": "S&C Variety Store",
+    "category": "Chair",
+    "style": "Modern",
+    "color": "Natural",
+    "price": 4500,
+    "stock": 3,
+    "dimensions": {
+      "width": 62,
+      "height": 86,
+      "depth": 70
+    },
+    "description": "Test fixture: fixture rattan chair for automated checks. Not a real listing.",
+    "featured": true,
+    "updatedAt": "2026-09-25T00:00:00Z"
+  },
+  {
+    "id": "fixture-2",
+    "slug": "fixture-dining-chair",
+    "name": "Fixture Dining Chair",
+    "storeId": "tiampion",
+    "store": "Tiampion Buildings",
+    "category": "Chair",
+    "style": "Modern",
+    "color": "Walnut",
+    "price": 3200,
+    "stock": 6,
+    "dimensions": {
+      "width": 45,
+      "height": 90,
+      "depth": 50
+    },
+    "description": "Test fixture: fixture dining chair for automated checks. Not a real listing.",
+    "featured": true,
+    "updatedAt": "2026-09-25T00:00:00Z"
+  },
+  {
+    "id": "fixture-3",
+    "slug": "fixture-oak-table",
+    "name": "Fixture Oak Table",
+    "storeId": "sanros",
+    "store": "Sanros General Merchandise",
+    "category": "Table",
+    "style": "Modern",
+    "color": "Oak",
+    "price": 18500,
+    "stock": 2,
+    "dimensions": {
+      "width": 160,
+      "height": 75,
+      "depth": 90
+    },
+    "description": "Test fixture: fixture oak table for automated checks. Not a real listing.",
+    "featured": false,
+    "updatedAt": "2026-09-25T00:00:00Z"
+  },
+  {
+    "id": "fixture-4",
+    "slug": "fixture-side-table",
+    "name": "Fixture Side Table",
+    "storeId": "sc-variety",
+    "store": "S&C Variety Store",
+    "category": "Table",
+    "style": "Modern",
+    "color": "Natural",
+    "price": 2800,
+    "stock": 0,
+    "dimensions": {
+      "width": 45,
+      "height": 55,
+      "depth": 45
+    },
+    "description": "Test fixture: fixture side table for automated checks. Not a real listing.",
+    "featured": false,
+    "updatedAt": "2026-09-25T00:00:00Z"
+  },
+  {
+    "id": "fixture-5",
+    "slug": "fixture-bookshelf",
+    "name": "Fixture Bookshelf",
+    "storeId": "tiampion",
+    "store": "Tiampion Buildings",
+    "category": "Storage",
+    "style": "Modern",
+    "color": "Walnut",
+    "price": 9800,
+    "stock": 4,
+    "dimensions": {
+      "width": 90,
+      "height": 180,
+      "depth": 32
+    },
+    "description": "Test fixture: fixture bookshelf for automated checks. Not a real listing.",
+    "featured": false,
+    "updatedAt": "2026-09-25T00:00:00Z"
+  },
+  {
+    "id": "fixture-6",
+    "slug": "fixture-three-seat-sofa",
+    "name": "Fixture Three-Seat Sofa",
+    "storeId": "sanros",
+    "store": "Sanros General Merchandise",
+    "category": "Sofa",
+    "style": "Modern",
+    "color": "Grey",
+    "price": 48500,
+    "stock": 1,
+    "dimensions": {
+      "width": 210,
+      "height": 88,
+      "depth": 92
+    },
+    "description": "Test fixture: fixture three-seat sofa for automated checks. Not a real listing.",
+    "featured": false,
+    "updatedAt": "2026-09-25T00:00:00Z"
+  },
+  {
+    "id": "fixture-7",
+    "slug": "fixture-bed-frame",
+    "name": "Fixture Bed Frame",
+    "storeId": "sc-variety",
+    "store": "S&C Variety Store",
+    "category": "Bed",
+    "style": "Modern",
+    "color": "Mahogany",
+    "price": 32000,
+    "stock": 2,
+    "dimensions": {
+      "width": 160,
+      "height": 110,
+      "depth": 210
+    },
+    "description": "Test fixture: fixture bed frame for automated checks. Not a real listing.",
+    "featured": false,
+    "updatedAt": "2026-09-25T00:00:00Z"
+  },
+  {
+    "id": "fixture-8",
+    "slug": "fixture-cabinet",
+    "name": "Fixture Cabinet",
+    "storeId": "tiampion",
+    "store": "Tiampion Buildings",
+    "category": "Storage",
+    "style": "Modern",
+    "color": "White",
+    "price": 7600,
+    "stock": 5,
+    "dimensions": {
+      "width": 80,
+      "height": 120,
+      "depth": 45
+    },
+    "description": "Test fixture: fixture cabinet for automated checks. Not a real listing.",
+    "featured": false,
+    "updatedAt": "2026-09-25T00:00:00Z"
+  }
+]

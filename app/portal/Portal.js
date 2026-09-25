@@ -584,8 +584,10 @@ export default function Portal({ initialProducts }) {
   async function performDelete(product) {
     setPendingDelete(null);
     try {
-      if (usingSupabase()) await supabase().deleteProduct(product.id);
-      else await api(`/api/products/${product.id}`, { method: 'DELETE', token: session.token });
+      if (usingSupabase()) {
+        await supabase().deleteProduct(product.id);
+        supabase().refreshCatalog();
+      } else await api(`/api/products/${product.id}`, { method: 'DELETE', token: session.token });
       await reloadInventory();
       toast('Product deleted.');
     } catch (error) {
@@ -694,6 +696,10 @@ export default function Portal({ initialProducts }) {
   const placeable = ownProducts.filter(product => product.modelGlb).length;
   const missingModels = ownProducts.length - placeable;
   const soldOut = ownProducts.filter(product => product.stock < 1).length;
+  // A model with no catalogue picture (0012): uploaded before posters, or the
+  // picture failed. Only knowable with the database, where posters live.
+  const needsPoster = product => usingSupabase() && Boolean(product.modelGlb) && !product.posterPath;
+  const missingPosters = ownProducts.filter(needsPoster).length;
 
   const accountEmail = user.email || session?.user?.email || '';
   const readyShare = ownProducts.length ? Math.round((placeable / ownProducts.length) * 100) : 0;
@@ -730,6 +736,7 @@ export default function Portal({ initialProducts }) {
         <NeedsAttention items={[
           openOrders > 0 && { href: '#orders', count: openOrders, title: openOrders === 1 ? 'Open order' : 'Open orders', note: 'Confirm, prepare and hand over.' },
           missingModels > 0 && { href: '#inventory', count: missingModels, title: missingModels === 1 ? 'Listing without a 3D model' : 'Listings without a 3D model', note: 'Shoppers can’t place these in their room.' },
+          missingPosters > 0 && { href: '#inventory', count: missingPosters, title: missingPosters === 1 ? 'Listing without a catalogue preview' : 'Listings without a catalogue preview', note: 'Shoppers see a placeholder on the card. Use “Regenerate preview”.' },
           soldOut > 0 && { href: '#inventory', count: soldOut, title: soldOut === 1 ? 'Listing out of stock' : 'Listings out of stock', note: 'Shoppers can’t buy these until you restock.' }
         ].filter(Boolean)} ready={ownProducts.length > 0} />
 
@@ -829,8 +836,9 @@ export default function Portal({ initialProducts }) {
                       <small>
                         {product.category} · {product.color}
                         {product.modelGlb
-                          ? ' · 3D model'
+                          ? ' · 3D model ready'
                           : <span className="missing-model"> · No 3D model, not shown in AR</span>}
+                        {needsPoster(product) && <span className="missing-model"> · Catalogue preview needed</span>}
                       </small>
                     </span>
                   </div>
@@ -844,6 +852,10 @@ export default function Portal({ initialProducts }) {
                 <td data-label="Actions">
                   <div className="table-actions">
                     <button className="icon-button row-edit" type="button" onClick={() => setEditing(product)} aria-label={`Edit ${product.name}`}>Edit</button>
+                    {needsPoster(product) && (
+                      <button className="icon-button" type="button" onClick={() => setEditing(product)}
+                        aria-label={`Regenerate the catalogue preview for ${product.name}`}>Regenerate preview</button>
+                    )}
                     <button className="icon-button delete row-delete" type="button" onClick={() => handleDelete(product)}
                       aria-label={`Delete ${product.name}…`}>
                       Delete…
@@ -878,10 +890,10 @@ export default function Portal({ initialProducts }) {
           product={editing}
           session={session}
           onClose={() => setEditing(undefined)}
-          onSaved={async message => {
+          onSaved={async (message, type = 'success') => {
             setEditing(undefined);
             await reloadInventory().catch(() => {});
-            toast(message);
+            toast(message, type);
           }}
         />
       )}

@@ -84,8 +84,10 @@ test.before(() => {
         ('${ids.storeA}', '${ids.ownerA}'), ('${ids.storeB}', '${ids.ownerB}')`);
   psql(`insert into billing_private.secrets (name, sha256_hex)
         values ('payment_recorder', encode(sha256(convert_to('${SECRET}', 'UTF8')), 'hex'))`);
-  ids.product = psql(`update public.products set price_php = 10000, stock = 10, status = 'published'
-                      where id = (select id from public.products where store_id = '${ids.storeA}' limit 1)
+  // seed.sql creates stores and no furniture; the suite brings its own piece.
+  ids.product = psql(`insert into public.products (store_id, slug, name, category, price_php, stock,
+                        width_cm, height_cm, depth_cm, status)
+                      values ('${ids.storeA}', 'test-bench', 'Test Bench', 'Bench', 10000, 10, 120, 45, 40, 'published')
                       returning id`);
   as(ids.ownerB, `select public.save_store_billing('${ids.storeB}', 'custom', null, null, 3, 1)`);
 });

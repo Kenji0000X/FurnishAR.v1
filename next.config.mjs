@@ -6,14 +6,6 @@ const nextConfig = {
   // than bundled, the way Node libraries with optional native paths prefer.
   serverExternalPackages: ['nodemailer'],
 
-  // The demo catalogue's 3D model lives in data/models, which is not served
-  // statically (it used to be in /public, where it was a download for
-  // anyone). The route that serves it in database-less demo mode reads it
-  // from disk, so it has to be traced into that function's bundle.
-  outputFileTracingIncludes: {
-    '/api/demo-model/[name]': ['./data/models/**/*']
-  },
-
   // The AR engine reaches for `window`, `navigator.xr` and a WebGL context at
   // module scope. None of that exists while rendering on the server, so the
   // component that mounts it is loaded with `ssr: false` (see
@@ -40,8 +32,9 @@ const nextConfig = {
         ]
       },
       {
-        // Models are content-addressed by store and product and never change
-        // in place, so they can be cached hard.
+        // The home page's hero room and its still. Artwork for the page, not
+        // catalogue products, and replaced by new files rather than edited,
+        // so they can be cached hard.
         source: '/models/:path*',
         headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }]
       }

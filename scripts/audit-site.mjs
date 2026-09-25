@@ -18,7 +18,7 @@ import { chromium } from 'playwright';
 import { writeFileSync } from 'node:fs';
 
 const BASE = process.argv[2] || 'http://localhost:4300';
-const ROUTES = ['/', '/plan', '/portal', '/admin', '/furniture/armchair-cane-back', '/does-not-exist'];
+const ROUTES = ['/', '/plan', '/portal', '/admin', '/collection', '/does-not-exist'];
 
 const browser = await chromium.launch({
   executablePath: '/opt/pw-browsers/chromium',

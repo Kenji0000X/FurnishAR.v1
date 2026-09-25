@@ -145,7 +145,7 @@ const browser = await chromium.launch({
   for (const width of [320, 360, 414, 768, 1024]) {
     const context = await browser.newContext({ viewport: { width, height: 900 } });
     const page = await context.newPage();
-    for (const path of ['/', '/plan', '/portal', '/furniture/armchair-cane-back']) {
+    for (const path of ['/', '/plan', '/portal', '/collection']) {
       await page.goto(`${BASE}${path}`);
       const over = await page.evaluate(() =>
         document.documentElement.scrollWidth - document.documentElement.clientWidth);

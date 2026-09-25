@@ -1,4 +1,5 @@
 import { modelState, MODEL_STATE } from './model-state.js';
+import PosterImage from './PosterImage.js';
 
 /**
  * A product's picture, wherever one is shown.
@@ -19,45 +20,46 @@ import { modelState, MODEL_STATE } from './model-state.js';
  */
 export default function ProductThumb({ product, className = '', sizes, priority = false }) {
   const state = modelState(product);
+  const classes = `product-thumb ${className}`.trim();
 
+  /*
+    The poster: a small image rendered from THIS product's own model when the
+    shop uploaded it (app/portal/poster.js). The card never loads the model
+    itself — twenty cards are twenty small pictures, not twenty WebGL scenes
+    and twenty downloads of files measured in megabytes. The model loads only
+    on the product page, in the viewer, or in AR.
+  */
   if (product.thumbnail) {
     return (
-      <img
-        className={`product-thumb ${className}`.trim()}
+      <PosterImage
+        className={classes}
         src={product.thumbnail}
-        /*
-          Described as the product, because it IS the product — the render
-          comes from the file the shop uploaded. Saying "3D model" in the alt
-          text matters: a screen-reader user should know this is a render and
-          not a photograph of the physical item, because the two can differ in
-          finish.
-        */
+        // A render, not a photograph: finishes can differ from the real piece,
+        // and a screen-reader user should know which they are hearing about.
         alt={`${product.name}, rendered from its 3D model`}
-        width="900"
-        height="900"
         sizes={sizes}
-        loading={priority ? 'eager' : 'lazy'}
-        decoding="async"
+        priority={priority}
       />
     );
   }
 
   /*
-    No picture. Which of the two reasons is shown, because they mean
-    different things to a shop owner looking at their own listing: "nobody has
-    uploaded a model" is a thing they can fix, and it is not the same as a
-    model that failed to render.
+    No picture, for one of two different reasons, and the card says which:
+    a model exists but has no catalogue preview yet (the shop can regenerate
+    it; the model still works on the product page), or there is no model at
+    all. Nothing here fetches the model to make up for the missing picture.
   */
+  const hasModel = state === MODEL_STATE.MODEL;
   return (
-    <span className={`product-thumb product-thumb-empty ${className}`.trim()} role="img"
-      aria-label={
-        state === MODEL_STATE.IMAGE
+    <span className={`${classes} product-thumb-empty`} role="img"
+      aria-label={hasModel
+        ? `${product.name}, 3D model available, no preview picture yet`
+        : state === MODEL_STATE.IMAGE
           ? `${product.name}, no picture available`
-          : `${product.name}, no 3D model uploaded yet`
-      }
+          : `${product.name}, no 3D model uploaded yet`}
     >
       <span aria-hidden="true">⬚</span>
-      <small aria-hidden="true">No 3D model yet</small>
+      <small aria-hidden="true">{hasModel ? '3D model available' : 'No 3D model yet'}</small>
     </span>
   );
 }

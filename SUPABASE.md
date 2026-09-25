@@ -9,17 +9,18 @@ The app runs two ways:
 
 | | Without Supabase | With Supabase |
 | --- | --- | --- |
-| Catalogue | bundled `data/catalog.json` | `public.catalog`, live |
+| Catalogue | `data/catalog.json` (ships empty) | `public.catalog`, live |
 | Sign-in | the demo accounts in `lib/handler.js` | real Supabase Auth accounts |
 | Sign-up | a note saying we'll be in touch | creates an account **and** a store application |
 | Adding furniture | local only; read-only on Vercel | any approved owner, from their phone |
-| 3D models | files committed to `public/models/` | uploaded to Storage, per store |
+| 3D models | none (no demo furniture) | uploaded to private Storage, per store, with a public catalogue poster |
 | Updates | on refresh | pushed live to every open browser |
 
 It picks automatically: supply a project URL and a publishable key (§4) and it
-uses Supabase; leave either unset and it behaves exactly as it does today. If
-the keys are set but the backend cannot be reached, it logs a warning and falls
-back to the bundled catalogue rather than showing an empty shop.
+uses Supabase; leave either unset and it uses the local demo backend. With the
+keys set, the catalogue is exactly what the database returns: no products means
+an empty collection, and a database that cannot be reached is reported as "the
+collection couldn't be loaded" — FurnishAR never fills either with demo furniture.
 
 **Already have `.env.local` from the dashboard? It works as-is — but rename two
 variables so the key stops being published to the browser. See §4.**
@@ -62,8 +63,8 @@ the URL and the key.
 ## 2. Create the schema
 
 **SQL Editor** → paste `supabase/migrations/0001_init.sql` → **Run**. Then do
-the same with `supabase/seed.sql`, which creates the three pilot shops and the
-Cane Back Armchair.
+the same with `supabase/seed.sql`, which creates the three pilot shops (and no
+furniture — stores add their own).
 
 With the CLI instead:
 
@@ -261,29 +262,15 @@ cannot edit or delete another shop's furniture — that stays the owner's job in
 their own portal. Seeing everything and owning everything are different powers,
 and only one of them is needed to run the platform.
 
-### The seeded armchair has no model until you upload one
+### There is no demo furniture
 
-Worth knowing before it surprises you, because it looks exactly like a
-regression and is not one.
-
-Without Supabase the catalogue is `data/catalog.json`, where the Cane Back
-Armchair's `modelGlb` is `models/cane-back-armchair.glb` — **a file bundled in
-the app**, which always loads. Connect Supabase and the catalogue comes from
-the database instead, and `supabase/seed.sql` creates that product but
-deliberately creates no `product_assets` row for it (its own comment says the
-.glb is uploaded through the owner portal). Storage starts empty; nothing puts
-that bundled file into it.
-
-So the armchair that worked before connecting the database stops having a model
-after, along with every other seeded piece, and the planner correctly reports
-"this piece has no 3D model uploaded yet". Nothing broke — the app changed
-which source of truth it reads. Upload a .glb through the portal for each
-seeded product and they work again.
-
-That file, `public/models/cane-back-armchair.glb`, is about 1.4 MB and is a
-useful thing to upload first when a bigger model is being refused: if it goes
-through and a large one does not, the size limit is the whole problem and
-nothing else is wrong with the pipeline.
+The repository ships no products and no 3D models. `supabase/seed.sql` creates
+the pilot stores only; stores add their furniture through the owner portal. A
+fresh project therefore shows "No furniture has been listed yet" on
+`/collection` — that is the correct state, not a fault. Each product's model is
+uploaded to the private `furniture-models` bucket, and its catalogue picture
+(a small WebP rendered from that model when the owner saves) to the public
+`product-posters` bucket (migration 0012).
 
 ### When a model will not show in AR
 
@@ -513,7 +500,7 @@ npx @gltf-transform/cli optimize big.glb small.glb \
   --compress draco --texture-size 1024 --texture-compress webp
 ```
 
-On this repo's own Cane Back Armchair that is **1.37 MB → 131 KB**, a 90%
+On the armchair test fixture (`tests/fixtures/models/armchair.glb`) that is **1.37 MB → 131 KB**, a 90%
 reduction, and the result still loads in the planner — there is a check for
 exactly that, see below. Applied to a 60 MB export the same settings typically
 land in low single-digit megabytes.

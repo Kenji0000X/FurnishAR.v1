@@ -2,8 +2,8 @@ import { getCatalog } from '../../lib/catalog.mjs';
 import CatalogSection from '../CatalogSection.js';
 import Marquee from '../Marquee.js';
 
-// The catalogue is a file the owner portal can write to, so pages are allowed
-// to render again rather than being frozen at build time.
+// Rendered again at most once a minute, and at once when a store or admin
+// changes the catalogue (revalidateTag('catalog') in app/api/sb).
 export const revalidate = 60;
 
 export const metadata = {
@@ -24,7 +24,7 @@ export const metadata = {
  * category shortcuts in the hero now point somewhere rather than scrolling.
  */
 export default async function CollectionPage() {
-  const { products } = await getCatalog();
+  const { products, source } = await getCatalog();
 
   return (
     <section className="view active">
@@ -39,7 +39,7 @@ export default async function CollectionPage() {
       </section>
 
       <Marquee products={products} />
-      <CatalogSection products={products} />
+      <CatalogSection products={products} source={source} />
     </section>
   );
 }

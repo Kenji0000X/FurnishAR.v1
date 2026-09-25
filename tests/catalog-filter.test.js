@@ -27,7 +27,7 @@ const wideSofa = {
 };
 
 const narrowChair = {
-  name: 'Cane Back Armchair',
+  name: 'Walnut Armchair',
   store: 'Tiampion Buildings',
   storeId: 'tiampion',
   category: 'Chair',

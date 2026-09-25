@@ -17,11 +17,11 @@ import ProductThumb from './ProductThumb.js';
  * shop had uploaded anything. So the one piece in the catalogue with a real
  * scanned model looked exactly like the two with no model at all, and all
  * three carried an AR badge. The picture is now a render of the product's own
- * .glb (see scripts/render-thumbnails.mjs) or it is honestly absent. There is
+ * .glb (its catalogue poster, app/portal/poster.js) or it is honestly absent. There is
  * no drawing that stands in for a model, because a drawing that stands in for
  * a model is a claim that there is one.
  */
-export default function ProductCard({ product }) {
+export default function ProductCard({ product, priority = false }) {
   const href = `/furniture/${product.slug || product.id}`;
   const state = modelState(product);
   const hasModel = state === MODEL_STATE.MODEL;
@@ -29,7 +29,7 @@ export default function ProductCard({ product }) {
   return (
     <article className="product-card">
       <Link className="product-media" href={href} aria-label={`View ${product.name}`}>
-        <ProductThumb product={product} sizes="(max-width: 700px) 45vw, 300px" />
+        <ProductThumb product={product} sizes="(max-width: 700px) 45vw, 300px" priority={priority} />
 
         {/* One badge, and only when it is true. Text, not colour alone. */}
         {hasModel && (

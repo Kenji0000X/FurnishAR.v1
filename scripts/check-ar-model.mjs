@@ -23,7 +23,7 @@ const SB_PORT = 4941;
 const APP_PORT = 4942;
 const KEY = 'sb_publishable_armodelcheck0';
 const STORE = '21f61742-6d5d-4239-9592-05b2a79a0453';
-const GLB = readFileSync(new URL('../data/models/cane-back-armchair.glb', import.meta.url));
+const GLB = readFileSync(new URL('../tests/fixtures/models/armchair.glb', import.meta.url));
 // Real compressed models, produced with gltf-transform from the same armchair.
 // Compression is how a 60 MB export gets under the upload limit at all, and a
 // plain GLTFLoader refuses these outright — so "it got smaller" has to mean
@@ -137,9 +137,8 @@ for (let i = 0; i < 60; i++) {
 }
 
 // /plan is prerendered at build time (revalidate = 60), and the build had no
-// Supabase to read, so the first responses carry the BUNDLED catalogue — the
-// one armchair, whose model loads fine from /api/demo-model/. Asserting against that
-// silently tests the wrong products: an earlier version of this check passed
+// Supabase to read, so the first responses carry the build's catalogue, not
+// this mock's. Asserting against that silently tests the wrong products: an earlier version of this check passed
 // and failed at random depending on whether ISR had regenerated yet. So wait
 // for the page to actually be serving this mock's catalogue, and say so
 // rather than guessing at a timeout.

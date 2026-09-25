@@ -40,7 +40,8 @@ export default function ModelPreview({
   existing = false,  // an already-uploaded model rather than a newly chosen one
   onResult,
   onReviewDimensions,
-  onReplaceModel
+  onReplaceModel,
+  posterRef          // filled with { sourceKey, render() } once the model can be drawn
 }) {
   const canvasRef = useRef(null);
   const sceneRef = useRef(null);   // { THREE, model, renderer, camera, controls, grid, frame() }
@@ -226,6 +227,7 @@ export default function ModelPreview({
       if (objectUrl) URL.revokeObjectURL(objectUrl);
       teardown?.();
       sceneRef.current = null;
+      if (posterRef) posterRef.current = null;
     };
     // sourceKey stands for `source`; the object itself is recreated on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -260,7 +262,26 @@ export default function ModelPreview({
     };
     setResult(outcome);
     frame(view);
+    offerPoster(view);
     report.current?.({ phase: 'checked', ...outcome });
+  }
+
+  /**
+   * Lets the form render the catalogue poster from this very scene when it
+   * saves — the model already parsed, checked and at its true size, so it is
+   * never read a second time just to take its picture (app/portal/poster.js).
+   */
+  function offerPoster(view) {
+    if (!posterRef || !view.renderer) return;
+    const key = latest.current.sourceKey;
+    posterRef.current = {
+      sourceKey: key,
+      render: async () => {
+        if (sceneRef.current !== view) throw new Error('The preview has changed.');
+        const { renderPoster } = await import('./poster.js');
+        return renderPoster(view.THREE, view.model);
+      }
+    };
   }
 
   /** Move the camera, never the model, until the whole piece is in view. */

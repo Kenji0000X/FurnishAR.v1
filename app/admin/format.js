@@ -41,3 +41,18 @@ export function formatBytes(bytes) {
 /** Turns a store name into the slug the shop will live at. */
 export const slugify = value =>
   String(value || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+/**
+ * A duration in days, the way people say it: "142 days", "1 year 24 days".
+ * Used for how long a 3D model has gone unused (0012). A year is 365 days
+ * here, the same year as the database's cleanup threshold.
+ */
+export function spanOf(days) {
+  const n = Math.max(0, Math.floor(Number(days) || 0));
+  if (n < 1) return 'today';
+  const years = Math.floor(n / 365);
+  const rest = n % 365;
+  const part = (count, unit) => `${count} ${unit}${count === 1 ? '' : 's'}`;
+  if (!years) return part(n, 'day');
+  return rest ? `${part(years, 'year')} ${part(rest, 'day')}` : part(years, 'year');
+}

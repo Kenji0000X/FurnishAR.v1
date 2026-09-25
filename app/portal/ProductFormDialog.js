@@ -96,6 +96,9 @@ export default function ProductFormDialog({ product, session, onClose, onSaved }
   // failed on the upload. A ref, not state: it must survive a re-render
   // without causing one, and it is never read during render.
   const createdId = useRef(null);
+  // Filled by ModelPreview once the model is on screen: renders the
+  // catalogue poster from the scene it already has (app/portal/poster.js).
+  const posterRef = useRef(null);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');   // 'Saving…' | 'Uploading model… 42%'
   const [saveStage, setSaveStage] = useState(null); // COMPRESSING | UPLOADING | SAVING | SUCCESS
@@ -363,6 +366,7 @@ export default function ProductFormDialog({ product, session, onClose, onSaved }
       modelUsdz: !usingSupabase() && values.modelUsdz ? String(values.modelUsdz).trim() : undefined
     };
 
+    let posterProblem = false;
     try {
       if (usingSupabase()) {
         const storeUuid = session?.user?.storeUuid;
@@ -440,6 +444,33 @@ export default function ProductFormDialog({ product, session, onClose, onSaved }
             onProgress: fraction => setStatus(`Uploading model… ${Math.round(fraction * 100)}%`)
           });
         }
+
+        /* The catalogue picture: for a new model, and for a saved model that
+           has none yet (uploaded before posters existed, or whose picture
+           failed last time — the inventory's "Regenerate preview" opens this
+           form for exactly that). Rendered from the preview's own scene.
+
+           Its own step, with its own outcome. The model above is saved and
+           works in AR whatever happens here, so a failure is reported as
+           "the preview could not be created", never as a failed model. */
+        const wantsPoster = modelFile || (existingPath && !product?.posterPath);
+        if (wantsPoster) {
+          setStatus('Creating the catalogue preview…');
+          try {
+            const wanted = modelSourceKey(modelFile ? { file: modelFile } : { path: storedPath });
+            // A saved model is still being fetched for the preview if Save
+            // came quickly; wait for it the way a new file is waited for.
+            if (!modelFile) await settledCheck(wanted, dimensionsKey(storedCm));
+            const view = posterRef.current;
+            if (!view || view.sourceKey !== wanted) throw new Error('The preview is not ready.');
+            const blob = await view.render();
+            await supabase().uploadPoster(blob, { storeUuid, productId: saved.id });
+          } catch (posterError) {
+            console.warn('[portal] catalogue preview not created:', posterError?.message);
+            posterProblem = true;
+          }
+        }
+        supabase().refreshCatalog();
       } else {
         if (modelFile) {
           throw new Error(
@@ -454,7 +485,15 @@ export default function ProductFormDialog({ product, session, onClose, onSaved }
       }
       setSaveStage(UPLOAD_STATE.SUCCESS);
       dialogRef.current?.close();
-      onSaved(values.id ? 'Product updated.' : 'Product added to the catalog.');
+      if (posterProblem) {
+        onSaved(
+          `${modelFile ? '3D model saved' : 'Product saved'}, but its catalogue preview could not be created. `
+          + 'Shoppers can still open it in 3D and AR. Use “Regenerate preview” in your inventory to try again.',
+          'warning'
+        );
+      } else {
+        onSaved(values.id ? 'Product updated.' : 'Product added to the catalog.');
+      }
     } catch (saveError) {
       setSaveStage(null);
       setError(saveError.message);
@@ -664,7 +703,13 @@ export default function ProductFormDialog({ product, session, onClose, onSaved }
               onResult={handleResult}
               onReviewDimensions={reviewDimensions}
               onReplaceModel={replaceModel}
+              posterRef={posterRef}
             />
+            {usingSupabase() && existingPath && !product?.posterPath && !pendingFile && (
+              <p className="form-note">
+                This model has no catalogue preview yet. Saving creates one from the model shown here.
+              </p>
+            )}
           </aside>
 
           <div className="product-form-rest">

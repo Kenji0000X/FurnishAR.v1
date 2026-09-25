@@ -50,6 +50,26 @@ let applications = [
 let audit = [];
 const calls = [];
 
+/* 0012: what admin_model_lifecycle() returns, and what the fake Storage holds. */
+const DAY = 86400e3;
+let lifecycle = [
+  { asset_id: '11111111-1111-4111-8111-111111111111', kind: 'glb', object_path: 's1/p1/model.glb', byte_size: 31457280,
+    uploaded_at: new Date(Date.now() - 300 * DAY).toISOString(), last_accessed_at: new Date(Date.now() - 7 * DAY).toISOString(),
+    last_used_at: new Date(Date.now() - 7 * DAY).toISOString(), idle_days: 7, eligible: false,
+    eligible_on: new Date(Date.now() + 358 * DAY).toISOString().slice(0, 10),
+    product_id: 'p1', product_name: 'Wooden Desk', product_slug: 'wooden-desk', product_status: 'published',
+    store_id: 's1', store_name: 'S&C Variety Store', poster_path: null },
+  { asset_id: '22222222-2222-4222-8222-222222222222', kind: 'glb', object_path: 's1/p9/model.glb', byte_size: 12582912,
+    uploaded_at: new Date(Date.now() - 800 * DAY).toISOString(), last_accessed_at: new Date(Date.now() - 400 * DAY).toISOString(),
+    last_used_at: new Date(Date.now() - 400 * DAY).toISOString(), idle_days: 400, eligible: true,
+    eligible_on: new Date(Date.now() - 35 * DAY).toISOString().slice(0, 10),
+    product_id: 'p9', product_name: 'Old Rattan Sofa', product_slug: 'old-rattan-sofa', product_status: 'published',
+    store_id: 's1', store_name: 'S&C Variety Store', poster_path: 's1/p9/poster-00000000000000aa.webp' }
+];
+const storedObjects = new Set(['furniture-models/s1/p1/model.glb', 'furniture-models/s1/p9/model.glb',
+  'product-posters/s1/p9/poster-00000000000000aa.webp']);
+const deletedObjects = [];
+
 /** The rule the real RLS policies enforce, mirrored here. */
 const isAdmin = req => (req.headers.authorization || '').includes(ADMIN_TOKEN);
 
@@ -81,6 +101,40 @@ const supabase = createServer((req, res) => {
         access_token: who, refresh_token: `${who}-r`,
         user: { id: who, email: String(raw).includes('admin@') ? 'admin@furnishar.ph' : 'owner@furnishar.ph' }
       });
+    }
+
+    // 0012: the model lifecycle, as admin_model_lifecycle() answers it. One
+    // model opened last week, one untouched for 400 days.
+    if (req.url.startsWith('/rest/v1/rpc/admin_model_lifecycle')) {
+      if (!isAdmin(req)) return send(403, { message: 'Only a platform administrator may review model files.' });
+      let asked = null;
+      try { asked = JSON.parse(raw || '{}').p_asset || null; } catch { /* ignore */ }
+      const rows = lifecycle.filter(model => !asked || model.asset_id === asked);
+      return send(200, rows);
+    }
+    // Storage's own delete, as the admin: the fake bucket forgets the file.
+    if (req.method === 'DELETE' && req.url.startsWith('/storage/v1/object/')) {
+      const bucket = req.url.split('/storage/v1/object/')[1];
+      const names = JSON.parse(raw || '{}').prefixes || [];
+      const gone = names.filter(name => storedObjects.has(`${bucket}/${name}`));
+      if (!isAdmin(req)) return send(200, []);
+      for (const name of gone) storedObjects.delete(`${bucket}/${name}`);
+      deletedObjects.push(...gone.map(name => `${bucket}/${name}`));
+      return send(200, gone.map(name => ({ name })));
+    }
+    if (req.url.startsWith('/rest/v1/rpc/admin_delete_stale_model')) {
+      if (!isAdmin(req)) return send(403, { code: '42501', message: 'Only a platform administrator may delete model files.' });
+      const { p_asset: asset } = JSON.parse(raw || '{}');
+      const model = lifecycle.find(m => m.asset_id === asset);
+      if (!model) return send(200, { status: 'gone' });
+      if (!model.eligible) return send(400, { code: 'P0001', hint: 'not_eligible', message: 'This model was used recently and is no longer eligible for cleanup.' });
+      if (storedObjects.has(`furniture-models/${model.object_path}`)) {
+        return send(400, { code: 'P0001', hint: 'storage_pending', message: 'The model file is still in storage; delete it first.' });
+      }
+      lifecycle = lifecycle.filter(m => m.asset_id !== asset);
+      audit = [{ id: 'a-model', actor_email: 'admin@furnishar.ph', action: 'model.deleted_stale', subject: asset,
+        detail: { product_name: model.product_name, idle_days: model.idle_days }, at: new Date().toISOString() }, ...audit];
+      return send(200, { status: 'deleted', product_id: model.product_id, byte_size: model.byte_size, poster_removed: true });
     }
 
     // is_platform_admin: the server's answer, which the UI must obey.
@@ -138,13 +192,13 @@ const supabase = createServer((req, res) => {
         id: 'pa1', kind: 'glb', object_path: 's1/p1/armchair.glb',
         byte_size: 31457280, mime_type: 'model/gltf-binary',
         created_at: new Date(Date.now() - 86400e3).toISOString(),
-        product: { name: 'Cane Back Armchair', slug: 'armchair-cane-back', status: 'published',
+        product: { name: 'Wooden Desk', slug: 'wooden-desk', status: 'published',
                    store: { name: 'S&C Variety Store', slug: 'sc-variety' } }
       }] : []);
     }
     if (req.url.startsWith('/rest/v1/products')) {
       return send(200, isAdmin(req) ? [
-        { id: 'p1', name: 'Cane Back Armchair', slug: 'armchair-cane-back', status: 'published',
+        { id: 'p1', name: 'Wooden Desk', slug: 'wooden-desk', status: 'published',
           store: { name: 'S&C Variety Store', slug: 'sc-variety' }, product_assets: [{ kind: 'glb' }] },
         // No model attached: the console must call this out.
         { id: 'p2', name: 'Unmodelled Side Table', slug: 'side-table', status: 'draft',
@@ -273,7 +327,7 @@ console.log('--- a store owner (signed in, but not an admin) ---');
   check('is never shown the console headings', !/Store applications/i.test(body));
   check('sees no applicant email', !body.includes('rattan@shop.ph'));
   check('sees no applicant phone', !body.includes('+63431234567'));
-  check('sees no other store\'s 3D files', !body.includes('armchair.glb') && !body.includes('Cane Back Armchair'));
+  check('sees no other store\'s 3D files', !body.includes('armchair.glb') && !body.includes('Wooden Desk'));
 
   // Back in the portal while signed in, no route to the console is offered at
   // all — that link is rendered from the server's is_platform_admin answer.
@@ -419,11 +473,41 @@ console.log('--- the superadmin ---');
   await page.waitForTimeout(600);
   const files = await page.locator('body').innerText();
   check('lists an uploaded model with its store and product',
-    /Cane Back Armchair/.test(files) && /S&C Variety Store/.test(files));
+    /Wooden Desk/.test(files) && /S&C Variety Store/.test(files));
   check('shows the file size in something readable', /30 MB/.test(files),
     (files.match(/\d+(\.\d+)? [KMG]B/) || ['none'])[0]);
-  check('flags a listing with no model attached',
-    /Unmodelled Side Table/.test(files) && /no 3D model/i.test(files));
+  check('says how "last used" is determined', /Last used/i.test(files) && /full year/.test(files));
+  check('a model used last week is Active, with no delete', /Active/.test(files)
+    && await page.locator('tr:has-text("Wooden Desk") button:has-text("Delete")').count() === 0);
+  check('it says when deleting will become possible', /Delete available/.test(files));
+  check('a model unused for 400 days is eligible, with a delete action',
+    /Eligible for cleanup/.test(files) && /1 year 35 days/.test(files)
+    && await page.locator('tr:has-text("Old Rattan Sofa") button:has-text("Delete Model")').count() === 1);
+  check('the summary counts only real records', /Could Be Reclaimed/i.test(files) && /12 MB/.test(files));
+
+  console.log('--- deleting a model unused for a year ---');
+  await page.locator('tr:has-text("Old Rattan Sofa") button:has-text("Delete Model")').click();
+  const confirmBox = page.locator('dialog.confirm-dialog[open]');
+  await confirmBox.waitFor({ timeout: 5000 }).catch(() => {});
+  const cleanupText = await confirmBox.innerText().catch(() => '');
+  check('a real dialog asks first, and says the product stays',
+    /Delete this 3D model\?/.test(cleanupText) && /currently published/.test(cleanupText) && /not deleted/.test(cleanupText));
+  check('Delete stays disabled until DELETE is typed',
+    await confirmBox.locator('button:has-text("Delete Model")').isDisabled());
+  await confirmBox.locator('.confirm-phrase input').fill('DELETE');
+  await confirmBox.locator('button:has-text("Delete Model")').click();
+  await page.locator('text=3D model deleted').first().waitFor({ timeout: 10000 }).catch(() => {});
+  check('it confirms the deletion', await page.locator('text=3D model deleted').count() > 0);
+  check('Storage deleted the model file and its catalogue poster',
+    deletedObjects.includes('furniture-models/s1/p9/model.glb') && deletedObjects.includes('product-posters/s1/p9/poster-00000000000000aa.webp'),
+    deletedObjects.join(', '));
+  await page.waitForTimeout(500);
+  check('the model is gone from the list', !/Old Rattan Sofa/.test(await page.locator('body').innerText()));
+
+  await page.locator('.mode-option:has-text("Missing model")').click();
+  await page.waitForTimeout(300);
+  const missing = await page.locator('body').innerText();
+  check('flags a listing with no model attached', /Unmodelled Side Table/.test(missing));
 
   console.log('--- storage usage, now that a single file can be 100 MB ---');
   await page.click('.console-link:has-text("Usage")');

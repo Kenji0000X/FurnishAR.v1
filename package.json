@@ -35,7 +35,8 @@
     "check:roles": "node scripts/check-roles.mjs",
     "check:site": "node scripts/audit-site-full.mjs",
     "check:access": "node scripts/check-access.mjs",
-    "check:billing": "node scripts/check-billing.mjs"
+    "check:billing": "node scripts/check-billing.mjs",
+    "check:posters": "node scripts/check-posters.mjs"
   },
   "engines": {
     "node": ">=20"

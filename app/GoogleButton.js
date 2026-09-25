@@ -1,6 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+
+/* One question per page load: does this deployment have the database that
+   Google sign-in needs? Without one, /api/sb/auth/google answers 503 and the
+   button would be a dead end, so it steps aside. Shown by default so a real
+   deployment never waits on this, and never shifts when the answer arrives. */
+let configured = null;
+function databaseConfigured() {
+  if (!configured) {
+    configured = fetch('/api/sb/status', { headers: { Accept: 'application/json' } })
+      .then(response => response.json())
+      .then(status => status.configured !== false)
+      .catch(() => true);
+  }
+  return configured;
+}
 import { saveAuthIntent } from '../lib/auth-intent.js';
 
 /**
@@ -14,10 +29,17 @@ import { saveAuthIntent } from '../lib/auth-intent.js';
  */
 export default function GoogleButton({ next = null, intent = null, label = 'Continue with Google' }) {
   const [leaving, setLeaving] = useState(false);
+  const [available, setAvailable] = useState(true);
+  useEffect(() => {
+    let live = true;
+    databaseConfigured().then(yes => { if (live) setAvailable(yes); });
+    return () => { live = false; };
+  }, []);
   const query = new URLSearchParams();
   if (next) query.set('next', next);
   if (intent) query.set('intent', intent);
   const href = `/api/sb/auth/google${query.size ? `?${query}` : ''}`;
+  if (!available) return null;
 
   return (
     <a

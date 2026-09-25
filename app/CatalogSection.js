@@ -12,7 +12,7 @@ import { matches, sortProducts, SORTS, NO_LIMIT, EMPTY_FILTERS as EMPTY } from '
  * happens on the server — the HTML already contains every card. Filtering is
  * an enhancement on top of a complete page, not the only route to the content.
  */
-export default function CatalogSection({ products }) {
+export default function CatalogSection({ products, source = 'supabase' }) {
   const [filters, setFilters] = useState(EMPTY);
   const set = patch => setFilters(current => ({ ...current, ...patch }));
 
@@ -120,6 +120,33 @@ export default function CatalogSection({ products }) {
   }
   if (filters.modelOnly) active.push({ key: 'model', label: 'Has a 3D model', clear: { modelOnly: false } });
   if (filters.inStockOnly) active.push({ key: 'stock', label: 'In stock', clear: { inStockOnly: false } });
+
+  /*
+    Nothing to show. The empty state IS the content: no "0 pieces", no sort
+    menu, no filters for categories and stores that do not exist, no empty
+    grid. Two different reasons, two different sentences — a catalogue that
+    could not be reached is not the same news as one nobody has listed in.
+    No store or admin links here: a shopper has nothing to do with them.
+  */
+  if (!products.length) {
+    const unreachable = source === 'unavailable';
+    return (
+      <section id="catalog" className="catalog-section catalog-empty" aria-labelledby="catalog-title">
+        <h2 id="catalog-title" className="sr-only">Every piece</h2>
+        <div className="catalog-empty-state" role={unreachable ? 'alert' : undefined}>
+          <span className="catalog-empty-mark" aria-hidden="true">⬚</span>
+          <p className="catalog-empty-title">
+            {unreachable ? 'The collection couldn’t be loaded right now.' : 'No furniture has been listed yet.'}
+          </p>
+          <p className="catalog-empty-copy">
+            {unreachable
+              ? 'Please try again in a moment.'
+              : 'Products added by approved stores will appear here.'}
+          </p>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section id="catalog" className="catalog-section" aria-labelledby="catalog-title">
@@ -312,7 +339,9 @@ export default function CatalogSection({ products }) {
 
         <div className="product-grid" aria-live="polite">
           {found.length ? (
-            found.map(product => <ProductCard key={product.id} product={product} />)
+            // The first two cards are the first the grid shows: fetch their
+            // posters straight away, the rest as they scroll into view.
+            found.map((product, index) => <ProductCard key={product.id} product={product} priority={index < 2} />)
           ) : (
             <div className="no-results">
               <b>No furniture matches these filters.</b>

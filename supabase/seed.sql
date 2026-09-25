@@ -1,8 +1,8 @@
 -- ============================================================================
 -- FurnishAR — seed data
 --
--- Safe to run more than once. Creates the three pilot shops and the furniture
--- currently in data/catalog.json so the live catalogue is not empty on day one.
+-- Safe to run more than once. Creates the three pilot shops, and nothing
+-- else: no products, no demo furniture.
 --
 -- It deliberately does NOT create users or memberships. Owners sign themselves
 -- up through the portal; an admin then links the account to its store with the
@@ -27,24 +27,9 @@ on conflict (slug) do update
       hours = excluded.hours,
       plan = excluded.plan;
 
--- The one piece currently in the catalogue. Its .glb is uploaded through the
--- owner portal, which writes the matching public.product_assets row.
-insert into public.products (
-  store_id, slug, name, category, style, color,
-  price_php, stock, width_cm, height_cm, depth_cm,
-  bounds_width_cm, bounds_height_cm, bounds_depth_cm,
-  preview_shape, description, ar_ready, featured, status
-)
-select
-  s.id, 'cane-back-armchair', 'Cane Back Armchair', 'Chair', 'Contemporary', 'Natural',
-  9850, 5, 70, 88, 78,
-  70, 88, 78,
-  'chair',
-  'Woven cane back armchair with a solid frame and cushioned seat, scanned as a real 3D model for true-to-scale AR placement.',
-  true, true, 'published'
-from public.stores s
-where s.slug = 'sc-variety'
-on conflict (store_id, slug) do nothing;
+-- No furniture. Products come from the stores themselves, through the owner
+-- portal: a fresh database has an empty catalogue, and the site says so
+-- rather than showing sample pieces nobody sells.
 
 -- ----------------------------------------------------------------------------
 -- Linking an owner to a store (admin step, run as service_role)

@@ -81,7 +81,12 @@ test.before(() => {
   psql(`insert into public.store_members (store_id, user_id, role) values
           ('${scVarietyId}', '${ownerA}', 'owner'),
           ('${tiampionId}', '${ownerB}', 'owner')`);
-  armchairId = psql(`select id from public.products where slug = 'cane-back-armchair'`);
+  // A test-only listing. seed.sql creates the pilot stores and no furniture,
+  // so each suite brings the product it needs rather than relying on demo data.
+  armchairId = psql(`insert into public.products (store_id, slug, name, category, price_php, stock,
+      width_cm, height_cm, depth_cm, status)
+    values ('${scVarietyId}', 'test-armchair', 'Test Armchair', 'Chair', 9850, 5, 70, 88, 78, 'published')
+    returning id`);
 });
 
 test.after(() => { if (available) psql(`drop database if exists ${DB}`, { db: 'postgres' }); });
@@ -95,7 +100,7 @@ db('a shopper sees published furniture and never a draft', () => {
   const published = asUser('anon', null, `select count(*) from public.products`);
   const catalog = asUser('anon', null, `select name from public.catalog`);
   assert.equal(published, '1', 'anon should see exactly the one published product');
-  assert.equal(catalog, 'Cane Back Armchair');
+  assert.equal(catalog, 'Test Armchair');
 });
 
 db('an owner sees their own drafts but nothing from another store', () => {
@@ -167,7 +172,7 @@ db('a model file is filed under its own store and inherits it automatically', ()
 });
 
 db('the catalogue view exposes the uploaded model path to shoppers', () => {
-  const row = asUser('anon', null, `select model_glb_path from public.catalog where slug = 'cane-back-armchair'`);
+  const row = asUser('anon', null, `select model_glb_path from public.catalog where slug = 'test-armchair'`);
   assert.equal(row, `${scVarietyId}/${armchairId}/model.glb`);
 });
 
