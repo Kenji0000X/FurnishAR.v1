@@ -447,8 +447,13 @@ try {
   await owner.locator('.order-status', { hasText: 'Out for delivery' }).first().waitFor({ timeout: 10000 }).catch(() => {});
   check('the order is out for delivery', await owner.locator('.order-status', { hasText: 'Out for delivery' }).first().isVisible());
   await owner.getByRole('button', { name: 'Mark delivered' }).first().click();
-  await owner.locator('.order-status', { hasText: 'Delivered' }).first().waitFor({ timeout: 10000 }).catch(() => {});
-  check('and then delivered', await owner.locator('.order-status', { hasText: 'Delivered' }).first().isVisible());
+  // A delivered order is closed, so it moves under "Past orders", folded
+  // away below the open ones; open that to find it.
+  await owner.locator('details.orders-past > summary').waitFor({ timeout: 10000 }).catch(() => {});
+  check('a delivered order moves to Past orders', await owner.locator('details.orders-past > summary').isVisible());
+  await owner.locator('details.orders-past > summary').click().catch(() => {});
+  await owner.locator('.orders-past .order-status', { hasText: 'Delivered' }).first().waitFor({ timeout: 10000 }).catch(() => {});
+  check('and then delivered', await owner.locator('.orders-past .order-status', { hasText: 'Delivered' }).first().isVisible());
 
   console.log('--- a new Google account signs in and becomes a buyer ---');
   const newbie = await page(null);

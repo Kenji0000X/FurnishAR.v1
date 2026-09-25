@@ -11,7 +11,7 @@ import PaymentSetupReminder from '../billing/PaymentSetupReminder.js';
 import useAlert from '../alerts/useAlert.js';
 import ConfirmDialog from '../ConfirmDialog.js';
 import { formatDimensions } from '../../lib/spatial/units.mjs';
-import { SquaresFour, Package, ShoppingBag, Receipt, Crown, Plus, ArrowRight, ArrowUpRight } from '@phosphor-icons/react/dist/ssr';
+import { SquaresFour, Package, ShoppingBag, Receipt, Crown, Plus, ArrowRight, ArrowUpRight, CheckCircle } from '@phosphor-icons/react/dist/ssr';
 import ConsoleShell, { ConsoleHeader, ConsoleSection, ConsoleCta } from '../console/ConsoleShell.js';
 
 /* One currency format across the portal: pesos with centavos, as orders and fees show them. */
@@ -95,6 +95,35 @@ function PlanPanel({ plan, used }) {
 }
 
 /** The portal's opening, for the screens before the dashboard. */
+/**
+ * The first thing under the store's name: what is waiting on the owner,
+ * counted from the shop's own orders and listings, each a link to the place
+ * it gets fixed. Nothing here is estimated; an empty list says so.
+ */
+function NeedsAttention({ items, ready }) {
+  if (!items.length) {
+    return ready ? (
+      <p className="attention-clear"><CheckCircle size={20} weight="fill" aria-hidden="true" /> Nothing needs you right now.</p>
+    ) : null;
+  }
+  return (
+    <section className="attention" aria-labelledby="attention-title">
+      <h2 id="attention-title" className="attention-title">Needs attention</h2>
+      <ul className="attention-list">
+        {items.map(item => (
+          <li key={item.title}>
+            <a className="attention-item" href={item.href}>
+              <span className="attention-count">{item.count}</span>
+              <span className="attention-copy"><strong>{item.title}</strong><small>{item.note}</small></span>
+              <ArrowRight className="attention-arrow" size={18} aria-hidden="true" />
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function PortalIntro() {
   return (
     <section className="admin-intro">
@@ -664,15 +693,16 @@ export default function Portal({ initialProducts }) {
   */
   const placeable = ownProducts.filter(product => product.modelGlb).length;
   const missingModels = ownProducts.length - placeable;
+  const soldOut = ownProducts.filter(product => product.stock < 1).length;
 
   const accountEmail = user.email || session?.user?.email || '';
   const readyShare = ownProducts.length ? Math.round((placeable / ownProducts.length) * 100) : 0;
   const railItems = [
-    { href: '#overview', label: 'Overview', icon: SquaresFour },
-    { href: '#inventory', label: 'Inventory', icon: Package, count: missingModels, countLabel: 'without a 3D model' },
+    { href: '#overview', label: 'Overview', icon: SquaresFour, tab: true },
+    { href: '#inventory', label: 'Inventory', icon: Package, tab: true, count: missingModels, countLabel: 'without a 3D model' },
     ...(usingSupabase() && user.storeUuid
-      ? [{ href: '#orders', label: 'Orders', icon: ShoppingBag, count: openOrders, countLabel: 'open' },
-         { href: '#billing', label: 'Billing', icon: Receipt }]
+      ? [{ href: '#orders', label: 'Orders', icon: ShoppingBag, tab: true, count: openOrders, countLabel: 'open' },
+         { href: '#billing', label: 'Billing', icon: Receipt, tab: true }]
       : []),
     { href: '#plan', label: 'Plan', icon: Crown }
   ];
@@ -682,8 +712,8 @@ export default function Portal({ initialProducts }) {
       onSignOut={handleLogout} spy>
       <div id="overview" className="console-overview">
         <ConsoleHeader
-          eyebrow={user.store}
-          title="Welcome Back"
+          eyebrow="Store Portal"
+          title={user.store}
           id="portal-title"
           actions={<>
             {isAdmin && <ConsoleCta href="/admin" icon={ArrowUpRight} className="is-quiet">Platform Console</ConsoleCta>}
@@ -696,6 +726,12 @@ export default function Portal({ initialProducts }) {
         </ConsoleHeader>
 
         {usingSupabase() && user.storeUuid && <PaymentSetupReminder storeUuid={user.storeUuid} status={paymentStatus} />}
+
+        <NeedsAttention items={[
+          openOrders > 0 && { href: '#orders', count: openOrders, title: openOrders === 1 ? 'Open order' : 'Open orders', note: 'Confirm, prepare and hand over.' },
+          missingModels > 0 && { href: '#inventory', count: missingModels, title: missingModels === 1 ? 'Listing without a 3D model' : 'Listings without a 3D model', note: 'Shoppers can’t place these in their room.' },
+          soldOut > 0 && { href: '#inventory', count: soldOut, title: soldOut === 1 ? 'Listing out of stock' : 'Listings out of stock', note: 'Shoppers can’t buy these until you restock.' }
+        ].filter(Boolean)} ready={ownProducts.length > 0} />
 
         <ul className="console-bento" aria-label="Store at a glance">
           <li className="console-tile is-hero bezel">
@@ -740,7 +776,7 @@ export default function Portal({ initialProducts }) {
           <li className="console-tile bezel">
             <div className="bezel-core">
               <p className="console-tile-label">Catalog Value</p>
-              <p className="console-tile-value">{money(value)}</p>
+              <p className="console-tile-value">{money(value).replace(/\.00$/, '')}</p>
               <p className="console-tile-note">Price × units in stock</p>
             </div>
           </li>
@@ -794,7 +830,7 @@ export default function Portal({ initialProducts }) {
                         {product.category} · {product.color}
                         {product.modelGlb
                           ? ' · 3D model'
-                          : <span className="missing-model"> · no 3D model — will not show in AR</span>}
+                          : <span className="missing-model"> · No 3D model, not shown in AR</span>}
                       </small>
                     </span>
                   </div>
@@ -807,8 +843,8 @@ export default function Portal({ initialProducts }) {
                 <td data-label="Updated"><small>{relativeTime(product.updatedAt)}</small></td>
                 <td data-label="Actions">
                   <div className="table-actions">
-                    <button className="icon-button" type="button" onClick={() => setEditing(product)} aria-label={`Edit ${product.name}`}>Edit</button>
-                    <button className="icon-button delete" type="button" onClick={() => handleDelete(product)}
+                    <button className="icon-button row-edit" type="button" onClick={() => setEditing(product)} aria-label={`Edit ${product.name}`}>Edit</button>
+                    <button className="icon-button delete row-delete" type="button" onClick={() => handleDelete(product)}
                       aria-label={`Delete ${product.name}…`}>
                       Delete…
                     </button>

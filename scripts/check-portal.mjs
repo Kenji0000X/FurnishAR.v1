@@ -39,8 +39,8 @@ await page.click('form.login-form button[type="submit"]');
 await page.waitForSelector('.console', { timeout: 20000 }).catch(() => {});
 check('dashboard appears after sign-in', await page.locator('.console').isVisible());
 check(
-  'store name is shown',
-  (await page.locator('.console-eyebrow').textContent().catch(() => '') || '').includes('Variety')
+  'store name is the page heading',
+  (await page.locator('#portal-title').textContent().catch(() => '') || '').includes('Variety')
 );
 
 const rowsBefore = await page.locator('.inventory-table-wrap tbody tr').count();
@@ -107,7 +107,7 @@ check(
 );
 
 console.log('--- sign out ---');
-await page.click('.console-signout');
+await page.click('.console-rail .console-signout');
 await page.waitForSelector('form.login-form', { timeout: 10000 }).catch(() => {});
 check('the login form is back', await page.locator('form.login-form').isVisible());
 

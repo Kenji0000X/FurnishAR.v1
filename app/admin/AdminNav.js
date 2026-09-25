@@ -20,13 +20,18 @@ import ConsoleShell from '../console/ConsoleShell.js';
  * number that means "someone is waiting on you". It is the real count of
  * applications with status 'pending', not a decoration.
  */
+/* The fourth field marks the phone tab bar's four: the decisions (Overview,
+   Applications) and the two things an operator checks most (Stores,
+   Billing). The rest live under More. A string instead of `true` is the
+   tab's shorter name: five slots on a 320px phone leave about 60px each, and
+   "Applications" does not fit in that. */
 const SECTIONS = [
-  ['/admin', 'Overview', SquaresFour],
-  ['/admin/applications', 'Applications', Tray],
-  ['/admin/stores', 'Stores', Storefront],
+  ['/admin', 'Overview', SquaresFour, true],
+  ['/admin/applications', 'Applications', Tray, 'Queue'],
+  ['/admin/stores', 'Stores', Storefront, true],
   ['/admin/models', '3D Files', Cube],
   ['/admin/usage', 'Usage', HardDrives],
-  ['/admin/billing', 'Billing', Receipt],
+  ['/admin/billing', 'Billing', Receipt, true],
   ['/admin/activity', 'Activity', ClockCounterClockwise]
 ];
 
@@ -44,8 +49,8 @@ export default function AdminNav({ pending = 0, email, onSignOut, children }) {
     if (current) document.title = `${current[1]} · Platform Console · FurnishAR`;
   }, [current]);
 
-  const items = SECTIONS.map(([href, label, icon]) => ({
-    href, label, icon,
+  const items = SECTIONS.map(([href, label, icon, tab]) => ({
+    href, label, icon, tab: Boolean(tab), short: typeof tab === 'string' ? tab : undefined,
     current: isActive(href),
     count: href === '/admin/applications' ? pending : 0,
     countLabel: 'awaiting review'

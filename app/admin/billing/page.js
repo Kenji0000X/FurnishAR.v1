@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../../portal/backend.js';
 import useAlert from '../../alerts/useAlert.js';
 import PagedTable from '../PagedTable.js';
+import ConfirmDialog from '../../ConfirmDialog.js';
 import { money } from '../../billing/OrderCard.js';
 import { describeStatus } from '../../billing/payment-status.mjs';
 
@@ -26,6 +27,7 @@ export default function AdminBilling() {
   const [config, setConfig] = useState(null);   // null = loading, false = could not be read
   const [settling, setSettling] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [unlinking, setUnlinking] = useState(null);   // the row awaiting confirmation
 
   const load = useCallback(async () => {
     const sb = supabase();
@@ -39,9 +41,13 @@ export default function AdminBilling() {
 
   useEffect(() => { load(); }, [load]);
 
-  /** Disconnect a shop's PayPal account: its online checkout closes at once. */
+  /**
+   * Disconnect a shop's PayPal account: its online checkout closes at once.
+   * Confirmed in a real dialog (BRAND §9) rather than window.confirm, which a
+   * browser can be told to stop showing.
+   */
   async function disconnect(row) {
-    if (!window.confirm(`Disconnect ${row.store_name}'s PayPal account? Buyers won't be able to pay that shop online until it connects again.`)) return;
+    setUnlinking(null);
     try {
       await supabase().paymentsAction('admin-unlink', { storeId: row.store_id });
       alert.showSuccess(`${row.store_name} is disconnected from PayPal.`);
@@ -163,17 +169,29 @@ export default function AdminBilling() {
               <td className="num">{money(row.collected)}</td>
               <td className="num"><b>{money(row.outstanding)}</b></td>
               <td>
-                <button className="icon-button" type="button" onClick={() => setSettling(row)}
-                  aria-label={`Record a payment from ${row.store_name}`}>Record Payment…</button>
-                {row.payment_status === 'CONNECTED' && (
-                  <button className="icon-button" type="button" onClick={() => disconnect(row)}
-                    aria-label={`Disconnect ${row.store_name} from PayPal`}>Disconnect</button>
-                )}
+                <div className="table-actions">
+                  <button className="icon-button" type="button" onClick={() => setSettling(row)}
+                    aria-label={`Record a payment from ${row.store_name}`}>Record Payment…</button>
+                  {row.payment_status === 'CONNECTED' && (
+                    <button className="icon-button delete" type="button" onClick={() => setUnlinking(row)}
+                      aria-label={`Disconnect ${row.store_name} from PayPal…`}>Disconnect…</button>
+                  )}
+                </div>
               </td>
             </tr>
           );
         }}
       />
+
+      {unlinking && (
+        <ConfirmDialog
+          title={`Disconnect ${unlinking.store_name} from PayPal?`}
+          body="Buyers won’t be able to pay this shop online until it connects a PayPal account again. Payments already made are not affected."
+          confirmLabel="Disconnect PayPal"
+          onConfirm={() => disconnect(unlinking)}
+          onCancel={() => setUnlinking(null)}
+        />
+      )}
     </>
   );
 }
