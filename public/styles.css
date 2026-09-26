@@ -5548,6 +5548,11 @@ dialog, .drawer-panel { overscroll-behavior: contain; }
 .diag-summary p b { color: var(--ink); }
 .diag-recommend { display: flex; flex-wrap: wrap; gap: .25rem .6rem; align-items: baseline; padding-top: .6rem; border-top: 1px solid var(--rule); }
 .diag-recommend span { font-family: var(--mono); font-size: var(--micro); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); }
+/* The answer first: the recommended level, big, then why, then the fallback. */
+.diag-recommend-top { padding-top: 0; border-top: 0; }
+.diag-recommend-top b { flex-basis: 100%; font-size: clamp(1.4rem, 1.1rem + 1.2vw, 1.75rem); letter-spacing: -.02em; line-height: 1.15; }
+.diag-summary .diag-reason { color: var(--ink); font-size: 1rem; }
+.diag-summary .diag-state { font-size: 1.0625rem; margin: .6rem 0 0; padding-top: .8rem; border-top: 1px solid var(--rule); }
 .diag-row.is-warn b { color: var(--warn); }
 .diag-actions { display: flex; flex-wrap: wrap; gap: .6rem; }
 .diag-actions .button { width: auto; flex: 1 1 14rem; }

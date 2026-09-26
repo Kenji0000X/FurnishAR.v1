@@ -4,7 +4,9 @@
   "private": true,
   "description": "FurnishAR - browser-native furniture planning for Mamburao retailers",
   "scripts": {
+    "predev": "node scripts/copy-ort-assets.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/copy-ort-assets.mjs",
     "build": "next build",
     "start": "next start",
     "test": "node --test tests/*.test.js",
@@ -36,7 +38,8 @@
     "check:site": "node scripts/audit-site-full.mjs",
     "check:access": "node scripts/check-access.mjs",
     "check:billing": "node scripts/check-billing.mjs",
-    "check:posters": "node scripts/check-posters.mjs"
+    "check:posters": "node scripts/check-posters.mjs",
+    "check:ai": "node scripts/check-ai.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -51,6 +54,7 @@
     "meshoptimizer": "^1.2.0",
     "next": "^16.3.5",
     "nodemailer": "^10.0.10",
+    "onnxruntime-web": "1.30.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "three": "^0.170.0"
