@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 """
-Builds docs/FURNISHAR-DFD-V2.drawio: one draw.io file, five pages.
-
-  1. Level 0 — Context DFD
-  2. Level 1 — System DFD        (the hand-laid page already in the file, kept verbatim)
-  3. Level 2 — Protected 3D Access
-  4. Level 2 — Orders & Payments (P10)
-  5. Use Case Diagram
+Builds docs/FURNISHAR-DFD-V2.drawio: one draw.io file, one page per
+function below (the list is main()'s `pages`): Level 0, Level 1, the Level 2
+and Level 3 DFDs, the step-by-step flows (protected 3D access, checkout,
+device check) and the use case diagram. docs/FURNISHAR-DFD-V2.md lists them.
 
 Every node and connector is taken from docs/FURNISHAR-DFD-V2.md; nothing here
 names a route or process the repository does not have. Re-run after editing
@@ -278,6 +275,7 @@ def level0():
     p.node('X', 'Supabase<br>(Auth / Postgres / Storage)', EXTERNAL, 1140, 415, 220, 70)
     p.node('O', 'Store Owner', EXTERNAL, 140, 740, 200, 70)
     p.node('A', 'Platform Admin', EXTERNAL, 1100, 740, 200, 70)
+    p.node('MY', 'Maya<br>(FurnishAR\'s merchant account)', EXTERNAL, 1150, 575, 210, 70)
 
     S = EDGE_STRAIGHT
     p.edge('B', 'SYS', 'browse, sign in, planner,<br>3D requests, orders', S, exit=(1, 0.3), entry=(0.02, 0.38))
@@ -302,6 +300,12 @@ def level0():
     p.edge('PP', 'SYS', 'capture result, seller status,<br>signed webhooks', S, exit=(0.2, 1), entry=(0.93, 0.25), label_pos=-0.3)
     p.edge('B', 'PP', 'approves & pays the shop directly', EDGE_ORTHO, exit=(0.1, 0), entry=(0.5, 0),
            points=[(58, 60), (1200, 60)])
+
+    # 0015: Maya Checkout pays the owner of the keys (FurnishAR), and its webhooks are unsigned.
+    p.edge('SYS', 'MY', 'create checkout (public key);<br>re-read payment (secret key)', S, exit=(0.97, 0.62), entry=(0, 0.2))
+    p.edge('MY', 'SYS', 'redirect back, webhooks<br>(reference only)', S, exit=(0, 0.6), entry=(0.9, 0.78), label_pos=0.1)
+    p.edge('B', 'MY', 'pays through Maya (received by FurnishAR, which pays the shop)', EDGE_ORTHO, exit=(0.5, 1), entry=(1, 0.5),
+           points=[(130, 915), (1385, 915), (1385, 610)])
 
     p.edge('SYS', 'E', 'confirmation / order<br>email requests', S, exit=(0.15, 0.15), entry=(1, 0.6))
     p.edge('E', 'B', 'confirmation link, receipt,<br>quote, balance due', EDGE_ORTHO, exit=(0.31, 1), entry=(0.9, 0))
@@ -529,7 +533,7 @@ def level1():
     ext(p, 'O', 'Store Owner', 40, 880, 160, 120)
     ext(p, 'A', 'Platform Admin', 40, 1075, 160, 70)
     ext(p, 'EM1', 'Email Service', 1480, 95, 170, 54)
-    ext(p, 'PP', 'PayPal', 1480, 690, 170, 64)
+    ext(p, 'PP', 'PayPal / Maya<br>(payment providers)', 1480, 690, 170, 64)
     ext(p, 'EM', 'Email Service', 1480, 830, 170, 64)
 
     proc(p, 'P1', '1.0', 'Authentication &amp; Session', 420, 60)
@@ -588,8 +592,8 @@ def level1():
     # 10.0
     p.edge('P10', 'D2b', 'stock hold', O, exit=(1, 0.1), entry=(0, 0.9))
     p.edge('D2b', 'P10', 'price, stock', O, exit=(0, 0.2), entry=(0.9, 0), points=[(636, 688.8)])
-    p.edge('P10', 'PP', 'create / capture order (payee = shop)', O, exit=(1, 0.3), entry=(0, 0.69))
-    p.edge('PP', 'P10', 'approval / capture result', O, exit=(0.3, 0), entry=(0.7, 0), points=[(1531, 650), (588, 650)])
+    p.edge('P10', 'PP', 'create / capture (PayPal: payee = shop); checkout, re-read (Maya)', O, exit=(1, 0.3), entry=(0, 0.69))
+    p.edge('PP', 'P10', 'approval / capture result; Maya redirect, webhook (re-read)', O, exit=(0.3, 0), entry=(0.7, 0), points=[(1531, 650), (588, 650)])
     p.edge('P10', 'D5', 'orders, verified payments', O, exit=(1, 0.6), entry=(0, 0.1))
     p.edge('D5', 'P10', 'amount due, order state', O, exit=(0, 0.4), entry=(1, 0.95))
     p.edge('P10', 'EM', 'receipt / order emails', O, exit=(0.8, 1), entry=(0, 0.3), points=[(612, 849.2)])
@@ -604,7 +608,7 @@ def level1():
     p.edge('P7', 'D4', 'store application', O, exit=(0.95, 1), entry=(0, 0.13), points=[(648, 1010), (770, 1010), (770, 1057.8)])
     # 8.0
     p.edge('P8', 'D4', 'applications, audit, usage', O, exit=(1, 0.3), entry=(0, 0.73))
-    p.edge('P8', 'D5b', 'fee overview, settlements', O, exit=(1, 0.9), entry=(0, 0.3))
+    p.edge('P8', 'D5b', 'fee overview, settlements; Maya setup, payouts', O, exit=(1, 0.9), entry=(0, 0.3))
     p.edge('P8', 'D3b', 'model review; delete a model unused 365 days', O, exit=(1, 0.05), entry=(0, 0.8), points=[(790, 1078.2), (790, 975.2)])
     # 9.0: every process reports its events on one bus; alerts go back to the three people.
     for pid in ('P1', 'P2', 'P3', 'P4', 'P6', 'P10', 'P7', 'P8'):
@@ -832,7 +836,7 @@ def level2_orders():
     p.node('title', 'Level 2 DFD — Process 10.0 Orders &amp; Payments', TITLE, 40, 10, 800, 30)
     ext(p, 'B', 'Buyer', 40, 150, 160, 580)
     ext(p, 'O', 'Store Owner', 1560, 300, 160, 460)
-    ext(p, 'PP', 'PayPal', 760, 20, 300, 60)
+    ext(p, 'PP', 'PayPal / Maya (detail: 10.9–10.13, 10.14–10.17)', 760, 20, 300, 60)
     ext(p, 'EM', 'Email Service', 1170, 910, 230, 64)
     ref(p, 'R1', '1.0', 'Authentication &amp; Session', 40, 60, 200, 56)
 
@@ -846,7 +850,7 @@ def level2_orders():
     proc(p, 'P106', '10.6', 'Notify Parties', 760, 900, 300, 64)
 
     store(p, 'D2', 'D2', 'Products (price, stock)', 760, 150, 300, 44)
-    store(p, 'D53c', 'D5.3', 'Store Payout (copy)', 760, 230, 300, 44)
+    store(p, 'D53c', 'D5.4', 'Payment Accounts (copy)', 760, 230, 300, 44)
     store(p, 'D51', 'D5.1', 'Orders', 760, 300, 300, 420)
     store(p, 'D52', 'D5.2', 'Payments &amp; Fees', 300, 800, 230, 44)
     store(p, 'D52c', 'D5.2', 'Payments &amp; Fees (copy)', 1170, 790, 230, 44)
@@ -855,11 +859,11 @@ def level2_orders():
     # Buyer and owner.
     p.edge('B', 'P101', 'product, qty, delivery /<br>custom request / cancel', D, exit=(1, 0.0552), entry=(0, 0.5))
     p.edge('B', 'P103', 'pay order / approval link', D, exit=(1, 0.3655), entry=(0, 0.5))
-    p.edge('B', 'P104', 'PayPal return / payment result', D, exit=(1, 0.6759), entry=(0, 0.5))
+    p.edge('B', 'P104', 'PayPal / Maya return / payment result', D, exit=(1, 0.6759), entry=(0, 0.5))
     p.edge('P108', 'B', 'orders, receipt', O, exit=(0, 0.3), entry=(1, 0.9641))
     p.edge('O', 'P102', 'quote (price, lead days) /<br>decline reason', S, exit=(0, 0.1348), entry=(1, 0.5))
     p.edge('O', 'P105', 'ready / out for delivery /<br>ready for pickup / delivered', S, exit=(0, 0.5261), entry=(1, 0.5))
-    p.edge('O', 'P107', 'store type, PayPal email, days /<br>fees owed', D, exit=(0, 0.9174), entry=(1, 0.5))
+    p.edge('O', 'P107', 'store type, days /<br>fees owed, Maya sales owed to you', D, exit=(0, 0.9174), entry=(1, 0.5))
     p.edge('P108', 'O', 'incoming orders', O, exit=(0, 0.9), entry=(0.5, 1),
            points=[(280, 747.6), (280, 1060), (1640, 1060)])
 
@@ -869,11 +873,11 @@ def level2_orders():
     p.edge('P101', 'D2', 'stock hold / release', O, exit=(1, 0.55), entry=(0, 0.8))
     p.edge('P101', 'D51', 'new order', O, exit=(0.9, 1), entry=(0, 0.024), points=[(507, 310)])
     # 10.3 and 10.4 with PayPal (four lanes between the processes and the stores)
-    p.edge('P103', 'PP', 'create order (payee = shop) / approval link', O + DIALOG, exit=(1, 0.3), entry=(0, 0.3),
+    p.edge('P103', 'PP', 'create order or checkout (payee per provider) / link', O + DIALOG, exit=(1, 0.3), entry=(0, 0.3),
            points=[(575, 349.2), (575, 38)], label_pos=0.75)
-    p.edge('P104', 'PP', 'get order, capture / order facts, capture result', O + DIALOG, exit=(1, 0.25), entry=(0, 0.75),
+    p.edge('P104', 'PP', 'capture (PayPal) or re-read (Maya) / payment facts', O + DIALOG, exit=(1, 0.25), entry=(0, 0.75),
            points=[(610, 526), (610, 65)], label_pos=0.8)
-    p.edge('D53c', 'P103', 'shop PayPal email', O, exit=(0, 0.5), entry=(0.95, 0), points=[(518.5, 252)])
+    p.edge('D53c', 'P103', 'payee per provider', O, exit=(0, 0.5), entry=(0.95, 0), points=[(518.5, 252)])
     p.edge('D51', 'P103', 'amount due, stage', O, exit=(0, 0.186), entry=(1, 0.75), label_pos=-0.5)
     p.edge('P104', 'D51', 'status, amount paid, ETA', O, exit=(1, 0.6), entry=(0, 0.591))
     p.edge('P104', 'D52', 'payment + fee', O, exit=(1, 0.85), entry=(1, 0.5), points=[(545, 564.4), (545, 822)], label_pos=0.6)
@@ -897,6 +901,88 @@ def level2_orders():
            points=[(1130, 567.6), (1130, 912.8)], label_pos=-0.52)
     p.edge('D51', 'P106', 'order contacts', O, exit=(0.5, 1), entry=(0.5, 0))
     p.edge('P106', 'EM', 'receipt / update emails', O, exit=(1, 0.5), entry=(0, 0.34375))
+    return p
+
+
+def level2_maya():
+    p = Page('dfd-2-maya', 'Level 2 — 10.14–10.17 Maya Checkout, Webhook & Payouts', 1620, 1000)
+    p.node('title', 'Level 2 DFD — Maya as a second payment provider (0015)', TITLE, 40, 10, 900, 30)
+    ext(p, 'B', 'Buyer', 40, 80, 170, 400)
+    ext(p, 'A', 'Platform Admin', 40, 760, 170, 64)
+    ext(p, 'MY', 'Maya', 1400, 150, 180, 380)
+    ext(p, 'EM', 'Email Service', 1400, 590, 180, 64)
+    ref(p, 'R7', '7.0', 'Store Portal', 1400, 790, 180, 56)
+    proc(p, 'P1014', '10.14', 'Offer Payment Methods', 420, 80)
+    proc(p, 'P1015', '10.15', 'Start Maya Checkout', 420, 230)
+    proc(p, 'P1016', '10.16', 'Verify Maya Payment<br>(return or webhook; re-read)', 420, 400)
+    proc(p, 'P1017', '10.17', 'Maya Setup &amp; Payouts<br>(admin only)', 420, 760)
+    store(p, 'D54', 'D5.4', 'store_payment_accounts (provider = maya)', 880, 80, 380, 44)
+    store(p, 'D52', 'D5.2', 'payment_attempts · payments', 880, 300, 380, 44)
+    store(p, 'D55', 'D5.5', 'payment_webhook_events', 880, 480, 320, 44)
+    store(p, 'D54b', 'D5.4', 'store_payment_accounts (copy)', 880, 700, 320, 44)
+    store(p, 'D56', 'D5.6', 'store_remittances', 880, 800, 320, 44)
+
+    p.edge('B', 'P1014', 'product page / the methods this shop takes', D, exit=(1, 0.08), entry=(0, 0.5))
+    p.edge('D54', 'P1014', 'set up for Maya? (this environment)', S, exit=(0, 0.5), entry=(1, 0.5))
+    p.edge('B', 'P1015', 'pay with Maya / Maya\'s page', D, exit=(1, 0.455), entry=(0, 0.5))
+    p.edge('P1015', 'MY', 'create checkout (PUBLIC key): amount, fee, reference', S, exit=(1, 0.3), entry=(0, 0.25))
+    p.edge('P1015', 'D52', 'attempt: reference, payee, fee mode', O, exit=(1, 0.8), entry=(0, 0.3))
+    p.edge('MY', 'P1016', 'redirect (reference) · unsigned webhook', S, exit=(0, 0.72), entry=(1, 0.37))
+    p.edge('P1016', 'MY', 're-read payment (SECRET key)', S, exit=(1, 0.8), entry=(0, 0.79))
+    p.edge('B', 'P1016', 'back from Maya / paid · pending · failed · cancelled', D, exit=(1, 0.86), entry=(0, 0.35))
+    p.edge('P1016', 'D52', 'attempt by reference / payment recorded once', D, exit=(0.8, 0), entry=(0, 0.7), points=[(612, 330.8)])
+    p.edge('P1016', 'D55', 'claim (payment, status) once', O, exit=(1, 0.95), entry=(0, 0.5), points=[(840, 460.8), (840, 502)])
+    p.edge('P1016', 'EM', 'paid / not completed / refund-needed emails', O, exit=(0.5, 1), entry=(0, 0.5), points=[(540, 622)])
+    p.edge('A', 'P1017', 'enable Maya, record a payout / result', D, exit=(1, 0.5), entry=(0, 0.5))
+    p.edge('P1017', 'D54b', 'platform collect or PayFac (sub-merchant)', O, exit=(1, 0.3), entry=(0, 0.5))
+    p.edge('P1017', 'D56', 'payout to the store', O, exit=(1, 0.8), entry=(0, 0.5))
+    p.edge('D56', 'R7', 'owed to the store, payouts', S, exit=(1, 0.5), entry=(0, 0.6))
+    p.node('note', '<b>Who receives the money.</b> Platform collect (default): FurnishAR\'s Maya account receives the whole payment; '
+                   'the fee is collected and the store\'s share is OWED to the store until a payout is recorded (D5.6). '
+                   'PayFac only when Maya enables it: settled to the store\'s sub-merchant, fee accrued or expected, never "collected". '
+                   'Maya webhooks are unsigned: every one is re-read with the secret key before anything is recorded.',
+           NOTE, 40, 880, 1300, 90)
+    return p
+
+
+def device_flow():
+    p = Page('flow-p4', 'Flow — Device Check & Recommendation (P4)', 1560, 900)
+    p.node('title', 'P4 Device Check — measured facts to one recommended mode (A–E)', GROUP + 'fontSize=16;', 40, 10, 800, 30)
+    p.node('U', 'Person on<br>/diagnose', EXTERNAL, 40, 300, 150, 70)
+    p.node('AR', 'Run the AR check<br>one WebXR session, hit-test only', PROCESS, 260, 100, 230, 70)
+    p.node('SEN', 'Camera, motion sensors<br>and scene quality<br>(4 frames)', PROCESS, 260, 295, 230, 80)
+    p.node('AIB', 'Check AI camera capability<br>(optional tap)', PROCESS, 260, 500, 230, 70)
+    p.node('ST', 'FurnishAR static files<br>/ort/ runtime · /ai/ test model', PAGE_ROUTE, 260, 690, 230, 70)
+    p.node('F', 'assessCapabilities()<br>measured facts, on the phone', PROCESS, 560, 290, 230, 80)
+    p.node('GPU', 'WebGPU adapter<br>+ a real inference?', DECISION, 580, 480, 170, 110)
+    p.node('WG', 'WebGPU benchmark<br>2 warm-up + 12 timed', PROCESS, 830, 420, 200, 64)
+    p.node('WA', 'WASM benchmark<br>2 warm-up + 12 timed', PROCESS, 830, 560, 200, 64)
+    p.node('LV', 'AI level (p95)<br>gpu · realtime · single-frame · none', PROCESS, 1090, 490, 240, 70)
+    p.node('ERR', 'Plain-language failure (no ONNX text);<br>everything else still works', ALERT, 1090, 690, 240, 70)
+    p.node('REC', 'recommendExperience()<br>A · B · C · D · E<br>+ reason + fallback', OK, 1090, 280, 240, 100)
+    p.node('REP', 'Technical report<br>(only if copied)<br>no identifiers,<br>no frames', PAGE_ROUTE, 1390, 285, 150, 90)
+
+    p.edge('U', 'AR', 'tap', exit=(1, 0.1), entry=(0, 0.5), points=[(225, 307), (225, 135)])
+    p.edge('U', 'SEN', 'tap')
+    p.edge('U', 'AIB', 'tap', exit=(1, 0.9), entry=(0, 0.5), points=[(225, 363), (225, 535)])
+    p.edge('AIB', 'ST', 'fetch after the tap / runtime + model', EDGE_ORTHO + DIALOG, exit=(0.5, 1), entry=(0.5, 0))
+    p.edge('AIB', 'GPU', 'navigator.gpu?')
+    p.edge('GPU', 'WG', 'yes', exit=(0.5, 0), entry=(0, 0.5), points=[(665, 452)])
+    p.edge('GPU', 'WA', 'no / failed', exit=(0.5, 1), entry=(0, 0.5), points=[(665, 592)])
+    p.edge('WG', 'WA', 'not real time: measure CPU too', exit=(0.5, 1), entry=(0.5, 0))
+    p.edge('WG', 'LV', 'faster measured backend', exit=(1, 0.5), entry=(0, 0.2), points=[(1060, 452), (1060, 504)])
+    p.edge('WA', 'LV', '', exit=(1, 0.5), entry=(0, 0.8), points=[(1060, 592), (1060, 546)])
+    p.edge('WA', 'ERR', 'both failed', exit=(0.5, 1), entry=(0, 0.5), points=[(930, 725)])
+    p.edge('AR', 'F', 'session, hit test, tracked frames', exit=(1, 0.5), entry=(0.5, 0), points=[(675, 135)])
+    p.edge('SEN', 'F', 'sensors')
+    p.edge('LV', 'F', 'AI level', exit=(0.5, 0), entry=(1, 0.8), points=[(1210, 400), (810, 400), (810, 354)])
+    p.edge('F', 'REC', 'facts', exit=(1, 0.4), entry=(0, 0.46))
+    p.edge('REC', 'U', 'recommended mode, reason, fallback', exit=(0.5, 0), entry=(0.5, 0), points=[(1210, 60), (115, 60)])
+    p.edge('REC', 'REP', '', EDGE_ORTHO + 'dashed=1;', exit=(1, 0.5), entry=(0, 0.5))
+    p.node('legend', '<b>AI never overrides WebXR</b>: tracked AR is proven only by a session that hits real surfaces. '
+                     'AI never produces a measurement. Levels are measured on this phone, never inferred from its model. '
+                     'Nothing is uploaded: the runtime and model are downloaded from FurnishAR\'s own origin, only after the tap.',
+           NOTE, 40, 800, 1000, 70)
     return p
 
 
@@ -993,7 +1079,7 @@ def level3_capture():
 
 def main():
     pages = [level0(), level1(), level2_auth(), level2_google(), level2_access(), level2_lifecycle(), level2_orders(), level2_paypal(),
-             level3_authz(), level3_capture(), access3d(), payments(), usecases()]
+             level2_maya(), level3_authz(), level3_capture(), access3d(), payments(), device_flow(), usecases()]
     DRAWIO.write_text('<mxfile host="app.diagrams.net" modified="2026-09-24T00:00:00.000Z" '
                       f'agent="FurnishAR DFD v2" version="24.7.17" pages="{len(pages)}">\n'
                       + '\n'.join(page.xml() for page in pages) + '\n</mxfile>\n', encoding='utf-8')

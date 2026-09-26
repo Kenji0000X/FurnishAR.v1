@@ -21,6 +21,25 @@ comparison below.
 | Photo | Measure without AR → Photo reference | Four corners of a known rectangle → homography → distance on that wall's plane |
 | Manual | Measure without AR → Tape measure | Typed figures in m / cm / ft / in |
 
+## AI does not produce any of these numbers
+
+The on-device AI check (`docs/AI-DEVICE-COMPATIBILITY.md`) can recommend
+level C, "AI-assisted measurement", and it reads scene quality: too dark,
+blurred, featureless, moving too fast, floor out of view. That is
+**guidance**. None of the four methods above takes a length, an area or a
+floor position from an AI model, and none may until a trained model has been
+validated with the tables below. In particular:
+
+- a monocular model's depth is relative, not metric, and is never reported as
+  a distance;
+- WebXR's hit test stays the authority on where the floor is. AI may only
+  *reject* a hit it is confident is not floor, never create one
+  (`combineFloorEvidence`).
+
+When filling the tables, note the scene verdicts `/diagnose` reported
+("Lighting", "Tracking conditions"). They are how guidance and accuracy will
+later be related.
+
 ## Distances
 
 Mark each distance on the floor with tape. Measure it with a steel tape. Take

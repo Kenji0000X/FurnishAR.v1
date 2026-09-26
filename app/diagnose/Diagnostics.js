@@ -406,9 +406,9 @@ export default function Diagnostics() {
 
       <div className="diag-deep">
         <p className="diagnose-intro">
-          Optional: time an AI camera model on this phone. It downloads about 8–11 MB
-          once (the runtime and a test model), runs entirely on the phone, and sends
-          nothing anywhere. FurnishAR works without it.
+          Optional: time an AI camera model on this phone. It downloads about 8 MB
+          once (up to 15 MB on a phone with a usable GPU): the runtime and a test model.
+          It runs entirely on the phone and sends nothing anywhere. FurnishAR works without it.
         </p>
         <button className="button" type="button" onClick={runAI} disabled={Boolean(busy)} aria-busy={busy === 'ai' || undefined}>
           {busy === 'ai' ? (aiProgress || 'Checking…') : aiTested ? 'Check AI camera capability again' : 'Check AI camera capability'}

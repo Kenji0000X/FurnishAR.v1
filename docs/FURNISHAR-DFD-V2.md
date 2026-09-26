@@ -28,13 +28,14 @@ This is the implementation-aligned replacement for the supplied sample DFD.
 | Store portal | `/portal` | P7 Store Portal |
 | Platform console | `/admin`, `/admin/applications`, `/admin/stores`, `/admin/models`, `/admin/usage`, `/admin/activity` | P8 Admin Console |
 | Store owner / admin sign-in | `/login` (role resolved by `my_role()` after sign-in, not by the URL), the `/admin` gate | P1 Authentication |
-| Device check | `/diagnose` | P4 Planner / Device Check (read-only capability report; no data store) |
+| Device check | `/diagnose` | P4 Planner / Device Check (read-only capability report and one recommended mode A–E; no data store). The optional AI check downloads the ONNX runtime (`/ort/`) and a test model (`/ai/`), FurnishAR's own static files, only after a tap. |
 | Help | `/faq` | Public content — no process, no data flow |
 | Buy / request a build | `/furniture/[slug]` (purchase panel) | P10 Orders & Payments |
 | Buyer orders, PayPal return | `/account#orders`, `/account?paypal=return` | P10 Orders & Payments |
+| Payment return, provider-neutral (Maya, 0015) | `/account/payment/return?provider=maya&ref=…` | P10 10.16 Verify Maya Payment |
 | Receipt | `/account/receipt/[id]` | P10 Orders & Payments (read, per RLS) |
 | Store billing and incoming orders | `/portal#orders` | P7 → P10 |
-| Platform fees, fee mode, PayPal status per shop | `/admin/billing` | P8 → D5 |
+| Platform fees, fee mode, PayPal and Maya status per shop, Maya setup, payouts to shops | `/admin/billing` | P8 → D5 (10.17) |
 | Google sign-in return | `/auth/callback` | P1 Authentication (code → session) |
 | First sign-in: choose buyer or store | `/onboarding` | P1 → P6 (buyer) / P7 (application) |
 | Shop's PayPal seller connection | `/portal#billing` (Connect PayPal) | P7 → P10 → PayPal |
@@ -52,6 +53,8 @@ The DFD is aligned with the current repository routes:
 - `GET /api/sb/account/state`, `POST /api/sb/account/buyer|apply` (onboarding)
 - `POST /api/sb/payments/connect|refresh`, `GET /api/sb/payments/admin` (PayPal seller connection)
 - `POST /api/paypal/webhook` (PayPal → P10)
+- `POST /api/maya/webhook` (Maya → P10; unsigned, so each delivery is re-read from Maya — 0015)
+- `GET /api/sb/orders/providers?store=<id>` (P10 10.14: the payment methods a shop takes)
 - `GET /api/cron/payment-reminders` (scheduler → P10 → Email)
 - `GET /api/cron/model-notices` (scheduler → P8 → Email: models 30 days from deletable, 0013)
 - `GET /api/sb/status`
@@ -83,7 +86,10 @@ The DFD is aligned with the current repository routes:
 | `/api/sb/rest/rpc/store_model_lifecycle`, `keep_model` | P7 the shop's own model lifecycle; "Keep 3D model" records a use | D2 |
 | `/api/sb/status` | Health (no process data) | — |
 | `GET /api/sb/orders/config` | P10 — are payments / emails switched on (no secrets) | — |
-| `POST /api/sb/orders/checkout`, `pay`, `capture`, `request`, `cancel` | P10 Orders & Payments (buyer) | D2, D5, PayPal |
+| `POST /api/sb/orders/checkout`, `pay`, `capture`, `verify`, `request`, `cancel` | P10 Orders & Payments (buyer); `checkout` / `pay` take `provider` = `paypal` \| `maya`; `verify` is the Maya return (10.16) | D2, D5, PayPal, Maya |
+| `GET /api/sb/orders/providers?store=<id>` | P10 10.14 Offer Payment Methods (public; provider ids only) | D5 (`store_payment_providers`) |
+| `POST /api/maya/webhook` | P10 10.16 — reference only; payment re-read with the secret key; once per (payment, status) | D5 (`payment_webhook_events`, `payments`, `payment_attempts`) |
+| `/api/sb/rest/rpc/admin_set_maya_account`, `record_store_remittance`; `/api/sb/rest/store_remittances` (read-only) | P8 10.17 Maya setup and payouts (admin only; audited) | D5 (`store_payment_accounts`, `store_remittances`), D4 (audit) |
 | `POST /api/sb/orders/quote`, `decline`, `ready`, `fulfil`, `delivery`, `store-billing` | P10 Orders & Payments (store owner) | D5 |
 | `/api/sb/rest/orders`, `payments`, `store_payout`, `fee_settlements` (read-only) | P10 reads, per RLS | D5 |
 | `/api/sb/rest/rpc/store_fee_summary`, `fee_overview`, `record_fee_settlement` | P7 fee balance, P8 settlement | D5, D4 (audit) |
@@ -135,6 +141,10 @@ flowchart LR
     F -->|create / capture order, payee = shop merchant id| PP
     PP -->|approval / capture result| F
     B -->|pays shop directly| PP
+    MY[Maya]
+    F -->|create checkout, public key; re-read payment, secret key| MY
+    MY -->|redirect back, unsigned webhooks: reference only| F
+    B -->|pays through Maya: received by FurnishAR, which pays the shop| MY
     F -->|order emails| E
     E -->|receipt / quote / balance due| B
     E -->|new order / deposit paid| O
@@ -231,6 +241,11 @@ flowchart TB
     PP -->|merchant integration status| P7
     P7 -->|seller status| D5
     PP -->|signed webhooks: capture / refund / seller| P10
+    MY[Maya]
+    P10 -->|create checkout, public key: payee FurnishAR or PayFac sub-merchant| MY
+    MY -->|redirect / unsigned webhook: reference only| P10
+    P10 -->|re-read payment, secret key| MY
+    P8 -->|Maya setup per store, payouts to shops| D5
     P10 -->|payment-setup reminders, account and payment emails| EM
     P10 -->|receipt / delivery-step email| EM
     P8 -->|fee overview / settlements| D5
@@ -368,6 +383,62 @@ flowchart LR
     WHK[Seller webhooks] --> RA
 ```
 
+## Payment flow — Maya (P10, 0015)
+
+```mermaid
+flowchart LR
+    U[Buyer] --> PV[GET /api/sb/orders/providers\nshop's methods ∩ server's]
+    PV --> C[POST /api/sb/orders/checkout\nprovider = maya]
+    C --> BP[(begin_payment order, env, maya\namount, fee, store's Maya setup)]
+    BP --> MC[Maya Create Checkout\nPUBLIC key]
+    MC --> AT[(payment_attempts\nreference, payee, fee mode)]
+    MC --> PAY[Buyer pays on Maya]
+    PAY --> RET[/account/payment/return\n?provider=maya&ref=/]
+    RET --> VF[POST /api/sb/orders/verify\nthe caller's own order]
+    PAY -.-> WH[POST /api/maya/webhook\nunsigned: IP allowlist, reference only]
+    VF --> RR[Maya: payments for the reference\nSECRET key]
+    WH --> RR
+    RR --> J{PAYMENT_SUCCESS for the\nattempt's amount and currency?}
+    J -->|yes| RC[(record_capture, provider maya\nonce per payment id)]
+    J -->|other amount| UN[(recorded, not applied\nFurnishAR refunds in Maya Manager)]
+    J -->|failed / expired / cancelled| ST[(attempt DECLINED / CANCELLED)]
+    RC --> OW[(fee collected\nshop's share owed to the shop)]
+    AD[Admin] -->|payout| RM[(store_remittances)]
+    RM --> OW
+```
+
+Platform collect is the default and, today, the only Maya mode: FurnishAR's
+Maya account receives the payment. PayFac settles to a shop's sub-merchant
+only once Maya enables it (`MAYA_PAYFAC_ENABLED`); its fee is never recorded
+as collected. See `MAYA-INTEGRATION.md`.
+
+## Device check flow (P4)
+
+```mermaid
+flowchart LR
+    U[Person on /diagnose] -->|tap| AR[AR check\none WebXR session, hit-test only]
+    U -->|tap| SEN[Camera + motion sensors\n+ scene quality, 4 frames]
+    U -->|optional tap| AIB[AI camera capability]
+    AIB <-->|runtime + test model, after the tap| ST[FurnishAR static files\n/ort/ · /ai/]
+    AIB --> GPU{WebGPU adapter\n+ a real inference?}
+    GPU -->|yes| WG[WebGPU benchmark]
+    GPU -->|no / failed| WA[WASM benchmark]
+    WG -->|not real time| WA
+    WG --> LV[AI level\ngpu · realtime · single-frame · none]
+    WA --> LV
+    WA -->|both failed| ERR[Plain-language failure\neverything else still works]
+    AR --> F[assessCapabilities\nmeasured facts, on the phone]
+    SEN --> F
+    LV --> F
+    F --> REC[recommendExperience\nA · B · C · D · E + reason + fallback]
+    REC --> U
+    REC -.->|only if copied| REP[Technical report\nno identifiers, no frames]
+```
+
+AI never overrides WebXR and never produces a measurement. Everything here
+stays on the phone, and no data store is written (`AI-DEVICE-COMPATIBILITY.md`,
+`PRIVACY-AR.md`).
+
 ## Process definitions
 
 ### P1 Authentication & Session
@@ -380,7 +451,7 @@ Public catalogue browsing through `/` and `/collection`. A product is a real car
 Public furniture information. The product page does not directly expose the protected 3D file.
 
 ### P4 Planner / Device Check
-`/plan`, camera/device checks, room measurement, furniture placement, WebXR/Quick Look, and fallback behavior. The model is placed at the product's stored dimensions (D2), scaled uniformly; a model whose proportions cannot be those dimensions is not shown in AR. Sizes are displayed in cm, in or ft; the unit changes the text, never the size.
+`/plan`, camera/device checks, room measurement, furniture placement, WebXR/Quick Look, and fallback behavior. `/diagnose` turns measured facts into one recommended mode (A tracked AR+, B tracked AR, C AI-assisted measurement, D photo, E manual) with a reason and a fallback; its optional AI check times a model on the phone (WebGPU or WASM) and never overrides WebXR. The model is placed at the product's stored dimensions (D2), scaled uniformly; a model whose proportions cannot be those dimensions is not shown in AR. Sizes are displayed in cm, in or ft; the unit changes the text, never the size.
 
 ### P5 3D Access & Authorization
 Protected model boundary. Authentication asks who the caller is; authorization asks whether that caller may access the requested object. After a URL is signed, 5.5 records the model's last use (`record_model_access`, at most once a day) — the lifecycle's only input.
@@ -418,6 +489,16 @@ collected only when PayPal's capture reports it; PayPal webhooks (signature
 verified, processed once) record pending captures, refunds (seller and
 platform portions) and seller status changes; approved shops that are not
 connected get scheduled reminder emails with a cooldown.
+
+Since 0015: a second provider, **Maya**, in the same orders, payments and fee
+records (`provider` on attempts, payments and payment accounts). 10.14 offers
+only the methods a shop takes; 10.15 creates a Maya Checkout with the public
+key; 10.16 settles it from the payment re-read with the secret key (the buyer's
+return and Maya's unsigned webhook are only prompts); 10.17 is the admin's Maya
+setup per store and the payouts FurnishAR owes shops. With platform collect,
+FurnishAR's Maya account receives the payment: the fee is collected, and the
+shop's share is owed to the shop until a payout is recorded. A capture of one
+provider can never satisfy another's attempt.
 
 ## Reliability rules for the diagram
 
@@ -518,8 +599,20 @@ Where this DFD and the code disagreed, and which one moved.
 - RECOMMENDED ARCHITECTURE: P2 lists a product only with its poster, or within 15 minutes of its model's upload (0014 adds `model_uploaded_at` to the catalogue view). Otherwise its slot is a placeholder until the shop regenerates the preview in P7, which tells it the listing is not shown.
 - REASON: requested. **Code and DFD changed together** (`app/model-state.js` previewState / isListable, `app/ProductCard.js`, `app/Marquee.js`, migration 0014).
 
+**16. Device check recommends one mode; on-device AI as a measured capability (added 2026-09-26)**
+- DFD ISSUE: P4's device check reported a state (for example "tracked AR works") but not which FurnishAR experience a phone should use, and had no notion of on-device AI.
+- CURRENT CODE BEHAVIOR (before): nine capability facts, no recommendation, no AI, no scene quality.
+- RECOMMENDED ARCHITECTURE: inside P4, `recommendExperience()` maps measured facts to one level A–E, with a reason and a fallback. The optional AI check loads ONNX Runtime Web and a test model from FurnishAR's own static files after a tap, proves WebGPU by a real inference or uses WASM, and reports a level from the measured p95. Scene quality is classical and needs no model. AI never overrides WebXR and never produces a measurement.
+- REASON: requested. **No process, endpoint or data store added**: all of it runs on the phone inside P4, and the static files are not a data store (rule 6). The drawio adds the "Flow — Device Check & Recommendation (P4)" page.
+
+**17. Maya as a second payment provider (added 2026-09-26)**
+- DFD ISSUE: P10 was PayPal-shaped: `provider = 'paypal'` constraints, "payee = shop merchant id" as the only payee, and no second external payment entity.
+- CURRENT CODE BEHAVIOR (before): PayPal only.
+- RECOMMENDED ARCHITECTURE: one P10 with a provider boundary (`lib/providers`). Maya is a second external entity. Its Checkout pays the owner of the keys (FurnishAR), so its money flow is recorded truthfully: platform collect, fee collected, shop's share owed and paid out (`store_remittances`, D5). 10.14–10.17 are drawn on the new Level 2 page. Setup is admin-only (there is no self-service Maya onboarding). Webhooks are unsigned, so they are only a prompt to re-read.
+- REASON: requested. **DFD and code changed together** (migration 0015, `lib/maya.js`, `lib/providers/`, `lib/maya-webhook.js`, `/account/payment/return`, `/api/maya/webhook`; drawio: Maya on Level 0, "PayPal / Maya" on Level 1 and Level 2 10.0, new page "Level 2 — 10.14–10.17 Maya Checkout, Webhook & Payouts").
+
 **12. Database state**
-- Migrations 0005 (bucket limit), 0006 (buyers, `my_role`) and 0007 (private `furniture-models` bucket, `can_view_model` policy) are applied to the live project. 0012 (public `product-posters` bucket, `last_accessed_at`, lifecycle functions and cleanup policies) is applied too (2026-09-25); the models bucket stays private. 0013 (owner notice: `expiry_notice_at`, `model_notice_due`, the notice-aware `model_cleanup_eligible`, `server_models_due_notice`, `server_mark_model_notice`, `store_model_lifecycle`, `keep_model`) is applied to the live project too (2026-09-26). 0008 takes trigger functions off the RPC surface and stops anonymous calls to `can_view_model`.
+- Migrations 0005 (bucket limit), 0006 (buyers, `my_role`) and 0007 (private `furniture-models` bucket, `can_view_model` policy) are applied to the live project. 0012 (public `product-posters` bucket, `last_accessed_at`, lifecycle functions and cleanup policies) is applied too (2026-09-25); the models bucket stays private. 0013 (owner notice: `expiry_notice_at`, `model_notice_due`, the notice-aware `model_cleanup_eligible`, `server_models_due_notice`, `server_mark_model_notice`, `store_model_lifecycle`, `keep_model`) is applied to the live project too (2026-09-26). 0008 takes trigger functions off the RPC surface and stops anonymous calls to `can_view_model`. **Not applied yet (2026-09-26): 0014** (`model_uploaded_at` in the catalogue view) **and 0015** (payment providers, Maya). Both are in the repository and tested against a local Postgres. 0015 must follow 0014.
 
 ## DFD artifact
 
@@ -527,11 +620,12 @@ The companion `FURNISHAR-DFD-V2.drawio` holds every diagram as a draw.io page. O
 
 | Page | Shows |
 |---|---|
-| Level 0 — Context DFD | the system as one process and its six external entities |
+| Level 0 — Context DFD | the system as one process and its seven external entities (Maya added in 0015) |
 | Level 1 — System DFD | processes 1.0–10.0 and data stores D1–D6 (this document's Level 1) |
 | Level 2 — 1.0 Authentication & Session | 1.1 Register · 1.2 Log In · 1.3 Resolve Role · 1.4 Renew Session · 1.5 Log Out |
 | Level 2 — 1.0 Google Sign-in & Onboarding | 1.6 Start Google Sign-in (PKCE) · 1.7 Exchange Code · 1.3 Resolve Role · 1.8 Onboard (0011) |
 | Level 2 — 10.9–10.13 PayPal Seller, Webhooks & Reminders | seller onboarding and status, verified webhooks, fee mode, payment-setup reminders (0011) |
+| Level 2 — 10.14–10.17 Maya Checkout, Webhook & Payouts | 10.14 Offer Payment Methods · 10.15 Start Maya Checkout · 10.16 Verify Maya Payment · 10.17 Maya Setup &amp; Payouts (0015) |
 | Level 2 — 5.0 3D Access & Authorization | 5.1 Validate · 5.2 Verify Session · 5.3 Authorize & Sign · 5.4 Deliver Signed URL · 5.5 Record Model Use |
 | Level 2 — 7.0/8.0 Posters & Model Lifecycle | 7.1 Check & Render Poster · 7.2 Upload · 2.1 Show Card · 8.1 Review Lifecycle · 8.2 Delete Stale Model (0012) · 8.3 Notify Owner (0013) |
 | Level 2 — 10.0 Orders & Payments | 10.1–10.8: place/cancel, quote, start payment, capture, fulfil, notify, billing, view |
@@ -539,6 +633,7 @@ The companion `FURNISHAR-DFD-V2.drawio` holds every diagram as a draw.io page. O
 | Level 3 — 10.4 Capture & Record Payment | fetch, re-check, match & capture, secret check, record, report |
 | Flow — Protected 3D Access | the "Critical 3D access flow" above as a step-by-step flowchart |
 | Flow — Checkout & Custom-Build Stages | the "Payment flow (P10)" above, plus the custom-build stages |
+| Flow — Device Check & Recommendation (P4) | the "Device check flow (P4)" above: AR check, sensors and scene, the optional AI benchmark, and the A–E recommendation |
 | Use Case Diagram | the actors and what each can do, in UML |
 
 `docs/DFD-LEVELS.md` explains every level: notation, each process and the code behind it, the data stores, and how each Level 2 page balances with Level 1.
