@@ -7,7 +7,7 @@ same orders, payments, fee and email system. Written 2026-09-26 with
 
 **Status: sandbox-ready, not live.**
 - Not configured on Vercel (no `MAYA_*` variables).
-- 0015 is not applied to production.
+- 0015 is applied to production (2026-09-26); no store has Maya enabled.
 - Tested against a fake Maya only.
 - Payment Facilitator is **not** enabled.
 
@@ -143,6 +143,36 @@ when both keys and the recorder secret are set. Admin → Billing shows
 configuration problems in words, for example a public key that looks like a
 secret key. It never shows the keys themselves.
 
+### Setting the keys on Vercel, step by step
+
+1. In **Maya Manager** (sandbox first), open the developer / API keys page and
+   copy the **public key** (`pk-…`) and the **secret key** (`sk-…`).
+2. In **Vercel → the furnisharv1 project → Settings → Environment
+   Variables**, add:
+   - `MAYA_PUBLIC_KEY` = the `pk-…` value;
+   - `MAYA_SECRET_KEY` = the `sk-…` value, marked **Sensitive**.
+
+   Tick Production (and Preview if wanted). Leave `MAYA_ENV` unset, which
+   means sandbox.
+3. **Redeploy**: Deployments → the latest production deployment → ⋯ →
+   Redeploy. Variables apply only to new deployments.
+4. Sign in as an admin, open `/admin/billing`, and check the **Maya** panel.
+   It should read "Configured · FurnishAR collects · Maya Sandbox", with no
+   red problems. A public key pasted into the secret field, or the reverse,
+   is named there.
+5. In Maya Manager, register the webhook URL
+   `https://<site>/api/maya/webhook` for payment success, failed and
+   expired.
+6. In `/admin/billing`, choose **Maya…** on one test store → "On — FurnishAR
+   collects" → **Save Maya Setup**.
+7. Buy something from that store with **Buy with Maya** and Maya's sandbox
+   test card. Check that you land on "Payment received", and that the order,
+   the receipt ("Paid via Maya") and the admin figures ("Owed to Shops")
+   update.
+
+Never put the keys in the repository, in a `NEXT_PUBLIC_` variable, or in
+chat.
+
 ## 6. Verify before live
 
 The session that wrote this could not open Maya's documentation (blocked by
@@ -199,8 +229,7 @@ exactly the pre-0015 ones (the provider arguments are sent only for Maya), and
 `/api/sb/orders/providers` falls back to 0011's `store_accepts_payments` while
 0015 is absent. `tests/maya-server.test.js` pins both. Maya itself needs 0015.
 
-1. Apply `0015_payment_providers.sql` to the production Supabase project
-   (after 0014, which is also not applied yet).
+1. ~~Apply 0014 and `0015_payment_providers.sql` to production~~ — done 2026-09-26.
 2. Set `MAYA_PUBLIC_KEY` and `MAYA_SECRET_KEY` for **sandbox** on Vercel;
    leave `MAYA_ENV` unset.
 3. Register the webhook URL in the Maya sandbox.
