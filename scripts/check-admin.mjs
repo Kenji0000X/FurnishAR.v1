@@ -483,6 +483,7 @@ console.log('--- the superadmin ---');
   check('a model unused for 400 days is eligible, with a delete action',
     /Eligible for cleanup/.test(files) && /1 year 35 days/.test(files)
     && await page.locator('tr:has-text("Old Rattan Sofa") button:has-text("Delete Model")').count() === 1);
+  check('an eligible model says how much deleting it frees', /Frees 12 MB/.test(files));
   check('the summary counts only real records', /Could Be Reclaimed/i.test(files) && /12 MB/.test(files));
 
   console.log('--- deleting a model unused for a year ---');

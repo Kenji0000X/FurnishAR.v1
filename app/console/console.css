@@ -505,3 +505,6 @@ li.console-empty { list-style: none; padding: 1rem 0; }
   .console-rail, .workspace-tabbar { display: none; }
   .console-main > * { animation: none; }
 }
+
+/* 3D Files: what deleting an eligible model gives back, beside the button. */
+.console .cleanup-frees { align-self: center; font-size: .8125rem; color: var(--ink-muted); white-space: nowrap; }

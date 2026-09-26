@@ -191,6 +191,11 @@ db('cleanup removes the file, its poster and their rows â€” never the product â€
   // Metadata first is refused while the file is still there.
   assert.match(refused(ids.admin, `select public.admin_delete_stale_model('${asset}')`), /still in storage/);
 
+  // What storage_usage() reports for the store before the cleanup.
+  const usage = () => Number(as(ids.admin,
+    `select total_bytes from public.storage_usage() where store_id = '${ids.store}'`));
+  const bytesBefore = usage();
+
   // Step a: the Storage API, as the admin.
   assert.equal(as(ids.admin, `with d as (delete from storage.objects where bucket_id = 'furniture-models'
                                          and name = '${glbPath}' returning 1) select count(*) from d`), '1');
@@ -206,6 +211,7 @@ db('cleanup removes the file, its poster and their rows â€” never the product â€
 
   assert.equal(psql(`select count(*) from public.product_assets where product_id = '${product}'`), '0');
   assert.equal(psql(`select count(*) from public.products where id = '${product}'`), '1', 'the product stays');
+  assert.equal(usage(), bytesBefore - 2048 - 20000, 'storage usage drops by the model and its poster');
   assert.equal(psql(`select width_cm from public.products where id = '${product}'`), '70.0', 'with its dimensions');
   const card = as(null, `select coalesce(model_glb_path, 'none') || '|' || coalesce(poster_path, 'none')
                           from public.catalog where id = '${product}'`, 'anon');

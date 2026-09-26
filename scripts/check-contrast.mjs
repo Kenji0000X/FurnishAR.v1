@@ -57,6 +57,7 @@ const PAIRS = [
   ['--accent', '--paper', 3, 'display accent (large only)'],
   ['--on-accent', '--accent', 4.5, 'text on the accent fill'],
   ['--danger', '--paper-raised', 4.5, 'form errors'],
+  ['--on-accent', '--danger', 4.5, 'destructive buttons — Delete Model, confirm dialogs'],
   // The notification system (lib/alerts). Each status wears its colour on
   // the icon, but is held to the TEXT threshold rather than the 3:1 icon one:
   // a status colour that only passes as an icon gets used for a word sooner

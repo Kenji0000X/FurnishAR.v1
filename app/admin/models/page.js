@@ -99,9 +99,9 @@ export default function AdminModels() {
         <p className="eyebrow">Uploaded Across Every Store</p>
         <h1 id="console-title">3D Files</h1>
         <p>
-          <b>Last used</b> is when FurnishAR last opened a model for someone — a shopper, its shop or an
-          administrator — or its upload, if nobody has opened it since. A model can be deleted once it has gone
-          unused for a full year; nothing is deleted automatically.
+          <b>Last used</b> is when FurnishAR last opened a model for anyone (a shopper, its shop or an
+          administrator), or its upload if nobody has opened it since. A model can be deleted once it has gone
+          unused for a full year. Nothing is deleted automatically.
         </p>
       </section>
 
@@ -189,6 +189,7 @@ export default function AdminModels() {
                             aria-label={`Delete the 3D model of ${model.product_name}…`}>
                             {deleting === model.asset_id ? 'Deleting…' : 'Delete Model…'}
                           </button>
+                          <small className="cleanup-frees">Frees {formatBytes(model.byte_size)}</small>
                         </div>
                       ) : (
                         <small>Delete available {new Date(model.eligible_on).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })}</small>

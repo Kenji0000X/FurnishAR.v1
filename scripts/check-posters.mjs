@@ -73,7 +73,7 @@ const supabase = createServer((req, res) => {
       const key = decodeURIComponent(url.split('/storage/v1/object/public/')[1].split('?')[0]);
       const object = objects.get(key);
       if (!object || !key.startsWith('product-posters/')) { res.writeHead(404); return res.end(); }
-      res.writeHead(200, { 'Content-Type': object.type, 'Cache-Control': object.cacheControl || 'no-cache' });
+      res.writeHead(200, { 'Content-Type': object.type, 'Cache-Control': object.cacheControl || 'no-cache', 'Timing-Allow-Origin': '*' });
       return res.end(object.bytes);
     }
     if (url.startsWith('/storage/v1/object/upload/sign/')) {
@@ -212,6 +212,7 @@ try {
   const inventory = await owner.locator('#inventory').innerText();
   check('the portal says the model is ready', /3D model ready/.test(inventory));
   check('and does not ask to regenerate a preview that exists', !/Catalogue preview needed/.test(inventory));
+  check('it says the catalogue preview is ready', /Catalogue preview ready/.test(inventory));
 
   /* Three more listings, straight into the fake database. */
   const add = (name, extra = []) => {
@@ -236,6 +237,21 @@ try {
     if (/\.glb(\?|$)|\/api\/sb\/model\/|\/object\/sign\//.test(url)) modelRequests.push(url);
     if (url.includes('/product-posters/')) posterRequests.push(url);
   });
+  // Measured, not guessed (brief §48): Largest Contentful Paint and layout
+  // shift from the browser's own observers, installed before the page runs.
+  await shopper.addInitScript(() => {
+    window.__perf = { lcp: 0, cls: 0 };
+    new PerformanceObserver(list => {
+      for (const entry of list.getEntries()) {
+        window.__perf.lcp = entry.startTime;
+        const el = entry.element;
+        window.__perf.lcpElement = el ? `${el.tagName.toLowerCase()}.${String(el.className).split(' ')[0]}` : '?';
+      }
+    }).observe({ type: 'largest-contentful-paint', buffered: true });
+    new PerformanceObserver(list => {
+      for (const entry of list.getEntries()) if (!entry.hadRecentInput) window.__perf.cls += entry.value;
+    }).observe({ type: 'layout-shift', buffered: true });
+  });
   const signsBefore = log.modelSigns;
   await shopper.goto(`${BASE}/collection`, { waitUntil: 'networkidle' });
   await shopper.waitForTimeout(800);
@@ -243,6 +259,34 @@ try {
 
   check('no model is downloaded or even requested while browsing', modelRequests.length === 0 && log.modelSigns === signsBefore,
     modelRequests.slice(0, 3).join(', '));
+
+  const perf = await shopper.evaluate(async () => {
+    const posters = performance.getEntriesByType('resource').filter(r => r.name.includes('/product-posters/'));
+    // Decode cost of a poster from its bytes, not a copy the page already decoded.
+    const img = document.querySelector('img.product-thumb');
+    let decodeMs = null;
+    if (img) {
+      const blob = await fetch(img.currentSrc || img.src).then(r => r.blob());
+      const t0 = performance.now();
+      const bitmap = await createImageBitmap(blob);
+      decodeMs = Math.round((performance.now() - t0) * 10) / 10;
+      bitmap.close();
+    }
+    return {
+      lcp: Math.round(window.__perf.lcp),
+      lcpElement: window.__perf.lcpElement,
+      cls: Math.round(window.__perf.cls * 1000) / 1000,
+      posterBytes: posters.reduce((sum, r) => sum + (r.encodedBodySize || r.transferSize || 0), 0),
+      posterCount: posters.length,
+      decodeMs
+    };
+  });
+  console.log(`  (measured: LCP ${perf.lcp} ms on ${perf.lcpElement}, CLS ${perf.cls}, ${perf.posterCount} poster(s) ${Math.round(perf.posterBytes / 1024)} KB, decode ${perf.decodeMs} ms)`);
+  check('no layout shift while the posters arrive (CLS < 0.1)', perf.cls < 0.1, String(perf.cls));
+  check('browsing costs poster bytes only: under 100 KB per poster',
+    perf.posterCount > 0 && perf.posterBytes > 0 && perf.posterBytes / perf.posterCount < 100 * 1024, `${Math.round(perf.posterBytes / 1024)} KB for ${perf.posterCount}`);
+  check('a poster decodes quickly (< 50 ms)', perf.decodeMs !== null && perf.decodeMs < 50, `${perf.decodeMs} ms`);
+  check('Largest Contentful Paint under 2.5 s on this local server', perf.lcp > 0 && perf.lcp < 2500, `${perf.lcp} ms`);
   check('the card image is the poster', posterRequests.some(url => url.includes('/poster-')), posterRequests[0]);
   const card = name => shopper.locator(`.product-card:has-text("${name}")`);
   check('the modelled piece shows its poster and a 3D badge',
@@ -258,6 +302,8 @@ try {
   const plain = await card('Plain Side Table').innerText();
   check('no model: "No 3D model yet", and no 3D badge',
     /No 3D model yet/i.test(plain) && await card('Plain Side Table').locator('.model-badge').count() === 0);
+  check('and no "View in my space" on a piece that has no model',
+    !/View in my space/i.test(plain) && /Not available in AR/i.test(plain));
   const unposted = await card('Unposted Cabinet').innerText();
   check('model but no poster: "3D model available", not "no model"', /3D model available/i.test(unposted) && !/No 3D model/i.test(unposted));
   await card('Broken Poster Shelf').locator('.product-thumb-empty').waitFor({ timeout: 5000 }).catch(() => {});
