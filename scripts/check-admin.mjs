@@ -64,7 +64,15 @@ let lifecycle = [
     last_used_at: new Date(Date.now() - 400 * DAY).toISOString(), idle_days: 400, eligible: true,
     eligible_on: new Date(Date.now() - 35 * DAY).toISOString().slice(0, 10),
     product_id: 'p9', product_name: 'Old Rattan Sofa', product_slug: 'old-rattan-sofa', product_status: 'published',
-    store_id: 's1', store_name: 'S&C Variety Store', poster_path: 's1/p9/poster-00000000000000aa.webp' }
+    store_id: 's1', store_name: 'S&C Variety Store', poster_path: 's1/p9/poster-00000000000000aa.webp',
+    notice_sent_at: new Date(Date.now() - 65 * DAY).toISOString(), notice_due: false },
+  // 0013: idle long enough to be due a notice, not yet sent. Not deletable.
+  { asset_id: '33333333-3333-4333-8333-333333333333', kind: 'glb', object_path: 's1/p7/model.glb', byte_size: 4194304,
+    uploaded_at: new Date(Date.now() - 500 * DAY).toISOString(), last_accessed_at: new Date(Date.now() - 370 * DAY).toISOString(),
+    last_used_at: new Date(Date.now() - 370 * DAY).toISOString(), idle_days: 370, eligible: false,
+    eligible_on: new Date(Date.now() + 30 * DAY).toISOString().slice(0, 10),
+    product_id: 'p7', product_name: 'Untold Bench', product_slug: 'untold-bench', product_status: 'published',
+    store_id: 's1', store_name: 'S&C Variety Store', poster_path: null, notice_sent_at: null, notice_due: true }
 ];
 const storedObjects = new Set(['furniture-models/s1/p1/model.glb', 'furniture-models/s1/p9/model.glb',
   'product-posters/s1/p9/poster-00000000000000aa.webp']);
@@ -484,6 +492,11 @@ console.log('--- the superadmin ---');
     /Eligible for cleanup/.test(files) && /1 year 35 days/.test(files)
     && await page.locator('tr:has-text("Old Rattan Sofa") button:has-text("Delete Model")').count() === 1);
   check('an eligible model says how much deleting it frees', /Frees 12 MB/.test(files));
+  check('a year idle with no owner notice yet is not deletable (0013)',
+    /Owner notice pending/i.test(files) && /30 days after the shop is notified/.test(files)
+    && await page.locator('tr:has-text("Untold Bench") button:has-text("Delete")').count() === 0,
+    (files.match(/Untold Bench[^\n]*(\n[^\n]*){0,6}/) || ['no Untold Bench row'])[0].replace(/\s+/g, ' '));
+  check('the intro says owners are emailed first', /emailed about it at least 30 days earlier/.test(files));
   check('the summary counts only real records', /Could Be Reclaimed/i.test(files) && /12 MB/.test(files));
 
   console.log('--- deleting a model unused for a year ---');
@@ -493,6 +506,7 @@ console.log('--- the superadmin ---');
   const cleanupText = await confirmBox.innerText().catch(() => '');
   check('a real dialog asks first, and says the product stays',
     /Delete this 3D model\?/.test(cleanupText) && /currently published/.test(cleanupText) && /not deleted/.test(cleanupText));
+  check('it says when the shop was told', /The shop was emailed about this model on/.test(cleanupText));
   check('Delete stays disabled until DELETE is typed',
     await confirmBox.locator('button:has-text("Delete Model")').isDisabled());
   await confirmBox.locator('.confirm-phrase input').fill('DELETE');

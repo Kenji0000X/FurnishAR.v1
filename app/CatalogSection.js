@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import ProductCard from './ProductCard.js';
+import PlaceholderCard from './PlaceholderCard.js';
+import { placeholderSlots } from './model-state.js';
 import { colorFor } from './format.js';
 import { matches, sortProducts, SORTS, NO_LIMIT, EMPTY_FILTERS as EMPTY } from './catalog-filter.js';
 
@@ -91,13 +93,6 @@ export default function CatalogSection({ products, source = 'supabase' }) {
     return () => wide.removeEventListener('change', apply);
   }, []);
 
-  // How many pieces the shops have actually modelled, shown on the filter so
-  // a shopper can see what turning it on will cost them before they do.
-  const withModels = useMemo(
-    () => products.filter(product => product.modelGlb).length,
-    [products]
-  );
-
   const found = useMemo(
     () => sortProducts(products.filter(product => matches(product, filters)), sort),
     [products, filters, sort]
@@ -118,35 +113,50 @@ export default function CatalogSection({ products, source = 'supabase' }) {
   if (filters.width < NO_LIMIT) {
     active.push({ key: 'width', label: `Up to ${filters.width} cm`, clear: { width: NO_LIMIT } });
   }
-  if (filters.modelOnly) active.push({ key: 'model', label: 'Has a 3D model', clear: { modelOnly: false } });
   if (filters.inStockOnly) active.push({ key: 'stock', label: 'In stock', clear: { inStockOnly: false } });
 
   /*
-    Nothing to show. The empty state IS the content: no "0 pieces", no sort
-    menu, no filters for categories and stores that do not exist, no empty
-    grid. Two different reasons, two different sentences — a catalogue that
-    could not be reached is not the same news as one nobody has listed in.
-    No store or admin links here: a shopper has nothing to do with them.
+    Nothing to show. No "0 pieces", no search, sort or filters for
+    categories and stores that do not exist.
+
+    A catalogue that could not be reached is not the same news as one with
+    nothing in it yet, so it gets its own sentence and no placeholders.
+    An empty one shows three placeholder cards, so the page still has the
+    shape of the catalogue to come — see PlaceholderCard for what they are
+    not. No store or admin links here: a shopper has nothing to do with them.
   */
   if (!products.length) {
-    const unreachable = source === 'unavailable';
+    if (source === 'unavailable') {
+      return (
+        <section id="catalog" className="catalog-section catalog-empty" aria-labelledby="catalog-title">
+          <h2 id="catalog-title" className="sr-only">Every piece</h2>
+          <div className="catalog-empty-state" role="alert">
+            <span className="catalog-empty-mark" aria-hidden="true">⬚</span>
+            <p className="catalog-empty-title">The collection couldn’t be loaded right now.</p>
+            <p className="catalog-empty-copy">Please try again in a moment.</p>
+          </div>
+        </section>
+      );
+    }
     return (
       <section id="catalog" className="catalog-section catalog-empty" aria-labelledby="catalog-title">
-        <h2 id="catalog-title" className="sr-only">Every piece</h2>
-        <div className="catalog-empty-state" role={unreachable ? 'alert' : undefined}>
-          <span className="catalog-empty-mark" aria-hidden="true">⬚</span>
-          <p className="catalog-empty-title">
-            {unreachable ? 'The collection couldn’t be loaded right now.' : 'No furniture has been listed yet.'}
-          </p>
-          <p className="catalog-empty-copy">
-            {unreachable
-              ? 'Please try again in a moment.'
-              : 'Products added by approved stores will appear here.'}
-          </p>
+        <div className="section-heading">
+          <div>
+            <h2 id="catalog-title">Every piece</h2>
+            <p className="catalog-empty-note">No 3D models have been uploaded yet.</p>
+          </div>
+        </div>
+        <div className="product-grid placeholder-grid">
+          {Array.from({ length: placeholderSlots(0) }, (_, index) => <PlaceholderCard key={index} />)}
         </div>
       </section>
     );
   }
+
+  /* Fewer than three real pieces, and nothing narrowing them: the rest of the
+     row is placeholders. Never while a filter or search is on — there the
+     honest answer is the matching pieces, or "nothing matched". */
+  const fill = active.length ? 0 : placeholderSlots(found.length);
 
   return (
     <section id="catalog" className="catalog-section" aria-labelledby="catalog-title">
@@ -294,19 +304,10 @@ export default function CatalogSection({ products, source = 'supabase' }) {
             <div><span>70 cm</span><span>240 cm+</span></div>
           </fieldset>
 
+          {/* No "Pieces with a 3D model" toggle: every piece in the
+              collection has one (isListable), so it would filter nothing. */}
           <fieldset className="filter-group toggle-group">
             <legend>Show only</legend>
-            <label className="filter-toggle">
-              <input
-                type="checkbox"
-                checked={filters.modelOnly}
-                onChange={event => set({ modelOnly: event.target.checked })}
-              />
-              <span>
-                Pieces with a 3D model
-                <small>{withModels} of {products.length}</small>
-              </span>
-            </label>
             <label className="filter-toggle">
               <input
                 type="checkbox"
@@ -341,15 +342,14 @@ export default function CatalogSection({ products, source = 'supabase' }) {
           {found.length ? (
             // The first two cards are the first the grid shows: fetch their
             // posters straight away, the rest as they scroll into view.
-            found.map((product, index) => <ProductCard key={product.id} product={product} priority={index < 2} />)
+            <>
+              {found.map((product, index) => <ProductCard key={product.id} product={product} priority={index < 2} />)}
+              {Array.from({ length: fill }, (_, index) => <PlaceholderCard key={`placeholder-${index}`} />)}
+            </>
           ) : (
             <div className="no-results">
               <b>No furniture matches these filters.</b>
-              <p>
-                {filters.modelOnly && withModels === 0
-                  ? 'None of the pieces listed here have a 3D model yet.'
-                  : 'Try removing one of the filters above.'}
-              </p>
+              <p>Try removing one of the filters above.</p>
               <button className="button button-outline" type="button" onClick={() => setFilters(EMPTY)}>
                 Clear all filters
               </button>

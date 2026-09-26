@@ -274,7 +274,7 @@ for (const device of [PHONES[1], PHONES[3]]) {
       items: items.map(a => {
         const r = a.getBoundingClientRect();
         return {
-          label: a.querySelector('.bottom-nav-label')?.textContent?.trim() || '',
+          label: a.getAttribute('aria-label') || '',
           href: a.getAttribute('href'),
           active: a.classList.contains('is-active'),
           current: a.getAttribute('aria-current'),

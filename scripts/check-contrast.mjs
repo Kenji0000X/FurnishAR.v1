@@ -58,6 +58,14 @@ const PAIRS = [
   ['--on-accent', '--accent', 4.5, 'text on the accent fill'],
   ['--danger', '--paper-raised', 4.5, 'form errors'],
   ['--on-accent', '--danger', 4.5, 'destructive buttons — Delete Model, confirm dialogs'],
+  // The icon-only bottom nav: with no label, each icon is the whole control
+  // and must clear the 3:1 non-text floor on its own (WCAG 1.4.11).
+  ['--ink-muted', '--paper', 3, 'bottom-nav icons, inactive'],
+  // (The current page's icon sits on --accent-soft, which is translucent and
+  // so not measurable here: blended over --paper it is 6.6:1 light, 8.5:1
+  // dark, and the icon also turns solid, so the state is never colour alone.)
+  ['--on-accent', '--accent', 3, 'bottom-nav Scan icon on its fill'],
+  ['--ink-muted', '--paper-raised', 4.5, 'placeholder cards — "No 3D model yet"'],
   // The notification system (lib/alerts). Each status wears its colour on
   // the icon, but is held to the TEXT threshold rather than the 3:1 icon one:
   // a status colour that only passes as an icon gets used for a word sooner

@@ -1226,6 +1226,22 @@ export async function listUploadedModels(limit = 200) {
  * database works out last use, idle days and cleanup eligibility; the console
  * only displays them, so the 365-day rule lives in one place.
  */
+/**
+ * The store's own models and where each stands against the one-year rule
+ * (0013): last use, whether the owners were emailed, the earliest day an
+ * admin could delete it. Worked out by the database, shown as-is.
+ */
+export async function listStoreModelLifecycle(storeUuid) {
+  return (await restCall('rpc/store_model_lifecycle', {
+    method: 'POST', body: JSON.stringify({ p_store: storeUuid })
+  })) || [];
+}
+
+/** "Keep 3D model": records a use of the store's own model, resetting its year. */
+export async function keepModel(assetId) {
+  return restCall('rpc/keep_model', { method: 'POST', body: JSON.stringify({ p_asset: assetId }) });
+}
+
 export async function listModelLifecycle() {
   return (await restCall('rpc/admin_model_lifecycle', { method: 'POST', body: '{}' })) || [];
 }

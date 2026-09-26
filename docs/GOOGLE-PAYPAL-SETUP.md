@@ -178,6 +178,7 @@ How deliveries are handled:
 ### Reminders
 
 - `vercel.json` runs `GET /api/cron/payment-reminders` daily at 01:00 UTC (09:00 in Manila), guarded by `CRON_SECRET`.
+- It also runs `GET /api/cron/model-notices` daily at 01:20 UTC (migration 0013): it emails a shop's owners once when one of its 3D models has gone 335 days unused. A model can be deleted by an admin only 30+ days after that email went; without `CRON_SECRET`, `PAYMENT_RECORDER_SECRET` and a working email sender no notice is sent, and so no model ever becomes deletable.
 - It emails each approved shop that is still not connected (`paypal_connection_required`), no more often than `PAYPAL_REMINDER_COOLDOWN_HOURS` and at most `PAYPAL_REMINDER_MAX` times.
 - A reminder counts only if the email was actually sent.
 - Page loads never send email. The portal shows one "Finish payment setup" banner, which can be dismissed for the session.

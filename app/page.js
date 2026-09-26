@@ -3,6 +3,7 @@ import { getCatalog, getStores } from '../lib/catalog.mjs';
 import HeroStage from './HeroStage.js';
 import Promises from './Promises.js';
 import ProductThumb from './ProductThumb.js';
+import { isListable } from './model-state.js';
 import CtaArrow from './CtaArrow.js';
 import RevealObserver from './RevealObserver.js';
 
@@ -172,7 +173,10 @@ export default async function HomePage() {
   // Rendered on the server, so the full catalogue is in the HTML a crawler or a
   // shared link receives — the filters below hydrate on top of it rather than
   // being the only way to see a product.
-  const [{ products }, stores] = await Promise.all([getCatalog(), getStores()]);
+  const [{ products: catalog }, stores] = await Promise.all([getCatalog(), getStores()]);
+  // The same pieces the collection shows: the category rail links there, so
+  // its counts must be of what the shopper will find.
+  const products = catalog.filter(isListable);
 
   const facts = {
     stores: Object.keys(stores).length,

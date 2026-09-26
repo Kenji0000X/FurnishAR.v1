@@ -431,7 +431,7 @@ console.log('--- the way in is findable ---');
   const phone = await browser.newPage({ viewport: { width: 390, height: 780 } });
   await phone.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
   check('the phone bar reaches the account too',
-    await phone.getAttribute('.bottom-nav-item:has-text("Account")', 'href') === '/account');
+    await phone.getAttribute('.bottom-nav-item[aria-label="Account"]', 'href') === '/account');
   /* The shopper's bar should not be a door into the store owner's portal. */
   check('and no longer points shoppers at the store portal',
     await phone.locator('.bottom-nav-item[href="/portal"]').count() === 0);

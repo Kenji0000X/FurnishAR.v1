@@ -424,38 +424,40 @@ const browser = await chromium.launch({
   await page.goto(`${BASE}/collection`);
   await page.waitForTimeout(600);
 
-  const cards = await page.locator('.product-card').evaluateAll(nodes => nodes.map(card => ({
+  const cards = await page.locator('article.product-card').evaluateAll(nodes => nodes.map(card => ({
     name: card.querySelector('.product-name')?.textContent?.trim(),
     src: card.querySelector('img.product-thumb')?.getAttribute('src') || null,
     empty: Boolean(card.querySelector('.product-thumb-empty')),
+    preparing: /Preparing preview/i.test(card.querySelector('.product-thumb-empty')?.textContent || ''),
     badge: Boolean(card.querySelector('.model-badge')),
     action: card.querySelector('.product-action')?.textContent?.trim(),
     unavailable: Boolean(card.querySelector('.product-action.is-unavailable'))
   })));
   check(cards.length > 0, 'the grid rendered', `${cards.length} cards`);
 
+  /* The collection lists only pieces with a real model (isListable), so every
+     card is one: a 3D badge, "View in my space", and either its own poster or
+     "Preparing preview…" — never "No 3D model yet" on a real card. */
   for (const card of cards) {
-    // Exactly one of the two: a real render, or an explicit empty state.
     check(Boolean(card.src) !== card.empty,
       `${card.name}: has either a render or an empty state, not both or neither`,
       card.src || (card.empty ? 'empty state' : 'NEITHER'));
-
-    // The badge, the picture and the action must all agree. A card claiming
-    // 3D with no render, or offering AR while saying it has no model, is the
-    // exact inconsistency this is here to catch.
-    check(card.badge === Boolean(card.src),
-      `${card.name}: the 3D badge matches whether there is a model`,
-      `badge=${card.badge} render=${Boolean(card.src)}`);
-    check(card.unavailable === !card.src,
-      `${card.name}: the action matches whether it can be placed`,
-      card.action);
-
-    // The thumbnail must be this product's own file, not a shared asset.
+    check(card.badge && !card.unavailable && /View in my space/i.test(card.action || ''),
+      `${card.name}: a listed piece has its 3D badge and AR action`,
+      `badge=${card.badge} action=${card.action}`);
+    check(card.src || card.preparing,
+      `${card.name}: no poster yet says "Preparing preview…", not "no model"`);
+    // The picture must be this product's own poster, not a shared asset.
     if (card.src) {
-      check(/^\/thumbs\//.test(card.src),
-        `${card.name}: the render comes from the thumbnail store`, card.src);
+      check(/\/product-posters\//.test(card.src),
+        `${card.name}: the render is its own catalogue poster`, card.src);
     }
   }
+  const fixtureListings = await page.locator('main').innerText();
+  check(!/Fixture Bed Frame|Fixture Cabinet/.test(fixtureListings),
+    'listings without a model are not in the collection');
+  check(await page.locator('.placeholder-card').count() === 0,
+    'with more than three real pieces there are no placeholders');
 
   // No two products may share a picture.
   const used = cards.map(c => c.src).filter(Boolean);

@@ -524,6 +524,8 @@ Authenticated never means "everything".
 | `GET /api/sb/model/<store>/<product>/<file>` | API | signed-in, authorized | the only way to a product model; `private, no-store` |
 | `POST /api/sb/storage/sign` | API | store members | signed upload URLs |
 | `POST /api/sb/models/poster\|revalidate\|admin-cleanup` | API | store owner / admin | catalogue posters, catalogue refresh, 365-day model cleanup (0012) |
+| `GET /api/cron/model-notices` | API (scheduler, `CRON_SECRET`) | — | emails owners 30 days before a model can be deleted; cleanup needs that notice (0013) |
+| `/api/sb/rest/rpc/store_model_lifecycle`, `keep_model` | API | store owner | the shop's own model lifecycle; "Keep 3D model" (0013) |
 
 ## 15. Database / data-store map
 

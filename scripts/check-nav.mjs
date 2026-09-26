@@ -178,8 +178,8 @@ const panel = await phone.locator('.drawer-panel').boundingBox();
 check('the drawer fits the screen', panel && panel.width <= 390, panel ? `${Math.round(panel.width)}px` : 'missing');
 await phone.keyboard.press('Escape');
 check('and the bottom bar points Collection at the route',
-  await phone.getAttribute('.bottom-nav-item:has-text("Collection")', 'href') === '/collection',
-  await phone.getAttribute('.bottom-nav-item:has-text("Collection")', 'href'));
+  await phone.getAttribute('.bottom-nav-item[aria-label="Collection"]', 'href') === '/collection',
+  await phone.getAttribute('.bottom-nav-item[aria-label="Collection"]', 'href'));
 await phone.close();
 
 check('no uncaught page errors', pageErrors.length === 0, pageErrors.slice(0, 2).join(' | '));

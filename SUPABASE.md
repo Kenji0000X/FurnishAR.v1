@@ -266,11 +266,16 @@ and only one of them is needed to run the platform.
 
 The repository ships no products and no 3D models. `supabase/seed.sql` creates
 the pilot stores only; stores add their furniture through the owner portal. A
-fresh project therefore shows "No furniture has been listed yet" on
-`/collection` — that is the correct state, not a fault. Each product's model is
+fresh project therefore shows three "No 3D model yet" placeholder cards on
+`/collection` — that is the correct state, not a fault. Only products with a
+3D model are listed there; placeholders are never products. Each product's model is
 uploaded to the private `furniture-models` bucket, and its catalogue picture
 (a small WebP rendered from that model when the owner saves) to the public
 `product-posters` bucket (migration 0012).
+
+Migration 0013 adds the owner notice: a model idle for 335 days is emailed to
+its shop by the daily `/api/cron/model-notices` job, and an admin can delete
+it only 30+ days after that email went.
 
 ### When a model will not show in AR
 

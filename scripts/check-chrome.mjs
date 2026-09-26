@@ -102,15 +102,35 @@ const slots = await phone.locator('.bottom-nav-item').count();
 check('every slot leads somewhere', slots >= 4 && slots <= 5, `${slots} destinations`);
 const tooSmall = await phone.evaluate(() =>
   [...document.querySelectorAll('.bottom-nav-item')]
-    .map(i => ({ t: i.textContent.trim(), w: Math.round(i.getBoundingClientRect().width) }))
-    .filter(i => i.w < 44));
+    .map(i => ({ t: i.getAttribute('aria-label'), w: Math.round(i.getBoundingClientRect().width), h: Math.round(i.getBoundingClientRect().height) }))
+    .filter(i => i.w < 44 || i.h < 44));
 check('none of them is narrower than a fingertip', tooSmall.length === 0,
   tooSmall.length ? JSON.stringify(tooSmall) : 'all >= 44px');
-const clipped = await phone.evaluate(() =>
-  [...document.querySelectorAll('.bottom-nav-label')]
-    .filter(l => l.scrollWidth > l.clientWidth + 1).map(l => l.textContent));
-check('and no label is cut off', clipped.length === 0,
-  clipped.length ? clipped.join(', ') : 'all labels fit');
+/* Icons only: no visible text in the bar, but every item keeps a name. */
+const naming = await phone.evaluate(() => [...document.querySelectorAll('.bottom-nav-item')].map(i => ({
+  name: i.getAttribute('aria-label') || '',
+  text: i.innerText.trim(),
+  icon: Boolean(i.querySelector('svg')),
+  iconSize: Math.round(i.querySelector('svg')?.getBoundingClientRect().width || 0)
+})));
+check('no visible text labels in the bar', naming.every(i => i.text === ''), JSON.stringify(naming.map(i => i.text)));
+check('every item has an icon and an accessible name',
+  naming.every(i => i.icon && i.name.length > 2), naming.map(i => i.name).join(', '));
+check('the names say where each goes',
+  ['Discover', 'Collection', 'Scan room', 'Device check', 'Account'].every(n => naming.some(i => i.name === n)));
+check('icons are 22–26px', naming.every(i => i.iconSize >= 22 && i.iconSize <= 26), naming.map(i => i.iconSize).join(', '));
+const activeLook = await phone.evaluate(() => {
+  const on = document.querySelector('.bottom-nav-item[aria-current="page"]');
+  const off = document.querySelector('.bottom-nav-item:not([aria-current]):not(.is-primary)');
+  const pill = el => getComputedStyle(el.querySelector('.bottom-nav-pill')).backgroundColor;
+  return { onColor: getComputedStyle(on).color, offColor: getComputedStyle(off).color, onPill: pill(on), offPill: pill(off),
+    accent: getComputedStyle(document.documentElement).getPropertyValue('--accent-ink').trim() };
+});
+check('the current item is visibly different: green icon on a filled pill',
+  activeLook.onColor !== activeLook.offColor && activeLook.onPill !== activeLook.offPill
+  && !/rgba\(0, 0, 0, 0\)|transparent/.test(activeLook.onPill), JSON.stringify(activeLook));
+const pageHeading = await phone.locator('h1').first().innerText().catch(() => '');
+check('the page still says where you are in words', pageHeading.trim().length > 0, pageHeading.slice(0, 40));
 check(
   'exactly one is marked current',
   await phone.locator('.bottom-nav-item[aria-current="page"]').count() === 1
@@ -121,19 +141,19 @@ await phone.waitForTimeout(300);
 const barBox = await phone.locator('.bottom-nav').boundingBox();
 check('it stays pinned at the bottom', barBox && Math.abs(barBox.y + barBox.height - 780) < 2,
   barBox ? `bottom ${Math.round(barBox.y + barBox.height)}` : 'missing');
-await phone.locator('.bottom-nav-item:has-text("Scan")').click();
+await phone.locator('.bottom-nav-item[aria-label="Scan room"]').click();
 await phone.waitForURL('**/plan', { timeout: 10000 }).catch(() => {});
 check('tapping Scan goes to the planner', new URL(phone.url()).pathname === '/plan', phone.url());
 check(
   'and Scan is now the current item',
-  await phone.locator('.bottom-nav-item[aria-current="page"]:has-text("Scan")').count() === 1
+  await phone.locator('.bottom-nav-item[aria-current="page"][aria-label="Scan room"]').count() === 1
 );
 
 /* The device check is reachable from the bar, and the page it lands on is the
    real one rather than a 404 wearing the site's chrome. It is the answer to
    "will the scanner work on my phone", so it has to be reachable FROM the
    phone that is failing — a footer link on a desktop is no use there. */
-await phone.locator('.bottom-nav-item:has-text("Device")').click();
+await phone.locator('.bottom-nav-item[aria-label="Device check"]').click();
 await phone.waitForURL('**/diagnose', { timeout: 10000 }).catch(() => {});
 check('tapping Device goes to the check', new URL(phone.url()).pathname === '/diagnose', phone.url());
 /* The page renders "Asking the browser…" until the capability probe resolves,

@@ -33,8 +33,13 @@ const FILTERS = [
 
 const bytes = value => (Number(value) > 0 ? formatBytes(value) : '0 B');
 
+const day = value => new Date(value).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' });
+
 function statusOf(model) {
   if (model.eligible) return { label: 'Eligible for cleanup', tone: 'is-danger' };
+  // 0013: the shop is emailed 30 days before; until then it cannot be deleted.
+  if (model.notice_sent_at) return { label: `Owner notified ${day(model.notice_sent_at)}`, tone: 'is-warning' };
+  if (model.notice_due) return { label: 'Owner notice pending', tone: 'is-warning' };
   if (model.idle_days >= HALF_YEAR) return { label: `Unused ${spanOf(model.idle_days)}`, tone: 'is-warning' };
   if (!model.last_accessed_at) return { label: 'No use recorded yet', tone: '' };
   return { label: 'Active', tone: 'is-success' };
@@ -101,7 +106,8 @@ export default function AdminModels() {
         <p>
           <b>Last used</b> is when FurnishAR last opened a model for anyone (a shopper, its shop or an
           administrator), or its upload if nobody has opened it since. A model can be deleted once it has gone
-          unused for a full year. Nothing is deleted automatically.
+          unused for a full year and its shop was emailed about it at least 30 days earlier. Nothing is deleted
+          automatically.
         </p>
       </section>
 
@@ -192,7 +198,11 @@ export default function AdminModels() {
                           <small className="cleanup-frees">Frees {formatBytes(model.byte_size)}</small>
                         </div>
                       ) : (
-                        <small>Delete available {new Date(model.eligible_on).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })}</small>
+                        <small>
+                          {model.notice_due && !model.notice_sent_at
+                            ? `Delete available 30 days after the shop is notified (${day(model.eligible_on)} at the earliest)`
+                            : `Delete available ${day(model.eligible_on)}`}
+                        </small>
                       )}
                     </td>
                   </tr>
@@ -216,6 +226,7 @@ export default function AdminModels() {
             {confirming.product_status === 'published' && (
               <li>This product is currently published. Deleting the model removes its AR availability; the product stays listed.</li>
             )}
+            {confirming.notice_sent_at && <li>The shop was emailed about this model on {day(confirming.notice_sent_at)}.</li>}
             <li>The product, its dimensions and its orders are not deleted.</li>
             <li>{formatBytes(confirming.byte_size)} of storage is freed{confirming.poster_path ? ', and the catalogue preview made from this model is removed too' : ''}.</li>
             <li>The shop can upload a new model at any time to restore AR.</li>

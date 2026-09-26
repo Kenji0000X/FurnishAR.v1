@@ -7,11 +7,14 @@
  *      private bucket.
  *   2. The collection shows that card from the poster alone: zero requests
  *      for any model while browsing.
- *   3. Card states: a model with no poster says "3D model available"; no
- *      model says "No 3D model yet" with no 3D badge; a poster that fails to
- *      load says "Preview unavailable" — never a broken image, never "no model".
- *   4. An empty database is an empty collection: the message, no filters,
- *      no "0 pieces", and no demo furniture.
+ *   3. Placeholders: with fewer than three real pieces the rest of the grid
+ *      is placeholder cards, never counted, never linked; each real upload
+ *      takes one's place. A listing without a model is not in the collection.
+ *   4. Card states: a model with no poster says "Preparing preview…" and
+ *      updates to the poster when it arrives; a poster that fails to load
+ *      says "Preview unavailable" — never a broken image, never "no model".
+ *   5. An empty database: three placeholders, no filters, no count, no rail,
+ *      no product details and no demo furniture, at phone and desktop widths.
  *
  *   node scripts/check-posters.mjs
  */
@@ -32,7 +35,9 @@ mkdirSync(SHOTS, { recursive: true });
 const objects = new Map();          // `${bucket}/${path}` → { bytes, type, cacheControl }
 const products = new Map();         // id → row
 const assets = [];                  // product_assets rows
-const log = { uploads: [], modelSigns: 0, accessRecords: 0, revalidations: 0, posterLinks: 0 };
+const log = { uploads: [], modelSigns: 0, accessRecords: 0, revalidations: 0, posterLinks: 0, kept: [] };
+// 0013: which products' models are 335+ days unused (the owner's lifecycle view).
+const atRisk = new Set();
 let catalogEmpty = false;
 let nextId = 1;
 const uuid = () => `6a6a${String(nextId++).padStart(4, '0')}-98f1-4b14-bec9-ddd8272d6819`;
@@ -99,6 +104,20 @@ const supabase = createServer((req, res) => {
     }
     if (url.startsWith('/rest/v1/rpc/is_platform_admin')) return send(200, false);
     if (url.startsWith('/rest/v1/rpc/my_role')) { log.revalidations += 1; return send(200, 'owner'); }
+    if (url.startsWith('/rest/v1/rpc/store_model_lifecycle')) {
+      return send(200, assets.filter(a => a.kind === 'glb').map(a => ({
+        asset_id: `asset-${a.product_id}`, kind: 'glb', product_id: a.product_id,
+        idle_days: atRisk.has(a.product_id) ? 340 : 3, at_risk: atRisk.has(a.product_id), eligible: false,
+        notice_sent_at: atRisk.has(a.product_id) ? new Date(Date.now() - 5 * 864e5).toISOString() : null,
+        deletable_from: new Date(Date.now() + (atRisk.has(a.product_id) ? 25 : 362) * 864e5).toISOString().slice(0, 10)
+      })));
+    }
+    if (url.startsWith('/rest/v1/rpc/keep_model')) {
+      const asset = JSON.parse(raw || '{}').p_asset || '';
+      log.kept.push(asset);
+      atRisk.delete(asset.replace(/^asset-/, ''));
+      return send(200, { status: 'kept' });
+    }
     if (url.startsWith('/rest/v1/rpc/record_model_access')) { log.accessRecords += 1; return send(200, true); }
     if (url.startsWith('/rest/v1/store_members')) {
       return send(200, [{ role: 'owner', stores: { id: STORE, slug: 'sc-variety', name: 'S&C Variety Store', plan: 'premium' } }]);
@@ -161,6 +180,20 @@ const check = (label, ok, detail = '') => {
 const BASE = `http://127.0.0.1:${APP_PORT}`;
 
 try {
+  console.log('--- nothing uploaded yet: three placeholders ---');
+  {
+    // Next keeps fetched data on disk between runs: start from this run's (empty) database.
+    await fetch(`${BASE}/api/sb/models/revalidate`, { method: 'POST', headers: { Authorization: 'Bearer u1', 'Content-Type': 'application/json' }, body: '{}' });
+    const first = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await first.goto(`${BASE}/collection`, { waitUntil: 'networkidle' });
+    const shape = await first.evaluate(() => ({
+      real: document.querySelectorAll('.product-grid article.product-card').length,
+      placeholders: document.querySelectorAll('.product-grid .placeholder-card').length
+    }));
+    check('zero real models: three placeholders, no cards', shape.real === 0 && shape.placeholders === 3, JSON.stringify(shape));
+    await first.close();
+  }
+
   console.log('--- an owner adds a product with a 3D model ---');
   const owner = await browser.newPage();
   await owner.goto(`${BASE}/portal`, { waitUntil: 'domcontentloaded' });
@@ -214,7 +247,7 @@ try {
   check('and does not ask to regenerate a preview that exists', !/Catalogue preview needed/.test(inventory));
   check('it says the catalogue preview is ready', /Catalogue preview ready/.test(inventory));
 
-  /* Three more listings, straight into the fake database. */
+  /* More listings, straight into the fake database. */
   const add = (name, extra = []) => {
     const id = uuid();
     products.set(id, { id, slug: name.toLowerCase().replace(/\s+/g, '-'), name, category: 'Table', style: 'Modern', color: 'Natural',
@@ -222,11 +255,45 @@ try {
     for (const kind of extra) {
       assets.push({ product_id: id, kind, object_path: kind === 'glb' ? `${STORE}/${id}/model.glb` : `${STORE}/${id}/poster-deadbeefdeadbeef.webp` });
     }
+    return id;
   };
+  const refresh = () => fetch(`${BASE}/api/sb/models/revalidate`, { method: 'POST', headers: { Authorization: 'Bearer u1', 'Content-Type': 'application/json' }, body: '{}' });
+  const shopperView = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  /* What the collection grid holds right now: real cards and placeholders. */
+  const grid = async () => {
+    await shopperView.goto(`${BASE}/collection`, { waitUntil: 'load' });
+    await shopperView.waitForTimeout(300);
+    return shopperView.evaluate(() => ({
+      real: document.querySelectorAll('.product-grid article.product-card').length,
+      placeholders: document.querySelectorAll('.product-grid .placeholder-card').length,
+      count: document.querySelector('.result-count')?.textContent.trim() || null,
+      names: [...document.querySelectorAll('.product-grid article .product-name')].map(n => n.textContent.trim()),
+      rail: document.querySelectorAll('.marquee-section').length
+    }));
+  };
+
+  console.log('--- real uploads take the placeholders\' places ---');
+  let g = await grid();
+  check('one real piece: 1 card and 2 placeholders, and "1 piece"',
+    g.real === 1 && g.placeholders === 2 && g.count === '1 piece', JSON.stringify(g));
   add('Plain Side Table');                       // no model, no poster
+  await refresh();
+  g = await grid();
+  check('a listing with no model is not shown in the collection at all',
+    g.real === 1 && g.placeholders === 2 && !g.names.includes('Plain Side Table'), JSON.stringify(g));
   add('Unposted Cabinet', ['glb']);              // model, no poster yet
+  await refresh();
+  g = await grid();
+  check('two real pieces: 2 cards and 1 placeholder, "2 pieces"',
+    g.real === 2 && g.placeholders === 1 && g.count === '2 pieces', JSON.stringify(g));
   add('Broken Poster Shelf', ['glb', 'poster']); // poster path whose file is missing
-  await fetch(`${BASE}/api/sb/models/revalidate`, { method: 'POST', headers: { Authorization: 'Bearer u1', 'Content-Type': 'application/json' }, body: '{}' });
+  await refresh();
+  g = await grid();
+  check('three real pieces: no placeholders left', g.real === 3 && g.placeholders === 0, JSON.stringify(g));
+  add('Extra Stool', ['glb']);
+  await refresh();
+  g = await grid();
+  check('more than three: the normal catalogue', g.real === 4 && g.placeholders === 0 && g.count === '4 pieces', JSON.stringify(g));
 
   console.log('--- a shopper browses the collection ---');
   const shopper = await browser.newPage({ viewport: { width: 390, height: 844 } });
@@ -292,6 +359,9 @@ try {
   check('the modelled piece shows its poster and a 3D badge',
     await card('Poster Test Bench').locator('img.product-thumb').count() === 1
     && await card('Poster Test Bench').locator('.model-badge').count() === 1);
+  const real = await card('Poster Test Bench').innerText();
+  check('and every real detail: name, store, price, size and "View in my space"',
+    /S&C Variety Store/i.test(real) && /₱/.test(real) && /cm/.test(real) && /View in my space/i.test(real), real.replace(/\s+/g, ' ').slice(0, 120));
   const cls = await card('Poster Test Bench').locator('img.product-thumb').evaluate(img => ({
     loading: img.loading, decoding: img.decoding, w: img.getAttribute('width'), h: img.getAttribute('height'),
     complete: img.complete && img.naturalWidth > 0
@@ -299,17 +369,20 @@ try {
   check('with its size declared and async decoding, so nothing jumps', cls.w === '640' && cls.h === '640' && cls.decoding === 'async', JSON.stringify(cls));
   check('and it actually loaded', cls.complete);
 
-  const plain = await card('Plain Side Table').innerText();
-  check('no model: "No 3D model yet", and no 3D badge',
-    /No 3D model yet/i.test(plain) && await card('Plain Side Table').locator('.model-badge').count() === 0);
-  check('and no "View in my space" on a piece that has no model',
-    !/View in my space/i.test(plain) && /Not available in AR/i.test(plain));
   const unposted = await card('Unposted Cabinet').innerText();
-  check('model but no poster: "3D model available", not "no model"', /3D model available/i.test(unposted) && !/No 3D model/i.test(unposted));
+  check('model but no poster: "Preparing preview…", not "no model"', /Preparing preview/i.test(unposted) && !/No 3D model/i.test(unposted));
   await card('Broken Poster Shelf').locator('.product-thumb-empty').waitFor({ timeout: 5000 }).catch(() => {});
   const broken = await card('Broken Poster Shelf').innerText();
   check('a poster that fails says "Preview unavailable", not "no model"', /Preview unavailable/i.test(broken) && !/No 3D model/i.test(broken), broken.slice(0, 80));
   check('and leaves no broken-image icon behind', await card('Broken Poster Shelf').locator('img').count() === 0);
+
+  console.log('--- a search does not pad its results with placeholders ---');
+  await shopper.fill('.catalog-search input', 'Bench');
+  await shopper.waitForTimeout(300);
+  check('one match, no placeholders beside it',
+    await shopper.locator('.product-grid article.product-card').count() === 1
+    && await shopper.locator('.product-grid .placeholder-card').count() === 0);
+  await shopper.fill('.catalog-search input', '');
 
   console.log('--- the owner sees what needs a preview ---');
   await owner.reload({ waitUntil: 'domcontentloaded' });
@@ -320,23 +393,76 @@ try {
   check('with a Regenerate preview action on the listing',
     await owner.locator('tr:has-text("Unposted Cabinet") button:has-text("Regenerate preview")').count() === 1);
 
-  console.log('--- an empty database is an empty collection ---');
+  console.log('--- the owner hears before a model can be deleted (0013) ---');
+  const stool = [...products.values()].find(p => p.name === 'Extra Stool').id;
+  atRisk.add(stool);
+  await owner.reload({ waitUntil: 'domcontentloaded' });
+  await owner.waitForSelector('#inventory', { timeout: 20000 });
+  await owner.waitForTimeout(800);
+  const warned = await owner.locator('.console-overview').innerText();
+  check('"Needs attention" warns about a model unused for 11 months, with the date',
+    /3D model unused for 11 months/i.test(warned) && /may delete it from/.test(warned), warned.replace(/\s+/g, ' ').slice(0, 160));
+  const stoolRow = owner.locator('tr:has-text("Extra Stool")');
+  check('the listing says when it can be deleted', /can be deleted from/.test(await stoolRow.innerText()));
+  check('only that listing offers "Keep 3D model"',
+    await stoolRow.locator('button:has-text("Keep 3D model")').count() === 1
+    && await owner.locator('button:has-text("Keep 3D model")').count() === 1);
+  await stoolRow.locator('button:has-text("Keep 3D model")').click();
+  await owner.locator('text=safe for another year').first().waitFor({ timeout: 10000 }).catch(() => {});
+  check('Keep calls the database for that model, and says so',
+    log.kept.includes(`asset-${stool}`) && await owner.locator('text=safe for another year').count() > 0, log.kept.join(','));
+  await owner.waitForTimeout(500);
+  check('and the warning is gone', await owner.locator('button:has-text("Keep 3D model")').count() === 0
+    && !/3D model unused for 11 months/i.test(await owner.locator('.console-overview').innerText()));
+
+  console.log('--- the preview finishes, and the card updates ---');
+  const cabinet = [...products.values()].find(p => p.name === 'Unposted Cabinet').id;
+  const benchPoster = poster && objects.get(poster.key);
+  const cabinetPoster = `product-posters/${STORE}/${cabinet}/poster-${'c'.repeat(16)}.webp`;
+  if (benchPoster) objects.set(cabinetPoster, benchPoster);
+  assets.push({ product_id: cabinet, kind: 'poster', object_path: cabinetPoster.replace('product-posters/', '') });
+  await refresh();
+  await shopperView.goto(`${BASE}/collection`, { waitUntil: 'networkidle' });
+  const updated = shopperView.locator('.product-card:has-text("Unposted Cabinet")');
+  check('the card now shows the real poster, and no longer "Preparing preview…"',
+    await updated.locator('img.product-thumb').count() === 1 && !/Preparing preview/i.test(await updated.innerText()));
+
+  console.log('--- an empty database: three placeholders, nothing else ---');
   catalogEmpty = true;
-  await fetch(`${BASE}/api/sb/models/revalidate`, { method: 'POST', headers: { Authorization: 'Bearer u1', 'Content-Type': 'application/json' }, body: '{}' });
+  await refresh();
   const errors = [];
-  const empty = await browser.newPage({ viewport: { width: 390, height: 844 } });
-  empty.on('pageerror', error => errors.push(error.message));
-  await empty.goto(`${BASE}/collection`, { waitUntil: 'networkidle' });
-  await empty.screenshot({ path: `${SHOTS}/collection-empty-390.png`, fullPage: true });
-  const text = await empty.locator('main').innerText();
-  check('it says nothing has been listed yet', /No furniture has been listed yet/.test(text) && /approved stores will appear here/.test(text));
-  check('no "0 pieces", no sort, no filters', !/0 pieces/.test(text) && await empty.locator('.filters, .sort-control, .result-count').count() === 0);
-  check('no marquee frame and no product cards', await empty.locator('.marquee-section, .product-card').count() === 0);
-  check('no demo furniture comes back', !/Cane Back/i.test(text));
-  check('no product-page links', await empty.locator('a[href^="/furniture/"]').count() === 0);
-  await empty.goto(`${BASE}/`, { waitUntil: 'networkidle' });
-  check('the home page renders with an empty catalogue', await empty.locator('h1').count() >= 1
-    && await empty.locator('a[href^="/furniture/"]').count() === 0);
+  for (const width of [320, 390, 1280]) {
+    const empty = await browser.newPage({ viewport: { width, height: width > 700 ? 900 : 844 } });
+    empty.on('pageerror', error => errors.push(error.message));
+    await empty.goto(`${BASE}/collection`, { waitUntil: 'networkidle' });
+    await empty.screenshot({ path: `${SHOTS}/collection-empty-${width}.png`, fullPage: true });
+    const text = await empty.locator('main').innerText();
+    const shape = await empty.evaluate(() => ({
+      placeholders: document.querySelectorAll('.placeholder-card').length,
+      hidden: [...document.querySelectorAll('.placeholder-card')].every(c => c.getAttribute('aria-hidden') === 'true'),
+      links: document.querySelectorAll('.placeholder-card a, a .placeholder-card').length,
+      overflow: document.documentElement.scrollWidth - window.innerWidth
+    }));
+    check(`${width}px: at least three neutral placeholders, none a link, hidden from screen readers`,
+      shape.placeholders >= 3 && shape.hidden && shape.links === 0, JSON.stringify(shape));
+    check(`${width}px: "Every piece", and the sentence that says why`,
+      /Every piece/i.test(text) && /No 3D models have been uploaded yet/.test(text) && /No 3D model yet/i.test(text));
+    check(`${width}px: no names, stores, prices, sizes, badges or AR actions`,
+      !/₱|\bcm\b|View in my space|S&C Variety|3D model available/i.test(text)
+      && await empty.locator('.model-badge, .product-price, .product-store, .product-action').count() === 0);
+    check(`${width}px: no search, filters, sort or count`,
+      !/\d+ pieces?/.test(text) && await empty.locator('.filters, .sort-control, .result-count, .catalog-search').count() === 0);
+    check(`${width}px: no "In the shops now" rail and no product links`,
+      await empty.locator('.marquee-section, a[href^="/furniture/"]').count() === 0);
+    check(`${width}px: no sideways scroll`, shape.overflow <= 0, `${shape.overflow}px`);
+    await empty.close();
+  }
+  const home = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  home.on('pageerror', error => errors.push(error.message));
+  await home.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  check('the home page renders with an empty catalogue', await home.locator('h1').count() >= 1
+    && await home.locator('a[href^="/furniture/"]').count() === 0);
+  check('no demo furniture comes back', !/Cane Back/i.test(await home.locator('main').innerText()));
   check('without page errors', errors.length === 0, errors.slice(0, 2).join(' | '));
 } finally {
   await browser.close();
