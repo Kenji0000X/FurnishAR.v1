@@ -41,6 +41,7 @@ let mayaPayments;
 let owns;
 let claimed;
 let storeProviders;
+let schema0015;
 
 function reply(status, body) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -53,6 +54,7 @@ test.beforeEach(() => {
   owns = true;
   claimed = true;
   storeProviders = ['paypal', 'maya'];
+  schema0015 = true;
   due = { order_id: ORDER, reference: 'ABC123', stage: 'full', amount: 2200, currency: 'PHP', platform_fee: 200,
           provider: 'maya', settlement_mode: 'platform_collect', provider_account_ref: null, provider_profile: null,
           merchant_id: null, store_name: 'Shop', product_name: 'Chair' };
@@ -75,7 +77,15 @@ test.beforeEach(() => {
     if (u.includes('/rest/v1/rpc/server_claim_webhook_event')) return reply(200, claimed);
     if (u.includes('/rest/v1/rpc/server_finish_webhook_event')) return reply(200, null);
     if (u.includes('/rest/v1/rpc/server_admin_emails')) return reply(200, ['admin@furnishar.ph']);
-    if (u.includes('/rest/v1/rpc/store_payment_providers')) return reply(200, storeProviders);
+    if (u.includes('/rest/v1/rpc/store_payment_providers')) {
+      return schema0015 ? reply(200, storeProviders)
+        : reply(404, { code: 'PGRST202', message: 'Could not find the function public.store_payment_providers' });
+    }
+    if (u.includes('/rest/v1/rpc/store_accepts_payments')) return reply(200, true);
+    if (u.includes('/v1/oauth2/token')) return reply(200, { access_token: 'pp-token', expires_in: 3600 });
+    if (u.endsWith('/v2/checkout/orders') && options.method === 'POST') {
+      return reply(201, { id: 'PAYPALORDER123', links: [{ rel: 'payer-action', href: 'https://paypal.test/approve' }] });
+    }
     if (u.includes('/rest/v1/rpc/record_capture')) {
       const applied = Number(body.p_amount) === 2200;
       return reply(200, { order_id: ORDER, status: applied ? 'paid' : 'pending_payment', applied, duplicate: false,
@@ -345,3 +355,25 @@ test('emails say which provider was used and, for Maya, who holds the money', ()
     { admin_emails: ['a@x'], amount: 2750, platform_fee: 250, stage: 'deposit', fee_mode: 'provider_settlement', provider: 'maya' }, SITE)[0];
   assert.match(expected.lines[0], /not collected until reconciled/);
 });
+
+test('PayPal calls stay exactly pre-0015, so they work before and after the migration', async () => {
+  due = { ...due, provider: 'paypal', merchant_id: 'SHOPMERCHANT1', settlement_mode: null, partner_fee_granted: false };
+  const result = await handleOrders(req, 'pay', { orderId: ORDER, provider: 'paypal' }, SITE);
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  assert.ok(!('p_provider' in find('begin_payment').body));
+  const attemptBody = find('server_record_payment_attempt').body;
+  assert.ok(!('p_provider' in attemptBody) && !('p_reference' in attemptBody));
+  // No method named at all is PayPal, as every caller before 0015.
+  calls = [];
+  assert.equal((await handleOrders(req, 'pay', { orderId: ORDER }, SITE)).status, 200);
+  assert.ok(!('p_provider' in find('begin_payment').body));
+});
+
+test('before 0015 is applied, a shop that takes payments is offered PayPal only', async () => {
+  schema0015 = false;
+  const result = await handleOrders({ method: 'GET', headers: {} }, 'providers', null, SITE, new URLSearchParams({ store: STORE }));
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.body.providers, ['paypal']);
+  assert.deepEqual(find('store_accepts_payments').body, { p_store: STORE, p_env: 'sandbox' });
+});
+

@@ -194,6 +194,11 @@ Until then every Maya payment is platform collect, and the copy says so.
 
 ## 9. Going live, in order
 
+**Deploy and migration order does not matter for PayPal.** Its calls are
+exactly the pre-0015 ones (the provider arguments are sent only for Maya), and
+`/api/sb/orders/providers` falls back to 0011's `store_accepts_payments` while
+0015 is absent. `tests/maya-server.test.js` pins both. Maya itself needs 0015.
+
 1. Apply `0015_payment_providers.sql` to the production Supabase project
    (after 0014, which is also not applied yet).
 2. Set `MAYA_PUBLIC_KEY` and `MAYA_SECRET_KEY` for **sandbox** on Vercel;

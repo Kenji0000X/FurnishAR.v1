@@ -1499,6 +1499,9 @@ export async function listStoreOrders(storeUuid) {
   )) || [];
 }
 
+const ACCOUNT_FIELDS = 'provider,environment,merchant_id,onboarding_status,payments_receivable,email_confirmed,'
+  + 'partner_fee_granted,status_detail,connected_at,last_checked_at,updated_at';
+
 /** How a store is paid, what kind it is, and what it owes FurnishAR. */
 export async function storeBilling(storeUuid) {
   const id = encodeURIComponent(storeUuid);
@@ -1508,9 +1511,10 @@ export async function storeBilling(storeUuid) {
     restCall('rpc/store_fee_summary', { method: 'POST', body: JSON.stringify({ p_store: storeUuid }) }),
     // 0011. Read under RLS: this store's members and admins only.
     // 0015: one row per provider; PayPal's and Maya's are kept apart here.
-    restCall(`store_payment_accounts?store_id=eq.${id}&select=provider,environment,merchant_id,onboarding_status,`
-      + 'payments_receivable,email_confirmed,partner_fee_granted,status_detail,connected_at,last_checked_at,updated_at,'
-      + 'settlement_mode&order=updated_at.desc').catch(() => []),
+    restCall(`store_payment_accounts?store_id=eq.${id}&select=${ACCOUNT_FIELDS},settlement_mode&order=updated_at.desc`)
+      // settlement_mode arrives with 0015; before it, read the PayPal columns alone.
+      .catch(() => restCall(`store_payment_accounts?store_id=eq.${id}&select=${ACCOUNT_FIELDS}&order=updated_at.desc`))
+      .catch(() => []),
     restCall(`store_remittances?store_id=eq.${id}&select=amount,reference,created_at&order=created_at.desc&limit=20`)
       .catch(() => [])
   ]);
