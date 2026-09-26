@@ -1494,8 +1494,24 @@ export async function getOrderReceipt(orderId) {
 
 /** A store's incoming orders, for its owner. */
 export async function listStoreOrders(storeUuid) {
+  // With each order's recorded payments (RLS: this store's members and admins),
+  // so the shop sees what the buyer paid and how FurnishAR's fee was handled.
   return (await restCall(
-    `orders?select=${ORDER_FIELDS}&store_id=eq.${encodeURIComponent(storeUuid)}&order=created_at.desc&limit=100`
+    `orders?select=${ORDER_FIELDS},payments(stage,amount,platform_fee,provider,applied,fee_mode,platform_fee_collected,captured_at)`
+    + `&store_id=eq.${encodeURIComponent(storeUuid)}&order=created_at.desc&limit=100`
+  )) || [];
+}
+
+/**
+ * Admin: the latest PayPal payments with their money split, read under RLS
+ * (payments are visible to platform admins). store_portion and fee_status
+ * are computed by the database (0017), never here.
+ */
+export async function recentPaypalPayments(limit = 50) {
+  return (await restCall(
+    'payments?provider=eq.paypal&select=capture_id,provider_order_id,stage,amount,platform_fee,store_portion,'
+    + 'fee_mode,fee_status,platform_fee_collected,processing_fee,refunded_amount,applied,captured_at,'
+    + `orders(reference),stores(name)&order=captured_at.desc&limit=${Number(limit) || 50}`
   )) || [];
 }
 

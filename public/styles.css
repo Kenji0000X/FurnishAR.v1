@@ -5321,6 +5321,10 @@ dialog, .drawer-panel { overscroll-behavior: contain; }
 .order-head h3 { font-size: 1rem; margin: 0; }
 .order-ref { font-family: var(--mono); font-size: var(--micro); letter-spacing: .1em; color: var(--ink-faint); }
 .order-meta { color: var(--ink-muted); font-size: .8125rem; font-variant-numeric: tabular-nums; }
+.order-payments { display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); gap: .35rem 1rem;
+  margin: .5rem 0; font-size: .8125rem; font-variant-numeric: tabular-nums; }
+.order-payments dt { color: var(--ink-muted); }
+.order-payments dd { margin: 0; font-weight: 600; }
 .order-status {
   display: inline-block; padding: .15rem .55rem; border-radius: 999px;
   font-family: var(--mono); font-size: var(--micro); letter-spacing: .08em; text-transform: uppercase;
@@ -5688,3 +5692,7 @@ td .status-chip { margin-inline-start: 0; }
     0 0 0 6px var(--paper-raised),
     0 0 0 7px var(--rule);
 }
+
+/* Admin billing: every PayPal payment with its split (0017). */
+.paypal-payments { margin-top: 2rem; }
+.paypal-payments h2 { font-size: 1.125rem; margin: 0 0 .75rem; }

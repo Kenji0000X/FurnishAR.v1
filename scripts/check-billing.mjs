@@ -206,7 +206,8 @@ const supabase = createServer((req, res) => {
         stores: { name: o.store_id === STOCK_STORE ? 'Stock Shop' : 'Maker Shop', slug: 'x', address: 'Mamburao', contact_number: '0917' },
         payments: recorded.filter(r => r.p_order === o.id && r.p_secret === SECRET && !r.duplicate)
           .map(r => ({ stage: r.p_stage, amount: r.p_amount, capture_id: r.p_capture, captured_at: new Date().toISOString(),
-                       applied: true, provider: r.p_provider || 'paypal', payment_method: r.p_method || null })) })));
+                       applied: true, provider: r.p_provider || 'paypal', payment_method: r.p_method || null,
+                       platform_fee: r.p_stage === 'full' ? o.platform_fee : 0, fee_mode: 'accrual', platform_fee_collected: null })) })));
     }
     if (u.startsWith('/rest/v1/rpc/update_delivery_status')) {
       const order = orders.find(o => o.id === body.p_order);
@@ -270,6 +271,14 @@ const supabase = createServer((req, res) => {
       Object.assign(order, { status: 'quoted', subtotal: body.p_price, platform_fee: body.p_price * 0.1,
         total: body.p_price * 1.1, deposit_amount: body.p_price * 0.55, lead_time_days: body.p_lead_days });
       return send(200, { order_id: order.id, status: 'quoted' });
+    }
+    if (u.startsWith('/rest/v1/payments')) {
+      // Admin's PayPal payments list (0017 columns), under RLS: admins only.
+      return send(200, role !== 'admin' ? [] : recorded.filter(r => (r.p_provider || 'paypal') === 'paypal' && !r.duplicate).map(r => ({
+        capture_id: r.p_capture, provider_order_id: r.p_provider_order, stage: r.p_stage, amount: r.p_amount,
+        platform_fee: 200, store_portion: r.p_amount - 200, fee_mode: 'accrual', fee_status: 'accrued',
+        platform_fee_collected: null, processing_fee: null, refunded_amount: 0, applied: true,
+        captured_at: new Date().toISOString(), orders: { reference: 'REF1' }, stores: { name: 'Stock Shop' } })));
     }
     if (u.startsWith('/rest/v1/products')) return send(200, []);
     send(200, []);
@@ -598,6 +607,11 @@ try {
   await owner.goto(`${APP}/portal`);
   await owner.locator('#billing-title').waitFor({ timeout: 20000 }).catch(() => {});
   await shot(owner, 'portal-orders');
+  const paidCard = await owner.locator('.order-payments').first().innerText().catch(() => '');
+  check('the shop sees what the buyer paid, its subtotal and FurnishAR\'s fee (owed, not its own)',
+    /Provider\s*PayPal/.test(paidCard) && /Buyer paid\s*₱2,200\.00/.test(paidCard)
+    && /Furniture subtotal\s*₱2,000\.00/.test(paidCard) && /FurnishAR service fee\s*₱200\.00 · owed to FurnishAR/.test(paidCard),
+    paidCard.replace(/\s+/g, ' '));
   await owner.getByRole('button', { name: 'Send quote' }).first().click();
   await owner.locator('.order-quote input[name="price"]').fill('5000');
   await owner.locator('.order-quote input[name="leadDays"]').fill('14');
@@ -663,9 +677,14 @@ try {
   check('the table has provider columns and per-method sales', /GCash via PayMongo/.test(tableHead)
     && /PayPal Sales/.test(tableHead) && /GCash Sales/.test(tableHead) && /Held \/ Expected/.test(tableHead), tableHead);
   await admin.getByRole('button', { name: 'GCash', exact: true }).click();
-  check('filtering to GCash shows no PayPal-only shop', await admin.locator('tbody tr', { hasText: 'Stock Shop' }).count() === 0);
+  check('filtering to GCash shows no PayPal-only shop', await admin.locator('table').first().locator('tbody tr', { hasText: 'Stock Shop' }).count() === 0);
   check('an admin can open GCash setup for a store', await admin.getByRole('button', { name: 'All', exact: true }).click().then(
     () => admin.getByRole('button', { name: /GCash setup for Stock Shop/ }).count()) === 1);
+  const paypalTable = await admin.locator('.paypal-payments').innerText().catch(() => '');
+  check('admin billing lists each PayPal payment: gross, store portion, fee, mode and status',
+    /Gross Buyer Payment/i.test(paypalTable) && /Store Portion/i.test(paypalTable) && /₱2,200\.00/.test(paypalTable)
+    && /₱2,000\.00/.test(paypalTable) && /₱200\.00/.test(paypalTable) && /Accrual/i.test(paypalTable) && /Accrued/i.test(paypalTable)
+    && !/Collected|Received/i.test(paypalTable), paypalTable.replace(/\s+/g, ' ').slice(0, 300));
   await shot(admin, 'admin-billing');
 } finally {
   await browser.close();

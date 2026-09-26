@@ -78,3 +78,17 @@ provider **PayMongo**, with **GCash** as its payment method
 Authentication is unchanged. Google identifies a person. Their role, and
 whether they may pay, is still decided by `my_role()` and the database.
 Neither PayPal nor GCash is an identity; a GCash number is never used to identify anyone.
+
+## 6. What 0017 adds: PayPal split proof and payment emails (2026-09-26)
+
+| Step | Before | Now |
+|---|---|---|
+| Already-captured PayPal order (webhook first, or a refresh) | recorded as PayPal reported it | must still match the recorded attempt (order, stage, amount, currency, payee, requested fee) |
+| Payment row | amount, fee, fee mode | also `store_portion` and `fee_status` (collected only when PayPal reported the fee), and PayPal's processing fee |
+| Emails after payment | sent by the path that recorded it, best effort | queued by the database with the payment (buyer, store, superadmin), claimed once, retried on failure |
+| Refund of a split payment | fee refunded proportionally when PayPal gave no figure | fee counts as refunded only when PayPal says so; superadmin emailed |
+
+Recipients always come from the database (`order_contacts_for`,
+`server_admin_emails`), never from the checkout request. Google stays the
+identity; a PayPal account is where a shop is paid, never who anyone is.
+
