@@ -53,6 +53,7 @@ The DFD is aligned with the current repository routes:
 - `POST /api/sb/payments/connect|refresh`, `GET /api/sb/payments/admin` (PayPal seller connection)
 - `POST /api/paypal/webhook` (PayPal → P10)
 - `GET /api/cron/payment-reminders` (scheduler → P10 → Email)
+- `GET /api/cron/model-notices` (scheduler → P8 → Email: models 30 days from deletable, 0013)
 - `GET /api/sb/status`
 - `GET|HEAD|POST|PATCH|DELETE /api/sb/rest/<allowlisted-resource>`
 - `GET /api/sb/model/<store-id>/<product-id>/<file>` (also records the model's last use, 0012)
@@ -78,6 +79,8 @@ The DFD is aligned with the current repository routes:
 | `POST /api/sb/models/poster` | P7 link the catalogue poster rendered from the model | D2, D6 |
 | `POST /api/sb/models/revalidate` | P7 / P8 refresh the cached catalogue after a change | — |
 | `POST /api/sb/models/admin-cleanup`; `/api/sb/rest/rpc/admin_model_lifecycle` | P8 model lifecycle and 365-day cleanup | D2, D3, D6, D4 (audit) |
+| `GET /api/cron/model-notices` | P8 8.3 Notify Owner → Email Service (server secret; marks `expiry_notice_at` only when sent) | D2 (`product_assets`), D1 (owner emails) |
+| `/api/sb/rest/rpc/store_model_lifecycle`, `keep_model` | P7 the shop's own model lifecycle; "Keep 3D model" records a use | D2 |
 | `/api/sb/status` | Health (no process data) | — |
 | `GET /api/sb/orders/config` | P10 — are payments / emails switched on (no secrets) | — |
 | `POST /api/sb/orders/checkout`, `pay`, `capture`, `request`, `cancel` | P10 Orders & Payments (buyer) | D2, D5, PayPal |
@@ -297,15 +300,20 @@ flowchart LR
     S[Shopper] --> COL[/collection/] --> POS[Poster image only\nno model request]
     S --> V3[View 3D / AR] --> AUTH[Authentication] --> AZ[Authorization\ncan_view_model] --> SIG[Signed GLB, 5 min] --> LA[last_accessed_at]
 
+    CRON[Daily job\n/api/cron/model-notices] -->|335 days idle,\nnot yet told| MAIL[Email the shop's owners]
+    MAIL -->|only if sent| NT[(expiry_notice_at)]
+    O -->|Keep 3D model / open it| LA
+
     AD[Superadmin] --> FILES[/admin/models\nlast used · idle days · status/]
-    FILES -->|365+ days unused| CONF[Confirm: type DELETE]
+    FILES -->|365+ days unused\nAND notified 30+ days ago| CONF[Confirm: type DELETE]
     CONF --> SD[Storage delete as admin\npolicy re-checks eligibility]
     SD --> MD[admin_delete_stale_model\nre-checks, deletes rows]
     MD --> AU[(admin_audit\nmodel.deleted_stale)]
 ```
 
 - **Last used** = the later of the upload and the last access (`model_last_used()`); a model never opened is measured from its upload, and a replaced model starts again. **Old is not idle.**
-- **Eligible** = a glb/usdz whose last use is at least 365 days ago (`model_cleanup_eligible()`, the only copy of the rule). Nothing is deleted automatically.
+- **Eligible** = a glb/usdz whose last use is at least 365 days ago **and** whose shop was emailed about it (for this idle spell) at least 30 days ago (`model_cleanup_eligible()`, the only copy of the rule, 0013). Nothing is deleted automatically.
+- **Owner notice (0013).** At 335 idle days the daily job emails the shop's owners once, listing each model and the day it can be deleted. `expiry_notice_at` is written only when an email actually went (`server_mark_model_notice`, behind the server secret); no email, no notice, and so no deletion. A notice from before the model's last use stops counting. The portal shows the same state (`store_model_lifecycle`) with a **Keep 3D model** action that records a use and restarts the year; a re-upload clears the notice with the clock.
 - Only a successful grant counts as use: never a poster load, a product page view, or a refused or failed request. Only the time is kept — no user, no count.
 - Cleanup removes the model file, its poster and their rows. The product, its dimensions and its orders stay; it is still listed, without AR.
 
@@ -366,7 +374,7 @@ flowchart LR
 Handles buyer login/signup, store-owner login, admin sign-in, **Sign in with Google** (Supabase Auth, PKCE with the verifier held server-side, identity scopes only, Google's provider tokens discarded), refresh, logout, and role resolution. Role comes from `my_role()` only: `admin` (platform_admins — never from Google), `owner`, `pending`, `buyer`, or `onboarding` (signed in, no role yet → `/onboarding`: buyer asks only for a municipality; store files an application linked by account id).
 
 ### P2 Browse Collection
-Public catalogue browsing through `/` and `/collection`. A card shows the product's poster (D6) and never loads its model. A configured database that returns no products is an empty collection — the bundled demo catalogue is gone, and a failed read is shown as "couldn't be loaded", not filled in.
+Public catalogue browsing through `/` and `/collection`. Only products with a 3D model are listed; with fewer than three, placeholder cards ("No 3D model yet") fill the row — presentation only, never products. A card shows the product's poster (D6), or "Preparing preview…" while it has none, and never loads its model. A configured database that returns no products is an empty collection — the bundled demo catalogue is gone, and a failed read is shown as "couldn't be loaded", not filled in.
 
 ### P3 Product Details
 Public furniture information. The product page does not directly expose the protected 3D file.
@@ -499,8 +507,14 @@ Where this DFD and the code disagreed, and which one moved.
 - RECOMMENDED ARCHITECTURE: an empty database is an empty collection; D6 public posters rendered from each model in the owner's browser; 5.5 records last use; P8 may delete a model unused for 365 days, re-checked by Storage and the database at the moment of deletion, audited, product kept.
 - REASON: requested. **Code, DFD and drawio changed together** (migration 0012, `lib/catalog.mjs`, `lib/models.js`, `app/portal/poster.js`, `/admin/models`; drawio: D6 on Level 1, 5.5 on Level 2 5.0, new Level 2 page "Posters & Model Lifecycle").
 
+**14. Owner notice before a model can be deleted; placeholder cards (added 2026-09-26)**
+- DFD ISSUE: 8.2 could delete a shop's model without the shop ever being told; P2's collection listed products with no model beside real ones, with a price, size and "Not available in AR".
+- CURRENT CODE BEHAVIOR (before): a model became deletable at 365 idle days with no notice; the collection showed incomplete listings as products.
+- RECOMMENDED ARCHITECTURE: new 8.3 Notify Owner (daily, P8 → Email Service → Store Owner) at 335 idle days; eligibility needs a delivered notice at least 30 days old; P7 shows the shop its own lifecycle and "Keep 3D model". P2's collection lists only products with a model; with fewer than three it adds placeholder cards, which are presentation only (never counted, linked, searched or stored). A model without a poster reads "Preparing preview…".
+- REASON: requested. **Code, DFD and drawio changed together** (migration 0013, `lib/model-notices.js`, `/api/cron/model-notices`, `app/PlaceholderCard.js`, `app/model-state.js`; drawio: 8.3 on the lifecycle page).
+
 **12. Database state**
-- Migrations 0005 (bucket limit), 0006 (buyers, `my_role`) and 0007 (private `furniture-models` bucket, `can_view_model` policy) are applied to the live project. 0012 (public `product-posters` bucket, `last_accessed_at`, lifecycle functions and cleanup policies) is applied too (2026-09-25); the models bucket stays private. 0008 takes trigger functions off the RPC surface and stops anonymous calls to `can_view_model`.
+- Migrations 0005 (bucket limit), 0006 (buyers, `my_role`) and 0007 (private `furniture-models` bucket, `can_view_model` policy) are applied to the live project. 0012 (public `product-posters` bucket, `last_accessed_at`, lifecycle functions and cleanup policies) is applied too (2026-09-25); the models bucket stays private. 0013 (owner notice: `expiry_notice_at`, `model_notice_due`, the notice-aware `model_cleanup_eligible`, `server_models_due_notice`, `server_mark_model_notice`, `store_model_lifecycle`, `keep_model`) is in the repository and must be applied to the live project with the deployment. 0008 takes trigger functions off the RPC surface and stops anonymous calls to `can_view_model`.
 
 ## DFD artifact
 
@@ -514,7 +528,7 @@ The companion `FURNISHAR-DFD-V2.drawio` holds every diagram as a draw.io page. O
 | Level 2 — 1.0 Google Sign-in & Onboarding | 1.6 Start Google Sign-in (PKCE) · 1.7 Exchange Code · 1.3 Resolve Role · 1.8 Onboard (0011) |
 | Level 2 — 10.9–10.13 PayPal Seller, Webhooks & Reminders | seller onboarding and status, verified webhooks, fee mode, payment-setup reminders (0011) |
 | Level 2 — 5.0 3D Access & Authorization | 5.1 Validate · 5.2 Verify Session · 5.3 Authorize & Sign · 5.4 Deliver Signed URL · 5.5 Record Model Use |
-| Level 2 — 7.0/8.0 Posters & Model Lifecycle | 7.1 Check & Render Poster · 7.2 Upload · 2.1 Show Card · 8.1 Review Lifecycle · 8.2 Delete Stale Model (0012) |
+| Level 2 — 7.0/8.0 Posters & Model Lifecycle | 7.1 Check & Render Poster · 7.2 Upload · 2.1 Show Card · 8.1 Review Lifecycle · 8.2 Delete Stale Model (0012) · 8.3 Notify Owner (0013) |
 | Level 2 — 10.0 Orders & Payments | 10.1–10.8: place/cancel, quote, start payment, capture, fulfil, notify, billing, view |
 | Level 3 — 5.3 Authorize & Sign Object | the three rules of `can_view_model` and the refusal handling |
 | Level 3 — 10.4 Capture & Record Payment | fetch, re-check, match & capture, secret check, record, report |

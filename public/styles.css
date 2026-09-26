@@ -1564,6 +1564,36 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
 .catalog-empty-mark { font-size: 1.75rem; color: var(--ink-faint); }
 .catalog-empty-title { margin: 0; font-size: clamp(1.15rem, 1rem + .6vw, 1.4rem); font-weight: 600; letter-spacing: -.02em; color: var(--ink); }
 .catalog-empty-copy { margin: 0; color: var(--ink-muted); }
+.catalog-empty-note { margin: .35rem 0 0; color: var(--ink-muted); }
+
+/*
+   A placeholder card (app/PlaceholderCard.js): the shape of a piece to come,
+   never a piece. Same well and radius as a real card so the grid keeps its
+   rhythm, but quieter than any real product: a dashed rule instead of the
+   well's fill (an empty slot, not a sunken picture frame), one light icon,
+   two short lines, no caption beneath. No hover response — there is nothing
+   to open.
+*/
+.placeholder-media {
+  display: grid; place-content: center; justify-items: center; gap: .4rem;
+  padding: 1.25rem;
+  background: var(--paper-raised);
+  border: 1px dashed var(--rule-strong);
+  color: var(--ink-faint);
+  text-align: center;
+}
+.product-card.placeholder-card:hover .placeholder-media { border-color: var(--rule-strong); }
+.placeholder-icon { width: 24px; height: 24px; opacity: .8; }
+.placeholder-title {
+  margin: .25rem 0 0;
+  font-size: .9375rem; font-weight: 600; letter-spacing: -.01em;
+  color: var(--ink-muted);
+}
+.placeholder-copy { margin: 0; max-width: 16ch; font-size: .8125rem; line-height: 1.4; color: var(--ink-muted); }
+/* On a two-up phone grid a card is ~170px: the title is enough there. */
+@media (max-width: 480px) {
+  .placeholder-copy { display: none; }
+}
 
 /*
    The CSS-drawn furniture illustration lived here: about fifty rules that
@@ -3518,21 +3548,26 @@ body:has(.cookie-notice):not(:has(.bottom-nav)) {
     display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
     list-style: none; margin: 0; padding: 0;
   }
+  /* Icons only (the names are aria-labels), so the bar is shorter than when
+     it carried a label under each: a 44px-plus target, a 24px icon. */
   .bottom-nav-item {
-    display: grid; justify-items: center; gap: .15rem;
-    padding: .45rem .2rem .5rem;
-    min-height: var(--tap);
-    color: var(--ink-faint);
+    display: grid; place-items: center;
+    padding: .3rem .2rem;
+    min-height: calc(var(--tap) + .5rem);
+    /* Muted, not faint: with no label beside it the icon is the only mark,
+       and it has to clear 3:1 against the bar on its own. */
+    color: var(--ink-muted);
     text-decoration: none;
     transition: color var(--dur-fast) var(--ease-out);
   }
-  .bottom-nav-item.is-active { color: var(--ink); }
+  /* The one place the accent green marks where you are: icon and pill. */
+  .bottom-nav-item.is-active { color: var(--accent-ink); }
 
-  /* The pill behind the icon. This is reference style 6: the active
-     destination's icon sits on a filled shape, with the label beneath. */
+  /* The pill behind the icon: the active destination's icon sits on a filled
+     shape. */
   .bottom-nav-pill {
     display: grid; place-items: center;
-    width: 52px; height: 30px;
+    width: 56px; height: 36px;
     /* The one rounded shape in a square-cornered system, and for the same
        reason the capsule rail is: it travels (it moves between destinations)
        rather than sitting still. BRAND.md §5 — square acts, rounded travels. */
@@ -3540,22 +3575,14 @@ body:has(.cookie-notice):not(:has(.bottom-nav)) {
     transition: background var(--dur-fast) var(--ease-out);
   }
   .bottom-nav-item.is-active .bottom-nav-pill { background: var(--accent-soft); }
-  .bottom-nav-pill svg { width: 22px; height: 22px; display: block; }
-
-  .bottom-nav-label {
-    /* .58rem measured 9.28px — under the 11px floor, on the labels that name
-       every destination in the app. The bar has the room. */
-    font-family: var(--mono); font-size: .6875rem;
-    letter-spacing: .04em; text-transform: uppercase;
-  }
-  .bottom-nav-item.is-active .bottom-nav-label { color: var(--accent-ink); }
+  .bottom-nav-pill svg { width: 24px; height: 24px; display: block; }
 
   /* Scan is what this product is for, so it is the one that is raised. */
   /* Scan is the brand's action, so it wears the brand's fill rather than
      plain ink — the same brown as the primary button, which is what it is. */
   .bottom-nav-item.is-primary .bottom-nav-pill {
     background: var(--accent); color: var(--on-accent);
-    width: 56px; height: 34px;
+    width: 60px; height: 40px;
   }
   .bottom-nav-item.is-primary.is-active .bottom-nav-pill { background: var(--accent-ink); color: var(--on-accent); }
 
@@ -3576,7 +3603,7 @@ body:has(.cookie-notice):not(:has(.bottom-nav)) {
      Scoped to pages that actually have a bar: the workspace routes no longer
      render one, and reserving space for it there is a strip of dead page. */
   body:has(.bottom-nav) {
-    padding-bottom: calc(4.4rem + env(safe-area-inset-bottom) + var(--notice-space, 0px));
+    padding-bottom: calc(3.9rem + env(safe-area-inset-bottom) + var(--notice-space, 0px));
   }
 
   /* Everything else pinned to the bottom of the screen has to clear the bar.
@@ -3584,8 +3611,8 @@ body:has(.cookie-notice):not(:has(.bottom-nav)) {
      put its buttons exactly where the nav's are, so the first tap after
      landing hit the wrong thing. These are the three fixed things this app
      has; each is lifted by the bar's height. */
-  .cookie-notice { bottom: calc(5.6rem + env(safe-area-inset-bottom)); }
-  .back-to-top { bottom: calc(5.6rem + env(safe-area-inset-bottom)); }
+  .cookie-notice { bottom: calc(4.8rem + env(safe-area-inset-bottom)); }
+  .back-to-top { bottom: calc(4.8rem + env(safe-area-inset-bottom)); }
   /* Except in AR, which is full-screen and has its own controls. */
   body:has(.ar-layer) .bottom-nav { display: none; }
 }
@@ -5635,3 +5662,12 @@ td .status-chip { margin-inline-start: 0; }
 .paypal-help summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .paypal-help ol { margin: .6rem 0 .4rem; padding-inline-start: 1.2rem; display: grid; gap: .35rem; font-size: .875rem; color: var(--ink-muted); }
 .paypal-help a { color: var(--accent-ink); }
+
+/* A placeholder is not a product: it keeps the well's frame but never lifts
+   or tints on hover, because there is nothing to open. */
+.product-card.placeholder-card:hover .product-media {
+  transform: none;
+  box-shadow:
+    0 0 0 6px var(--paper-raised),
+    0 0 0 7px var(--rule);
+}

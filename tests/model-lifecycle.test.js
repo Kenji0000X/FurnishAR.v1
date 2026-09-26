@@ -88,12 +88,20 @@ function listing(slug, { poster = true, status = 'published' } = {}) {
   return { product, asset, glbPath, posterPath };
 }
 
-/** Moves a model's history back in time (only a superuser can: that is the point). */
-function age(asset, { uploaded, accessed }) {
+/**
+ * Moves a model's history back in time (only a superuser can: that is the
+ * point). `noticed` is how many days ago the owners were emailed (0013); left
+ * out, it is what the daily notice job would have done — sent on the day the
+ * model reached 335 idle days — and `null` means no notice was ever sent.
+ */
+function age(asset, { uploaded, accessed, noticed }) {
+  const idle = accessed ?? uploaded;
+  const notice = noticed !== undefined ? noticed : idle >= 335 ? idle - 335 : null;
   psql(`alter table public.product_assets disable trigger product_assets_lifecycle;
         update public.product_assets set
           created_at = now() - interval '${uploaded} days',
-          last_accessed_at = ${accessed == null ? 'null' : `now() - interval '${accessed} days'`}
+          last_accessed_at = ${accessed == null ? 'null' : `now() - interval '${accessed} days'`},
+          expiry_notice_at = ${notice == null ? 'null' : `now() - interval '${notice} days'`}
         where id = '${asset}';
         alter table public.product_assets enable trigger product_assets_lifecycle;`);
 }
@@ -111,11 +119,12 @@ db('a model uploaded today has never been used and is not eligible', () => {
 
 db('an owner cannot forge the lifecycle: last access and upload time are the database\'s', () => {
   const { asset } = listing('forged');
-  as(ids.owner, `update public.product_assets set last_accessed_at = '2000-01-01', created_at = '2000-01-01'
-                  where id = '${asset}'`);
+  as(ids.owner, `update public.product_assets set last_accessed_at = '2000-01-01', created_at = '2000-01-01',
+                  expiry_notice_at = '2000-01-01' where id = '${asset}'`);
   const row = lifecycle(asset);
   assert.equal(row.last_accessed_at, null, 'last access cannot be written by the owner');
   assert.equal(row.eligible, false, 'backdating the upload must not make it deletable');
+  assert.equal(row.notice_sent_at, null, 'nor can an owner record a notice');
 });
 
 db('a successful, authorised access records the time; a refused one does not', () => {
@@ -147,7 +156,7 @@ db('364 days unused is not eligible; 365 is', () => {
   age(almost.asset, { uploaded: 500, accessed: 364 });
   assert.equal(lifecycle(almost.asset).eligible, false);
   assert.match(refused(ids.admin, `select public.admin_delete_stale_model('${almost.asset}')`),
-    /used recently and is no longer eligible/);
+    /used recently/);
 
   const stale = listing('stale-never-opened');
   age(stale.asset, { uploaded: 400, accessed: null });
@@ -170,7 +179,7 @@ db('only a platform admin may delete, and only an eligible model file', () => {
   assert.equal(as(ids.admin, `with d as (delete from storage.objects where bucket_id = 'furniture-models'
                                          and name = '${recent.glbPath}' returning 1) select count(*) from d`),
     '0', 'Storage refuses an admin delete of a model that is not eligible');
-  assert.match(refused(ids.admin, `select public.admin_delete_stale_model('${recent.asset}')`), /no longer eligible/);
+  assert.match(refused(ids.admin, `select public.admin_delete_stale_model('${recent.asset}')`), /not eligible for cleanup/);
 });
 
 db('a model opened after the page loaded is re-checked and refused at deletion', () => {
@@ -180,7 +189,7 @@ db('a model opened after the page loaded is re-checked and refused at deletion',
   as(ids.buyer, `select public.record_model_access('${glbPath}')`);   // …a shopper opens it…
   assert.equal(as(ids.admin, `with d as (delete from storage.objects where bucket_id = 'furniture-models'
                                          and name = '${glbPath}' returning 1) select count(*) from d`), '0');
-  assert.match(refused(ids.admin, `select public.admin_delete_stale_model('${asset}')`), /no longer eligible/);
+  assert.match(refused(ids.admin, `select public.admin_delete_stale_model('${asset}')`), /not eligible for cleanup/);
   assert.equal(psql(`select count(*) from public.product_assets where id = '${asset}'`), '1');
 });
 
@@ -272,4 +281,112 @@ db('the lifecycle list is for admins only', () => {
   assert.match(refused(ids.owner, 'select count(*) from public.admin_model_lifecycle()'), /platform administrator/);
   assert.match(refused(ids.buyer, 'select count(*) from public.admin_model_lifecycle()'), /platform administrator/);
   assert.ok(Number(as(ids.admin, 'select count(*) from public.admin_model_lifecycle()')) > 0);
+});
+
+// ------------------------------------------------ 0013: the owner notice ---
+
+const SECRET = 'lifecycle-test-recorder-secret-0123456789';
+function withSecret() {
+  // assert_server() compares against the stored secret (0011).
+  psql(`insert into billing_private.secrets (name, sha256_hex)
+        values ('payment_recorder', encode(sha256(convert_to('${SECRET}', 'UTF8')), 'hex'))
+        on conflict do nothing`);
+}
+
+db('a year idle is not enough without a notice to the owners', () => {
+  const { asset, glbPath } = listing('never-told');
+  age(asset, { uploaded: 800, accessed: 400, noticed: null });
+  const row = lifecycle(asset);
+  assert.equal(row.eligible, false, 'no notice, no deletion');
+  assert.equal(row.notice_due, true);
+  assert.equal(row.notice_sent_at, null);
+  assert.equal(as(ids.admin, `with d as (delete from storage.objects where bucket_id = 'furniture-models'
+                                         and name = '${glbPath}' returning 1) select count(*) from d`), '0',
+    'Storage refuses too');
+  assert.match(refused(ids.admin, `select public.admin_delete_stale_model('${asset}')`), /30 days since being notified/);
+});
+
+db('a notice counts only after 30 days, and only for the current idle spell', () => {
+  const fresh = listing('told-yesterday');
+  age(fresh.asset, { uploaded: 800, accessed: 400, noticed: 1 });
+  assert.equal(lifecycle(fresh.asset).eligible, false, 'told yesterday: 29 more days to answer');
+  assert.equal(lifecycle(fresh.asset).eligible_on,
+    psql(`select (now() + interval '29 days')::date`), 'deletable from 30 days after the notice');
+
+  const told = listing('told-long-ago');
+  age(told.asset, { uploaded: 800, accessed: 400, noticed: 31 });
+  assert.equal(lifecycle(told.asset).eligible, true);
+
+  // A notice from BEFORE the last use is about an idle spell that ended.
+  const stale = listing('old-notice');
+  age(stale.asset, { uploaded: 900, accessed: 400, noticed: 500 });
+  assert.equal(lifecycle(stale.asset).eligible, false);
+  assert.equal(lifecycle(stale.asset).notice_sent_at, null);
+  assert.equal(lifecycle(stale.asset).notice_due, true);
+});
+
+db('the notice job: due at 335 idle days, recorded once, only with the server secret', () => {
+  withSecret();
+  const early = listing('not-yet-due');
+  age(early.asset, { uploaded: 400, accessed: 334, noticed: null });
+  const due = listing('due-now');
+  age(due.asset, { uploaded: 400, accessed: 336, noticed: null });
+
+  const list = JSON.parse(psql(`select json_agg(d) from public.server_models_due_notice('${SECRET}') d`));
+  const ids_ = list.map(row => row.asset_id);
+  assert.ok(ids_.includes(due.asset), 'a model idle 336 days is due');
+  assert.ok(!ids_.includes(early.asset), 'a model idle 334 days is not');
+  const row = list.find(r => r.asset_id === due.asset);
+  assert.equal(row.store_id, ids.store);
+  assert.equal(row.deletable_from, psql(`select (now() + interval '30 days')::date`),
+    'the email can name the day: 30 days from now, since the year is up sooner');
+
+  assert.ok(refused(null, `select public.server_models_due_notice('wrong-secret-0123456789abcdef0123')`, 'anon'),
+    'no secret, no list of shops');
+  assert.ok(refused(ids.owner, `select public.server_mark_model_notice('nope', '${due.asset}')`),
+    'an owner cannot record a notice');
+
+  assert.equal(as(null, `select public.server_mark_model_notice('${SECRET}', '${due.asset}')`, 'anon'), 't');
+  assert.notEqual(lifecycle(due.asset).notice_sent_at, null);
+  assert.equal(lifecycle(due.asset).notice_due, false, 'told once per idle spell');
+  assert.equal(as(null, `select public.server_mark_model_notice('${SECRET}', '${due.asset}')`, 'anon'), 'f',
+    'a second mark changes nothing');
+  assert.equal(as(null, `select public.server_mark_model_notice('${SECRET}', '${early.asset}')`, 'anon'), 'f',
+    'a model not yet due cannot be marked');
+  const after = psql(`select created_at < now() - interval '399 days' from public.product_assets where id = '${due.asset}'`);
+  assert.equal(after, 't', 'recording a notice does not look like a re-upload');
+});
+
+db('the owner sees where each model stands, and "Keep" resets the clock', () => {
+  const { product, asset } = listing('keep-me');
+  age(asset, { uploaded: 800, accessed: 400, noticed: 40 });
+  assert.equal(lifecycle(asset).eligible, true);
+
+  const mine = JSON.parse(as(ids.owner,
+    `select json_agg(l) from public.store_model_lifecycle('${ids.store}') l where l.asset_id = '${asset}'`))[0];
+  assert.equal(mine.product_id, product);
+  assert.equal(mine.at_risk, true);
+  assert.equal(mine.eligible, true);
+  assert.notEqual(mine.notice_sent_at, null);
+
+  assert.match(refused(ids.otherOwner, `select count(*) from public.store_model_lifecycle('${ids.store}')`), /members/);
+  assert.match(refused(ids.otherOwner, `select public.keep_model('${asset}')`), /members/);
+  assert.match(refused(ids.buyer, `select public.keep_model('${asset}')`), /members/);
+
+  const kept = JSON.parse(as(ids.owner, `select public.keep_model('${asset}')`));
+  assert.equal(kept.status, 'kept');
+  const row = lifecycle(asset);
+  assert.equal(row.eligible, false, 'kept: no longer deletable');
+  assert.equal(row.idle_days, 0);
+  assert.equal(row.notice_sent_at, null, 'the old notice stops counting');
+  assert.equal(row.eligible_on, psql(`select (now() + interval '365 days')::date`));
+});
+
+db('a re-upload clears the notice with the clock', () => {
+  const { product, asset } = listing('reupload-notice', { poster: false });
+  age(asset, { uploaded: 800, accessed: 400, noticed: 40 });
+  as(ids.owner, `insert into public.product_assets (product_id, store_id, kind, bucket, object_path, byte_size)
+    values ('${product}', '${ids.store}', 'glb', 'furniture-models', '${ids.store}/${product}/model.glb', 4096)
+    on conflict (product_id, kind) do update set byte_size = excluded.byte_size`);
+  assert.equal(psql(`select expiry_notice_at is null from public.product_assets where id = '${asset}'`), 't');
 });

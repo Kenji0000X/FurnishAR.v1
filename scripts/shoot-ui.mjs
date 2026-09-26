@@ -131,7 +131,8 @@ const supabase = createServer((req, res) => {
           last_used_at: iso(days * day), idle_days: days, eligible: days >= 365,
           eligible_on: new Date(Date.now() + (365 - days) * day).toISOString().slice(0, 10),
           product_id: p.id, product_name: p.name, product_slug: p.slug, product_status: p.status,
-          store_id: STORE, store_name: STORES[0].name, poster_path: null
+          store_id: STORE, store_name: STORES[0].name, poster_path: null,
+          notice_sent_at: days >= 365 ? iso((days - 335) * day) : null, notice_due: days >= 335 && days < 365
         };
       }) : []);
     }

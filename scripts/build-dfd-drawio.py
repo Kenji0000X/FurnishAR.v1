@@ -593,6 +593,8 @@ def level1():
     p.edge('P10', 'D5', 'orders, verified payments', O, exit=(1, 0.6), entry=(0, 0.1))
     p.edge('D5', 'P10', 'amount due, order state', O, exit=(0, 0.4), entry=(1, 0.95))
     p.edge('P10', 'EM', 'receipt / order emails', O, exit=(0.8, 1), entry=(0, 0.3), points=[(612, 849.2)])
+    p.edge('P8', 'EM', 'model expiry notices (8.3, 0013)', O, exit=(1, 0.95), entry=(0.5, 1),
+           points=[(1080, 1135.8), (1080, 1300), (1565, 1300)])
     # 7.0
     p.edge('P7', 'D2c', 'product CRUD', O, exit=(1, 0.2), entry=(0, 0.6))
     p.edge('P7', 'D3b', 'model upload (signed)', O, exit=(1, 0.85), entry=(0, 0.2))
@@ -775,7 +777,7 @@ def level2_access():
 
 def level2_lifecycle():
     p = Page('dfd-2-lifecycle', 'Level 2 — 7.0/8.0 Posters & Model Lifecycle', 1640, 980)
-    p.node('title', 'Level 2 DFD — Catalogue posters and the 3D model lifecycle (0012)', TITLE, 40, 10, 900, 30)
+    p.node('title', 'Level 2 DFD — Catalogue posters and the 3D model lifecycle (0012, 0013)', TITLE, 40, 10, 900, 30)
     ext(p, 'O', 'Store Owner', 40, 90, 170, 64)
     ext(p, 'B', 'Buyer / Guest', 40, 400, 170, 64)
     ext(p, 'A', 'Platform Admin', 40, 690, 170, 64)
@@ -785,11 +787,14 @@ def level2_lifecycle():
     proc(p, 'P72', '7.2', 'Upload Model &amp; Poster', 720, 90)
     proc(p, 'P21', '2.1', 'Show Catalogue Card<br>(poster only, no model)', 330, 390)
     proc(p, 'P81', '8.1', 'Review Model Lifecycle', 330, 680)
-    proc(p, 'P82', '8.2', 'Delete Stale Model<br>(365 days unused, manual)', 720, 810)
+    proc(p, 'P82', '8.2', 'Delete Stale Model<br>(365 days unused + notified 30 days, manual)', 720, 810)
+    proc(p, 'P83', '8.3', 'Notify Owner<br>(daily, 335 days unused)', 720, 600)
+    ext(p, 'EM', 'Email Service', 1000, 628, 200, 50)
+    ext(p, 'O2', 'Store Owner', 1250, 628, 170, 50)
 
     store(p, 'D3', 'D3', 'Private 3D Assets (furniture-models)', 1160, 60, 400, 44)
     store(p, 'D6', 'D6', 'Catalogue Posters (product-posters, public)', 1160, 160, 400, 44)
-    store(p, 'D2', 'D2', 'product_assets: glb · poster · last_accessed_at', 1160, 420, 340, 60)
+    store(p, 'D2', 'D2', 'product_assets: glb · poster · last_accessed_at · expiry_notice_at', 1160, 420, 400, 60)
     store(p, 'D4', 'D4', 'admin_audit', 1160, 880, 400, 44)
 
     p.edge('O', 'P71', '.glb + width × depth × height', D, exit=(1, 0.5), entry=(0, 0.5))
@@ -803,15 +808,22 @@ def level2_lifecycle():
     p.edge('B', 'R5', 'View in 3D / AR', O, exit=(0.8, 1), entry=(0, 0.5), points=[(176, 548)])
     p.edge('R5', 'D2', 'last use (after a signed URL)', O, exit=(1, 0.5), entry=(0.2, 1), points=[(1240, 548)])
     p.edge('A', 'P81', 'open 3D Files', D, exit=(1, 0.5), entry=(0, 0.5))
-    p.edge('D2', 'P81', 'admin_model_lifecycle(): last used, idle days, eligible', O, exit=(0.5, 1), entry=(1, 0.3), points=[(1330, 700), (660, 700)])
+    p.edge('D2', 'P81', 'admin_model_lifecycle(): last used, idle days, notice, eligible', O, exit=(0.95, 1), entry=(1, 0.6),
+           points=[(1540, 718.4)])
     p.edge('A', 'P82', 'Delete Model (typed DELETE)', D, exit=(0.8, 1), entry=(0, 0.5), points=[(176, 842)])
     p.edge('P82', 'D3', 'delete file (re-checked)', O, exit=(1, 0.1), entry=(1, 0.5), points=[(1600, 816.4), (1600, 82)])
     p.edge('P82', 'D6', 'delete its poster', O, exit=(1, 0.3), entry=(1, 0.8), points=[(1580, 829.2), (1580, 195.2)])
     p.edge('P82', 'D2', 'delete rows (re-checked; product kept)', O, exit=(0.8, 0), entry=(0.8, 1), points=[(912, 760), (1480, 760)])
     p.edge('P82', 'D4', 'model.deleted_stale', O, exit=(1, 0.9), entry=(0, 0.5))
-    p.node('note', '<b>Idle, not old:</b> last used = the later of upload and last access. Eligible at 365 days, decided by the database '
-                   'at the moment of deletion. Nothing is deleted automatically; the product, its dimensions and orders are never deleted.',
-           NOTE, 330, 890, 360, 80)
+    p.edge('D2', 'P83', 'models due a notice', O, exit=(0.25, 1), entry=(0.667, 0), points=[(1260, 575), (880, 575)])
+    p.edge('P83', 'D2', 'expiry_notice_at (only if sent)', O, exit=(1, 0.25), entry=(0.325, 1), points=[(1290, 616)])
+    p.edge('P83', 'EM', 'one email per shop', O, exit=(1, 0.75), entry=(0, 0.4))
+    p.edge('EM', 'O2', 'keep it, or deletable from a date', O, exit=(1, 0.5), entry=(0, 0.5))
+    p.node('note', '<b>Idle, not old:</b> last used = the later of upload and last access. Eligible at 365 days AND a notice '
+                   'emailed to the shop 30+ days earlier (0013), decided by the database at the moment of deletion. The owner keeps a '
+                   'model by opening it or pressing Keep 3D model (a use). Nothing is deleted automatically; the product, its '
+                   'dimensions and orders are never deleted.',
+           NOTE, 330, 870, 360, 100)
     return p
 
 

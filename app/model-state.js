@@ -70,6 +70,32 @@ export function thumbnailFor(product) {
   return product?.thumbnail || null;
 }
 
+/**
+ * Whether a product may appear in the PUBLIC collection at all.
+ *
+ * Only a piece with a real uploaded model: the collection is the catalogue of
+ * things you can stand in your room, and a listing without its model is an
+ * incomplete record, not a smaller product. It still exists — the shop edits
+ * it and uploads the model in the portal, and its own page still answers —
+ * it is just not presented as if it were ready. `arReady` is not consulted,
+ * for the reason modelState() gives.
+ */
+export function isListable(product) {
+  return canPlaceInSpace(product);
+}
+
+/**
+ * How many empty-state cards the collection shows beside `realCount` real
+ * pieces: enough to make three, so an empty or nearly empty catalogue still
+ * shows the shape of the one to come. They are placeholders, not products —
+ * never counted, linked, searched or stored — and they disappear as real
+ * uploads take their places.
+ */
+export const PLACEHOLDER_SLOTS = 3;
+export function placeholderSlots(realCount) {
+  return Math.max(0, PLACEHOLDER_SLOTS - Math.max(0, Number(realCount) || 0));
+}
+
 /** Human wording for each state, used in badges and in the viewer's fallback. */
 export const MODEL_STATE_LABEL = {
   [MODEL_STATE.MODEL]: '3D model',

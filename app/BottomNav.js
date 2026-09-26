@@ -31,10 +31,10 @@ import { usePathname } from 'next/navigation';
  * for. That is the one place the reference's shape genuinely fits.
  */
 
-/* Each icon is drawn inline rather than pulled from a font: they have to sit
-   on the baseline with the label, change weight when active, and inherit
-   currentColor. `filled` is the active state — a solid form reads as
-   "you are here" without relying on the tint. */
+/* Each icon is drawn inline rather than pulled from a font: they change
+   weight when active and inherit currentColor. `filled` is the active state —
+   a solid form reads as "you are here" without relying on the tint, which
+   matters more now the icons carry no visible label. */
 function Icon({ name, filled }) {
   const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round' };
   const solid = { fill: 'currentColor', stroke: 'none' };
@@ -99,13 +99,15 @@ function Icon({ name, filled }) {
   return null;
 }
 
+/* `label` is each destination's accessible name. The bar shows icons only;
+   the names are for screen readers, voice control ("tap Scan room") and the
+   tooltip-free reading of the page's own heading once you arrive. With no
+   visible text to fit into 64px they can say the whole thing. */
 const ITEMS = [
   { href: '/', label: 'Discover', icon: 'discover' },
   { href: '/collection', label: 'Collection', icon: 'collection' },
-  { href: '/plan', label: 'Scan', icon: 'scan', primary: true },
-  /* "Device", not "Diagnostics" or "Device check": five labels have to fit
-     across 320px, which leaves about 64px a slot. */
-  { href: '/diagnose', label: 'Device', icon: 'device' },
+  { href: '/plan', label: 'Scan room', icon: 'scan', primary: true },
+  { href: '/diagnose', label: 'Device check', icon: 'device' },
   /* Was "Stores", pointing at /portal. This bar is the shopper's menu — it
      is why it is hidden on the workspace routes — and /portal is the store
      owner's door, not a shopper's destination. It is still one tap away in
@@ -138,15 +140,16 @@ export default function BottomNav() {
                 href={item.href}
                 className={`bottom-nav-item${active ? ' is-active' : ''}${item.primary ? ' is-primary' : ''}`}
                 aria-current={active ? 'page' : undefined}
+                aria-label={item.label}
               >
-                {/* The pill sits behind the icon and is what carries the
-                    active state visually; the label carries it in words and
-                    aria-current carries it for a screen reader. Three ways,
-                    none of them colour alone. */}
+                {/* Icons only, no visible label. The active state is carried
+                    three ways, none of them colour alone: the pill behind the
+                    icon, the icon turning solid, and aria-current for a
+                    screen reader. The page's own heading says where you are
+                    in words. */}
                 <span className="bottom-nav-pill">
                   <Icon name={item.icon} filled={active} />
                 </span>
-                <span className="bottom-nav-label">{item.label}</span>
               </Link>
             </li>
           );

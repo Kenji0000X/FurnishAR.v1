@@ -249,7 +249,7 @@ They refresh and have their dashboard.
 
 ## How to tell it worked
 
-- The catalogue shows your database's furniture — or, with none yet, "No furniture has been listed yet".
+- The catalogue shows your database's furniture that has a 3D model — or, with none yet, three "No 3D model yet" placeholder cards.
 - An owner can sign in at `/portal` and see their own products only.
 - Adding a product in the portal makes it appear in the catalogue within a
   minute.

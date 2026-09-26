@@ -44,22 +44,24 @@ export default function ProductThumb({ product, className = '', sizes, priority 
   }
 
   /*
-    No picture, for one of two different reasons, and the card says which:
-    a model exists but has no catalogue preview yet (the shop can regenerate
-    it; the model still works on the product page), or there is no model at
-    all. Nothing here fetches the model to make up for the missing picture.
+    No picture, for one of two different reasons, and the card says which.
+    A model exists but its catalogue preview is not ready: "Preparing
+    preview…", never "No 3D model yet", because the model is there and works
+    on the product page. The picture follows when the shop's preview is
+    saved (it refreshes the catalogue). Or there is no model at all.
+    Nothing here fetches the model to make up for the missing picture.
   */
   const hasModel = state === MODEL_STATE.MODEL;
   return (
-    <span className={`${classes} product-thumb-empty`} role="img"
+    <span className={`${classes} product-thumb-empty${hasModel ? ' is-preparing' : ''}`} role="img"
       aria-label={hasModel
-        ? `${product.name}, 3D model available, no preview picture yet`
+        ? `${product.name}, 3D model available, preview being prepared`
         : state === MODEL_STATE.IMAGE
           ? `${product.name}, no picture available`
           : `${product.name}, no 3D model uploaded yet`}
     >
       <span aria-hidden="true">⬚</span>
-      <small aria-hidden="true">{hasModel ? '3D model available' : 'No 3D model yet'}</small>
+      <small aria-hidden="true">{hasModel ? 'Preparing preview…' : 'No 3D model yet'}</small>
     </span>
   );
 }

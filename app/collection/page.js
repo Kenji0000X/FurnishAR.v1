@@ -1,6 +1,7 @@
 import { getCatalog } from '../../lib/catalog.mjs';
 import CatalogSection from '../CatalogSection.js';
 import Marquee from '../Marquee.js';
+import { isListable } from '../model-state.js';
 
 // Rendered again at most once a minute, and at once when a store or admin
 // changes the catalogue (revalidateTag('catalog') in app/api/sb).
@@ -24,7 +25,10 @@ export const metadata = {
  * category shortcuts in the hero now point somewhere rather than scrolling.
  */
 export default async function CollectionPage() {
-  const { products, source } = await getCatalog();
+  const { products: catalog, source } = await getCatalog();
+  // Only pieces with a real 3D model are shown here (isListable). The rest
+  // stay in their shop's portal until the model is uploaded.
+  const products = catalog.filter(isListable);
 
   return (
     <section className="view active">

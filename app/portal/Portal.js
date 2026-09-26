@@ -338,6 +338,20 @@ function PendingPanel({ email, onLogout, isAdmin, accountRole }) {
 
 /* ----------------------------------------------------------------- portal -- */
 
+/* The shop's .glb lifecycle rows by product id (0013). A portal on a
+   database without 0013 simply has no rows, and shows no warnings. */
+async function loadModelLife(sb, storeUuid) {
+  try {
+    const rows = await sb.listStoreModelLifecycle(storeUuid);
+    return new Map(rows.filter(row => row.kind === 'glb').map(row => [row.product_id, row]));
+  } catch {
+    return new Map();
+  }
+}
+
+const shortDate = value => new Date(value).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' });
+const spanSince = days => (days >= 60 ? `${Math.floor(days / 30.4)} months` : `${days} days`);
+
 export default function Portal({ initialProducts }) {
   const [ready, setReady] = useState(false);
   const [mode, setMode] = useState('login');       // 'login' | 'signup'
@@ -355,6 +369,10 @@ export default function Portal({ initialProducts }) {
   const [openOrders, setOpenOrders] = useState(0);   // for the rail's Orders badge
   const [accountRole, setAccountRole] = useState(null);
   const [paymentStatus, setPaymentStatus] = useState(null);   // reported by StoreOrders
+  // 0013: where each of the shop's .glb models stands against the one-year
+  // rule, keyed by product id. From the database; empty when it cannot say.
+  const [modelLife, setModelLife] = useState(() => new Map());
+  const [keeping, setKeeping] = useState(null);
 
   // Applying had no address of its own: it was a button on the login panel and
   // nothing else, so the footer, a poster or a message to a shop owner could
@@ -444,6 +462,7 @@ export default function Portal({ initialProducts }) {
         } catch (error) {
           console.warn('Could not load store inventory:', error.message);
         }
+        setModelLife(await loadModelLife(sb, membership.storeUuid));
       }
       return;
     }
@@ -576,6 +595,21 @@ export default function Portal({ initialProducts }) {
     toast('Signed out.');
   }
 
+  /* "Keep 3D model" (0013): records a use, so the year starts again and the
+     email the shop was sent stops counting. */
+  async function keepModel(product, life) {
+    setKeeping(product.id);
+    try {
+      await supabase().keepModel(life.asset_id);
+      await reloadInventory();
+      toast(`Kept. The 3D model of ${product.name} is safe for another year.`);
+    } catch (error) {
+      toast(error.message || 'We couldn’t keep this model. Please try again.', 'error');
+    } finally {
+      setKeeping(null);
+    }
+  }
+
   /** Opens the confirmation. The deletion itself happens in performDelete. */
   function handleDelete(product) {
     setPendingDelete(product);
@@ -599,6 +633,7 @@ export default function Portal({ initialProducts }) {
     if (usingSupabase()) {
       if (!session?.user?.storeUuid) return;
       setOwnProducts(await supabase().listOwnProducts(session.user.storeUuid));
+      setModelLife(await loadModelLife(supabase(), session.user.storeUuid));
     } else {
       const data = await api('/api/products');
       setOwnProducts(data.products.filter(p => p.storeId === session?.user?.storeId));
@@ -700,6 +735,9 @@ export default function Portal({ initialProducts }) {
   // picture failed. Only knowable with the database, where posters live.
   const needsPoster = product => usingSupabase() && Boolean(product.modelGlb) && !product.posterPath;
   const missingPosters = ownProducts.filter(needsPoster).length;
+  // A model within 30 days of becoming deletable, or already deletable.
+  const atRisk = product => Boolean(product.modelGlb && modelLife.get(product.id)?.at_risk);
+  const expiring = ownProducts.filter(atRisk);
 
   const accountEmail = user.email || session?.user?.email || '';
   const readyShare = ownProducts.length ? Math.round((placeable / ownProducts.length) * 100) : 0;
@@ -736,6 +774,7 @@ export default function Portal({ initialProducts }) {
         <NeedsAttention items={[
           openOrders > 0 && { href: '#orders', count: openOrders, title: openOrders === 1 ? 'Open order' : 'Open orders', note: 'Confirm, prepare and hand over.' },
           missingModels > 0 && { href: '#inventory', count: missingModels, title: missingModels === 1 ? 'Listing without a 3D model' : 'Listings without a 3D model', note: 'Shoppers can’t place these in their room.' },
+          expiring.length > 0 && { href: '#inventory', count: expiring.length, title: expiring.length === 1 ? '3D model unused for 11 months' : '3D models unused for 11 months', note: `An administrator may delete ${expiring.length === 1 ? 'it' : 'them'} from ${shortDate(Math.min(...expiring.map(p => Date.parse(modelLife.get(p.id).deletable_from))))}. Choose “Keep 3D model” to keep ${expiring.length === 1 ? 'it' : 'them'}.` },
           missingPosters > 0 && { href: '#inventory', count: missingPosters, title: missingPosters === 1 ? 'Listing without a catalogue preview' : 'Listings without a catalogue preview', note: 'Shoppers see a placeholder on the card. Use “Regenerate preview”.' },
           soldOut > 0 && { href: '#inventory', count: soldOut, title: soldOut === 1 ? 'Listing out of stock' : 'Listings out of stock', note: 'Shoppers can’t buy these until you restock.' }
         ].filter(Boolean)} ready={ownProducts.length > 0} />
@@ -840,6 +879,9 @@ export default function Portal({ initialProducts }) {
                           : <span className="missing-model"> · No 3D model, not shown in AR</span>}
                         {needsPoster(product) && <span className="missing-model"> · Catalogue preview needed</span>}
                         {usingSupabase() && product.modelGlb && product.posterPath && ' · Catalogue preview ready'}
+                        {atRisk(product) && (
+                          <span className="missing-model"> · 3D model unused {spanSince(modelLife.get(product.id).idle_days)}; can be deleted from {shortDate(Date.parse(modelLife.get(product.id).deletable_from))}</span>
+                        )}
                       </small>
                     </span>
                   </div>
@@ -853,6 +895,14 @@ export default function Portal({ initialProducts }) {
                 <td data-label="Actions">
                   <div className="table-actions">
                     <button className="icon-button row-edit" type="button" onClick={() => setEditing(product)} aria-label={`Edit ${product.name}`}>Edit</button>
+                    {atRisk(product) && (
+                      <button className="icon-button" type="button" disabled={keeping === product.id}
+                        aria-busy={keeping === product.id || undefined}
+                        onClick={() => keepModel(product, modelLife.get(product.id))}
+                        aria-label={`Keep the 3D model of ${product.name}`}>
+                        {keeping === product.id ? 'Keeping…' : 'Keep 3D model'}
+                      </button>
+                    )}
                     {needsPoster(product) && (
                       <button className="icon-button" type="button" onClick={() => setEditing(product)}
                         aria-label={`Regenerate the catalogue preview for ${product.name}`}>Regenerate preview</button>
