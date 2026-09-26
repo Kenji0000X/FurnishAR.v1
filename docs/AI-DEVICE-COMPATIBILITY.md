@@ -54,7 +54,7 @@ down), both shown at the top of `/diagnose`.
 |---|---|
 | **ONNX Runtime Web 1.30.0** (`onnxruntime-web`, MIT, pinned exactly) | Runs the same `.onnx` file on WebGPU or WebAssembly, in any modern browser, with no server. |
 | **WebGPU first, WASM fallback** | WebGPU is used only if `navigator.gpu.requestAdapter()` returns an adapter **and** a session actually runs an inference on it. Any failure falls through to WASM (CPU, SIMD). If both work, the faster *measured* backend is kept: on some phones the CPU path wins. |
-| **Served from our own origin** | `scripts/copy-ort-assets.mjs` copies the runtime into `public/ort/` before `dev` and `build` (the folder is git-ignored). It is imported with `webpackIgnore`, so it is never part of a Next.js bundle. |
+| **Served from our own origin** | `tools/copy-ort-assets.mjs` copies the runtime into `public/ort/` before `dev` and `build` (the folder is git-ignored). It is imported with `webpackIgnore`, so it is never part of a Next.js bundle. |
 | **Single-threaded WASM** | Threads need the page to be cross-origin isolated (COOP/COEP headers), which the site does not set: every cross-origin resource, such as posters from Supabase Storage, would then need its own CORP header. Budget phones gain little from threads at this model size anyway. |
 
 ### What it costs to download

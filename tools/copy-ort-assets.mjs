@@ -4,6 +4,9 @@
  * the Next.js bundle (lib/spatial/ai/runtime.mjs imports them with
  * webpackIgnore, at runtime, only after a tap on /diagnose).
  *
+ * Lives in tools/, not scripts/, because .vercelignore keeps scripts/ out of
+ * the deployment and Vercel runs this before its build.
+ *
  * Runs before `next build` and `next dev` (package.json pre-scripts). The
  * copies are generated, not source: public/ort/ is git-ignored, and the
  * version is whatever package.json pins.
