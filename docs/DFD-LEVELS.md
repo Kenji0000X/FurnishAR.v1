@@ -249,18 +249,18 @@ This is where money is recorded, so every step checks something.
 
 **Level 2 — 10.9–10.13 PayPal Seller, Webhooks & Reminders.** 10.9 records the onboarding attempt (member check, tracking id) in D5.4 and asks PayPal for a referral; 10.10 reads the seller's status from PayPal only and records it; 10.11 verifies each PayPal webhook, claims it once in D5.5 and records captures/refunds in D5.2 and seller changes in D5.4; 10.12 reports the fee mode and configuration to the admin from D5.3; 10.13 emails not-connected shops on a schedule with a cooldown. Balances with Level 1: the Store Owner → 7.0 → PayPal "connect PayPal" flow, PayPal → 10.0 "signed webhooks", and 10.0 → Email "reminders" added there.
 
-## Added with migration 0015 (2026-09-26)
+## Added with migrations 0015–0016 (2026-09-26)
 
-**Level 2 — 10.14–10.17 Maya Checkout, Webhook & Payouts.**
-- 10.14 answers which payment methods a shop takes, from D5.4 (its Maya row in this server's environment).
-- 10.15 creates a Maya Checkout with the public key and records the attempt in D5.2: FurnishAR's reference, the payee and the fee mode.
-- 10.16 settles a Maya payment. The buyer's return and Maya's unsigned webhook bring only a reference. 10.16 reads the attempt from D5.2, re-reads the payment from Maya with the secret key, claims each (payment, status) once in D5.5, records the payment once in D5.2, and emails.
-- 10.17 is the admin's Maya setup per store (D5.4) and the payouts FurnishAR makes to stores (D5.6 `store_remittances`), which 7.0 shows the store.
+**Level 2 — 10.14–10.17 GCash via PayMongo: Checkout, Webhook, Payouts & Refunds.**
+- 10.14 answers which payment methods a shop takes, from D5.4 (its PayMongo row in this server's environment) intersected with what the server has configured.
+- 10.15 creates a PayMongo Checkout Session server side with the secret key (`payment_method_types ["gcash"]`, amounts in centavos from `begin_payment`) and records the attempt in D5.2: FurnishAR's reference, the payee, the fee mode and the method.
+- 10.16 settles a GCash payment. The buyer's return brings only a reference; PayMongo's webhook is verified (signature, timestamp, mode) and claimed once per event in D5.5. Either way 10.16 reads the attempt from D5.2, re-reads the checkout session from PayMongo with the secret key, records the payment once in D5.2 (with PayMongo's processing fee), and emails.
+- 10.17 is the admin's GCash setup per store (D5.4), the payouts FurnishAR makes to stores (D5.6 `store_remittances`), which 7.0 shows the store, and GCash refunds through PayMongo's refund API, recorded in D5.2 when PayMongo reports them succeeded.
 
 Balances with Level 1:
-- Payment Providers (PayPal / Maya) ↔ 10.0;
-- 8.0 → D5 "Maya setup, payouts";
+- Payment Providers (PayPal / PayMongo · GCash) ↔ 10.0;
+- 8.0 → D5 "GCash setup, payouts";
 - 10.0 → Email.
 
-On Level 0, Maya is its own external entity, because its money goes to FurnishAR's own merchant account rather than to the shop.
+On Level 0, PayMongo · GCash is its own external entity, because its money goes to FurnishAR's own PayMongo account rather than to the shop.
 

@@ -3,7 +3,7 @@ import PaymentReturn from './PaymentReturn.js';
 /**
  * Back from a payment provider.                                DFD: P10
  *
- * Provider-neutral: /account/payment/return?provider=maya&ref=<FurnishAR
+ * Provider-neutral: /account/payment/return?provider=paymongo&ref=<FurnishAR
  * reference>&result=success|failure|cancel. The query is only a pointer —
  * the server re-reads the payment from the provider and checks it against
  * the attempt it recorded before the buyer left. Rendered in the browser

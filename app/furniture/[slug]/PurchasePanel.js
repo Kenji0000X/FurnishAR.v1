@@ -13,34 +13,36 @@ import useAlert from '../../alerts/useAlert.js';
  * A STOCKED shop's piece is bought outright: the buyer sees the shop's
  * price, FurnishAR's 10% service fee on top, and the total, says how they
  * want it (free delivery or store pickup), then pays on the provider's own
- * page: PayPal (straight to the shop's PayPal account) or Maya (to
- * FurnishAR's Maya merchant account, which pays the shop — 0015). A CUSTOM
+ * page: PayPal (straight to the shop's PayPal account) or GCash, processed
+ * by PayMongo (FurnishAR's PayMongo account, which owes the shop its share —
+ * 0016). A CUSTOM
  * shop's piece is a starting point: the buyer describes what they want and
  * the shop replies with a quote.
  *
  * What this component shows is a preview. The amount actually charged, the
  * fee, the payee and whether the delivery details are acceptable are decided
- * by the database (0009–0015) — this page could be edited in devtools to say
+ * by the database (0009–0016) — this page could be edited in devtools to say
  * ₱1 and the buyer would still be asked for the real price.
  *
  * Only the payment methods the server says this shop can take are offered
  * (/api/sb/orders/providers). A shop with none says so instead of offering a
- * button the server would refuse. Buyers never connect PayPal or Maya to
- * FurnishAR: they sign in only on the provider's page, for that one payment.
+ * button the server would refuse. Buyers never connect PayPal or GCash to
+ * FurnishAR: they authorise only on the provider's page, for that one payment,
+ * and no GCash number, PIN or OTP ever reaches FurnishAR.
  */
 const money = value => `₱${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const PROVIDER_LABEL = { paypal: 'PayPal', maya: 'Maya' };
+const PROVIDER_LABEL = { paypal: 'PayPal', paymongo: 'GCash' };
 
 /** One sentence on where the money goes, true for each provider. */
 function whoIsPaid(provider, store, config) {
   if (provider === 'paypal') {
     return `You pay ${store} directly through PayPal — with your PayPal account or a card through PayPal.`;
   }
-  const maya = (config?.providers || []).find(p => p.id === 'maya');
-  return maya?.payfac
-    ? `You pay through Maya — with your Maya account, a card or another method Maya offers — as set up for ${store}.`
-    : `You pay through Maya — with your Maya account, a card or another method Maya offers. FurnishAR receives the payment and pays ${store} its share.`;
+  const gcash = (config?.providers || []).find(p => p.id === 'paymongo');
+  return gcash?.splitEnabled
+    ? `You pay with GCash, securely through PayMongo. ${store}'s share is settled to it through PayMongo.`
+    : `You pay with GCash, securely through PayMongo. FurnishAR receives the payment and pays ${store} its share.`;
 }
 
 /** The button that sends the buyer to the provider. */
@@ -296,7 +298,7 @@ function CheckoutDialog({ product, quantity, subtotal, fee, here, config, availa
         productId: product.id, quantity, provider, delivery: deliveryFrom(values)
       });
       // To the provider's own page, and back to /account (PayPal) or
-      // /account/payment/return (Maya), where the server confirms it.
+      // /account/payment/return (GCash), where the server confirms it.
       window.location.assign(result.approveUrl);
     } catch (failure) {
       setBusy(false);
@@ -330,7 +332,7 @@ function CheckoutDialog({ product, quantity, subtotal, fee, here, config, availa
                   <input type="radio" name="provider" value={id} checked={provider === id}
                     onChange={() => setProvider(id)} />
                   <span><b>{PROVIDER_LABEL[id]}</b>
-                    <small>{id === 'paypal' ? 'PayPal account or card' : 'Maya account, card or QR'}</small></span>
+                    <small>{id === 'paypal' ? 'PayPal account or card' : 'Secure payment via PayMongo'}</small></span>
                 </label>
               ))}
             </div>
@@ -340,13 +342,13 @@ function CheckoutDialog({ product, quantity, subtotal, fee, here, config, availa
         <div className="confirm-actions">
           <button className="button" type="button" onClick={() => ref.current?.close()}>Cancel</button>
           <button className="button button-primary" type="submit" disabled={busy || !provider} aria-busy={busy}>
-            {busy ? `Opening ${PROVIDER_LABEL[provider]}…` : `Continue to ${PROVIDER_LABEL[provider]}`}
+            {busy ? 'Opening payment…' : 'Continue to payment'}
           </button>
         </div>
         <p className="purchase-note">
-          {whoIsPaid(provider, product.store, config)} You finish on {PROVIDER_LABEL[provider]}&rsquo;s own page;
-          FurnishAR never sees your password or card. Your receipt and estimated arrival date are emailed to you after payment.
-          {sandbox && <><br /><span className="status-chip is-sandbox">{PROVIDER_LABEL[provider]} Sandbox</span> Test mode — no real money moves.</>}
+          {whoIsPaid(provider, product.store, config)} You finish on {provider === 'paymongo' ? 'PayMongo' : 'PayPal'}&rsquo;s own page;
+          FurnishAR never sees your password, card, GCash PIN or OTP. Your receipt and estimated arrival date are emailed to you after payment.
+          {sandbox && <><br /><span className="status-chip is-sandbox">{provider === 'paymongo' ? 'PayMongo test mode' : 'PayPal Sandbox'}</span> Test mode — no real money moves.</>}
         </p>
       </form>
     </dialog>

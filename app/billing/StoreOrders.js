@@ -304,8 +304,8 @@ export default function StoreOrders({ storeUuid, onOpenCount, onPaymentStatus })
       <ConsoleSection
         id="billing"
         title="Billing & Store Type"
-        note={(config?.providers || []).some(p => p.id === 'maya')
-          ? 'Buyers pay your price plus FurnishAR’s 10% service fee, with PayPal (into your PayPal account) or, where FurnishAR has set it up, Maya (into FurnishAR’s Maya account, which pays you your share).'
+        note={(config?.providers || []).some(p => p.id === 'paymongo')
+          ? 'Buyers pay your price plus FurnishAR’s 10% service fee, with PayPal (into your PayPal account) or, where FurnishAR has set it up, GCash through PayMongo (into FurnishAR’s PayMongo account, which pays you your share).'
           : config?.feeMode === 'platform_split'
           ? 'Buyers pay your price plus FurnishAR’s 10% service fee. When your PayPal account allows it, PayPal takes the 10% at checkout and reports it; otherwise it is owed and settled separately.'
           : 'Buyers pay your price plus FurnishAR’s 10% service fee into your PayPal account; you settle the 10% with FurnishAR separately.'}
@@ -321,7 +321,7 @@ export default function StoreOrders({ storeUuid, onOpenCount, onPaymentStatus })
             <PaypalCard account={account} config={config} busy={paypalBusy}
               onConnect={connectPaypal} onRefresh={() => refreshPaypal()}
               onLink={linkPaypal} onUnlink={() => setConfirmUnlink(true)} />
-            <MayaCard accounts={billing.mayaAccounts || []} config={config} />
+            <GcashCard accounts={billing.paymongoAccounts || []} config={config} />
             {confirmUnlink && (
               <ConfirmDialog
                 title="Disconnect PayPal?"
@@ -336,14 +336,20 @@ export default function StoreOrders({ storeUuid, onOpenCount, onPaymentStatus })
               {Number(billing.fees.collected) > 0 && (
                 <div><dt>Fees Already Collected</dt><dd>{money(billing.fees.collected)}</dd></div>
               )}
-              {Number(billing.fees.expected_via_settlement) > 0 && (
-                <div><dt>Expected via Maya Settlement</dt><dd>{money(billing.fees.expected_via_settlement)}</dd></div>
+              {Number(billing.fees.held) > 0 && (
+                <div><dt>Held from GCash Sales</dt><dd>{money(billing.fees.held)}</dd></div>
+              )}
+              {Number(billing.fees.expected_via_split) > 0 && (
+                <div><dt>Expected via PayMongo Split</dt><dd>{money(billing.fees.expected_via_split)}</dd></div>
+              )}
+              {Number(billing.fees.processing_fees) > 0 && (
+                <div><dt>PayMongo Processing Fees</dt><dd>{money(billing.fees.processing_fees)}</dd></div>
               )}
               <div><dt>Settled</dt><dd>{money(billing.fees.settled)}</dd></div>
               <div><dt>Owed to FurnishAR</dt><dd>{money(billing.fees.outstanding)}</dd></div>
               {(Number(billing.fees.owed_to_store) > 0 || Number(billing.fees.remitted) > 0) && (
                 <>
-                  <div><dt>Maya Sales Owed to You</dt><dd>{money(billing.fees.owed_to_store)}</dd></div>
+                  <div><dt>GCash Sales Owed to You</dt><dd>{money(billing.fees.owed_to_store)}</dd></div>
                   <div><dt>Paid Out to You</dt><dd>{money(billing.fees.remitted)}</dd></div>
                 </>
               )}
@@ -537,29 +543,36 @@ function PaypalCard({ account, config, busy, onConnect, onRefresh, onLink, onUnl
 
 /** Declining tells the buyer and cannot be undone, so it is asked, with a reason. */
 /**
- * Maya (0015). There is no self-service Maya onboarding into a platform's
- * account: the FurnishAR team enables Maya for a store, so this card only
- * reports what was set up and where the money goes. Nothing to connect.
+ * GCash via PayMongo (0016). GCash is a payment method of FurnishAR's
+ * PayMongo account, so there is nothing for a store to connect: the FurnishAR
+ * team enables it per store, and this card only reports the state and where
+ * the money goes. Built from safe booleans the server exposes — never a key.
+ *   Available      buyers can pay this store with GCash
+ *   Pending setup  GCash is on for FurnishAR, but not yet for this store
+ *   Not enabled    GCash is not switched on for FurnishAR
  */
-function MayaCard({ accounts, config }) {
-  const maya = (config?.providers || []).find(p => p.id === 'maya');
-  if (!maya) return null;   // Maya is not switched on for this site
-  const account = accounts.find(a => a.environment === maya.environment) || null;
-  const enabled = account?.onboarding_status === 'CONNECTED';
+function GcashCard({ accounts, config }) {
+  const gcash = (config?.providers || []).find(p => p.id === 'paymongo');
+  const account = gcash ? accounts.find(a => a.environment === gcash.environment) || null : null;
+  const split = account?.settlement_mode === 'split';
+  const available = Boolean(gcash && account?.onboarding_status === 'CONNECTED' && (!split || gcash.splitEnabled));
+  const state = !gcash ? 'Not enabled' : available ? 'Available' : 'Pending setup';
   return (
-    <div className="bezel console-panel maya-card">
+    <div className="bezel console-panel gcash-card">
       <div className="bezel-core">
         <div className="paypal-card-head">
-          <h3>Maya</h3>
-          <span className={`status-chip ${enabled ? 'is-success' : ''}`}>{enabled ? 'Set up by FurnishAR' : 'Not set up'}</span>
-          {maya.sandbox && <span className="status-chip is-sandbox" title="Maya sandbox: no real money moves">Maya Sandbox</span>}
+          <h3>GCash via PayMongo</h3>
+          <span className={`status-chip ${available ? 'is-success' : ''}`}>{state}</span>
+          {gcash?.sandbox && <span className="status-chip is-sandbox" title="PayMongo test mode: no real money moves">PayMongo Test Mode</span>}
         </div>
         <p className="card-copy">
-          {!enabled
-            ? 'Maya is set up for shops by the FurnishAR team, not from this page. Ask FurnishAR if you would like buyers to be able to pay you with Maya.'
-            : account.settlement_mode === 'payfac'
-              ? 'Buyers can pay with Maya. Maya settles those payments to your store’s Maya account; FurnishAR’s 10% service fee is settled separately.'
-              : 'Buyers can pay with Maya. Maya payments are received by FurnishAR’s Maya account; FurnishAR keeps its 10% service fee and pays you the rest. What is owed to you is shown below.'}
+          {!gcash
+            ? 'GCash payments are not switched on for FurnishAR yet. Buyers can pay you with PayPal.'
+            : !available
+              ? 'GCash is set up for shops by the FurnishAR team, not from this page. Ask FurnishAR if you would like buyers to be able to pay you with GCash.'
+              : split
+                ? 'Buyers can pay with GCash, processed by PayMongo. Your share is settled to your PayMongo merchant account through Split Payments; FurnishAR’s 10% is recorded as expected until PayMongo’s records confirm it.'
+                : 'Buyers can pay with GCash, processed by PayMongo. The payment is received by FurnishAR’s PayMongo account; FurnishAR holds its 10% service fee and pays you your share. PayMongo’s processing fee is shown separately, so the amount paid out can differ from the sale price.'}
         </p>
       </div>
     </div>

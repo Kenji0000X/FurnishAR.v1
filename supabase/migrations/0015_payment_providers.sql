@@ -1,4 +1,6 @@
 -- ===========================================================================
+-- SUPERSEDED: the Maya integration in this migration was withdrawn. 0016 removes every Maya
+-- object and adds PayMongo (GCash) instead. Kept only because it is applied history.
 -- 0015 — A second payment provider (Maya) beside PayPal, in the SAME order,
 -- payment, refund and fee system. DFD: P10.
 --

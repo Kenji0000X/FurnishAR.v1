@@ -30,21 +30,21 @@ such rather than quietly assumed.
 - A per-store catalogue with 3D model upload, owner accounts and a store
   application queue.
 - Google sign-in.
-- Orders, checkout and payments through PayPal or Maya, delivery or pickup,
-  receipts and order emails, and FurnishAR's 10% service fee
-  (`docs/BILLING.md`, `docs/MAYA-INTEGRATION.md`).
+- Orders, checkout and payments through PayPal or GCash (processed by
+  PayMongo), delivery or pickup, receipts and order emails, and FurnishAR's
+  10% service fee (`docs/BILLING.md`, `docs/PAYMONGO-GCASH-INTEGRATION.md`).
 
 *Changed 2026-09-26: payments, delivery, receipts and iOS Quick Look were
 listed as out of scope while the code already shipped them
-(`docs/AUDIT-AI-MAYA-2026-09.md`).*
+(`docs/AUDIT-AI-PAYMENTS-2026-09.md`).*
 
 **Out of scope for the pilot.**
 - Multi-language UI.
 - Automatic 3D scanning of furniture by the store.
 - A trained on-device floor/wall segmentation model.
-- Automated Maya refunds.
-- Maya Payment Facilitator settlement: the code supports it, but it is not
-  enabled.
+- PayMongo Split Payments settlement to shops: the code supports it
+  (`PAYMONGO_SPLIT_MODE=split`), but it needs PayMongo to activate it and each
+  shop registered as a child merchant.
 
 ## 3. Functional requirements
 
@@ -68,10 +68,10 @@ since the Next.js port; the measurement mathematics are in `public/geometry.js`.
 | FR-12 | A shopper can share a link to a specific piece. | `app/furniture/[slug]/page.js` — a real URL per piece, plus `ProductActions` for the share sheet | Browser pass: link copied and re-opened the dialog |
 | FR-13 | A store's change shows in the catalogue on the next page load. | `revalidateTag('catalog')` after a store's change (0012), a 60 s cache otherwise | `npm run check:posters` (revalidation) |
 | FR-14 | A shopper can buy a stocked piece: the price, the 10% fee and the total come from the database, never the browser. | `create_stock_order`, `begin_payment`, `lib/orders.js` | `tests/billing.test.js`; `tests/orders.test.js`; `npm run check:billing` |
-| FR-15 | A shopper can request a custom build, accept a quote, and pay a deposit and a balance. | `create_custom_request`, `quote_custom_order`, `mark_order_ready` | `tests/billing.test.js` custom build; `tests/maya-db.test.js` PayFac deposit/balance |
-| FR-16 | A shopper chooses PayPal or Maya where the shop takes both; only methods the shop can take are offered. | `lib/providers`, `store_payment_providers` (0015), `PurchasePanel.js` | `tests/maya-server.test.js`; `npm run check:billing` |
-| FR-17 | A payment counts only when the server has re-read it from the provider and it matches the recorded attempt; each is recorded once. | `record_capture`, `lib/orders.js`, `lib/payments.js`, `lib/maya-webhook.js` | `tests/billing.test.js`; `tests/maya-db.test.js`; `tests/maya-server.test.js` |
-| FR-18 | The shopper gets a receipt, and the shop and shopper get emails for each order event, naming the payment provider. | `lib/notify.js`, `app/billing/ReceiptView.js` | `tests/orders.test.js`; `tests/maya-server.test.js` email wording |
+| FR-15 | A shopper can request a custom build, accept a quote, and pay a deposit and a balance. | `create_custom_request`, `quote_custom_order`, `mark_order_ready` | `tests/billing.test.js` custom build; `tests/paymongo-db.test.js` GCash deposit/balance |
+| FR-16 | A shopper chooses PayPal or GCash (via PayMongo) where the shop takes both; only methods the shop can take and this server has configured are offered. No GCash credentials are ever asked for or stored. | `lib/providers`, `store_payment_providers` (0016), `PurchasePanel.js` | `tests/paymongo-server.test.js`; `npm run check:billing` |
+| FR-17 | A payment counts only when the server has re-read it from the provider and it matches the recorded attempt; each is recorded once. | `record_capture`, `lib/orders.js`, `lib/payments.js`, `lib/paymongo-webhook.js` (signed, once per event) | `tests/billing.test.js`; `tests/paymongo-db.test.js`; `tests/paymongo-server.test.js` |
+| FR-18 | The shopper gets a receipt, and the shop and shopper get emails for each order event, naming the payment provider. | `lib/notify.js`, `app/billing/ReceiptView.js` | `tests/orders.test.js`; `tests/paymongo-server.test.js` email wording |
 | FR-19 | Delivery or pickup is chosen at checkout and tracked to hand-over. | 0010, `update_delivery_status` | `tests/billing.test.js`; `npm run check:billing` |
 | FR-20 | A person can sign in with Google; authentication never grants a role by itself. | `lib/oauth.js`, `/auth/callback`, onboarding | `tests/marketplace-server.test.js`; `tests/marketplace.test.js`; `npm run check:billing` Google section |
 | FR-21 | `/diagnose` recommends one experience level (A–E) from measured facts, with a reason and a fallback. | `recommendExperience` in `lib/spatial/capabilities.mjs` | `tests/experience-router.test.js`; `npm run check:diagnose` |
@@ -88,7 +88,7 @@ since the Next.js port; the measurement mathematics are in `public/geometry.js`.
 | NFR-5 | **Performance** — the interface never blocks on the 3D library or the database. | Skeleton within one frame; graceful fallback | Skeleton verified against a 1.5 s throttled response; CDN-failure fallback verified |
 | NFR-6 | **Motion** — respects `prefers-reduced-motion`. | All transforms stop | Audit: 0.001 s transitions under reduced motion |
 | NFR-7 | **Security** — one store can never read or write another's data. | Enforced in the database, not the UI | `tests/db.test.js`, 14 cases |
-| NFR-8 | **Security** — the browser never holds a privileged key. | The server holds the Supabase publishable key, the PayPal and Maya secrets, the payment-recorder secret and the email credentials; the browser holds none | `lib/supabase-proxy.js` refuses a secret key (`tests/env.test.js`); `check:billing` asserts the config the browser sees carries no secret |
+| NFR-8 | **Security** — the browser never holds a privileged key. | The server holds the Supabase publishable key, the PayPal and PayMongo secrets, the payment-recorder secret and the email credentials; the browser holds none | `lib/supabase-proxy.js` refuses a secret key (`tests/env.test.js`); `check:billing` asserts the config the browser sees carries no secret |
 | NFR-9 | **Maintainability** — the system can be understood and changed by someone new. | Documented + tested | 500 automated tests (`node --test tests/*.test.js`) plus the `npm run check:*` browser checks; `docs/MAINTENANCE.md` |
 | NFR-11 | **Performance** — the on-device AI never costs a shopper who did not ask for it. | Zero AI bytes while browsing | `npm run check:ai` |
 | NFR-10 | **Measurement accuracy** — readings within ±5% of a tape measure. | ±5% | Geometry proven exact against known shapes. Two scans agreeing within 5% is enforced, but that is **repeatability, not accuracy**. **Field validation against a tape measure is still outstanding**: `docs/ROOM-MEASUREMENT-VALIDATION.md` |
@@ -120,7 +120,8 @@ These are open, and saying so is part of the analysis:
 3. **Store addresses** are placeholders and must be replaced before launch.
 4. **No phone has run the AI check** (FR-22), and no trained floor/wall model
    exists. See `docs/AR-DEVICE-MATRIX.md`, which includes the Redmi 14C.
-5. **Maya is sandbox-ready, not live** (FR-16). Its field names must be
-   confirmed against Maya's documentation, and a sandbox run completed, first
-   (`docs/MAYA-INTEGRATION.md` §6, §9). With platform collect, FurnishAR
-   holds buyer money for shops and must pay them out.
+5. **GCash via PayMongo is test-mode-ready, not live** (FR-16). Its field
+   names must be confirmed against PayMongo's documentation, and a test-mode
+   run completed, first (`docs/PAYMONGO-GCASH-INTEGRATION.md` §8, §9). With
+   platform settlement, FurnishAR holds buyer money for shops and must pay
+   them out.

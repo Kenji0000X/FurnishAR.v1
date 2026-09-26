@@ -32,10 +32,10 @@ This is the implementation-aligned replacement for the supplied sample DFD.
 | Help | `/faq` | Public content — no process, no data flow |
 | Buy / request a build | `/furniture/[slug]` (purchase panel) | P10 Orders & Payments |
 | Buyer orders, PayPal return | `/account#orders`, `/account?paypal=return` | P10 Orders & Payments |
-| Payment return, provider-neutral (Maya, 0015) | `/account/payment/return?provider=maya&ref=…` | P10 10.16 Verify Maya Payment |
+| Payment return, provider-neutral (GCash via PayMongo, 0016) | `/account/payment/return?provider=paymongo&ref=…` | P10 10.16 Verify GCash Payment |
 | Receipt | `/account/receipt/[id]` | P10 Orders & Payments (read, per RLS) |
 | Store billing and incoming orders | `/portal#orders` | P7 → P10 |
-| Platform fees, fee mode, PayPal and Maya status per shop, Maya setup, payouts to shops | `/admin/billing` | P8 → D5 (10.17) |
+| Platform fees, fee mode, PayPal and GCash status per shop, GCash setup, payouts to shops, GCash refunds | `/admin/billing` | P8 → D5 (10.17); refunds P10 → PayMongo |
 | Google sign-in return | `/auth/callback` | P1 Authentication (code → session) |
 | First sign-in: choose buyer or store | `/onboarding` | P1 → P6 (buyer) / P7 (application) |
 | Shop's PayPal seller connection | `/portal#billing` (Connect PayPal) | P7 → P10 → PayPal |
@@ -53,7 +53,7 @@ The DFD is aligned with the current repository routes:
 - `GET /api/sb/account/state`, `POST /api/sb/account/buyer|apply` (onboarding)
 - `POST /api/sb/payments/connect|refresh`, `GET /api/sb/payments/admin` (PayPal seller connection)
 - `POST /api/paypal/webhook` (PayPal → P10)
-- `POST /api/maya/webhook` (Maya → P10; unsigned, so each delivery is re-read from Maya — 0015)
+- `POST /api/paymongo/webhook` (PayMongo → P10; `Paymongo-Signature` verified, processed once, session re-read — 0016)
 - `GET /api/sb/orders/providers?store=<id>` (P10 10.14: the payment methods a shop takes)
 - `GET /api/cron/payment-reminders` (scheduler → P10 → Email)
 - `GET /api/cron/model-notices` (scheduler → P8 → Email: models 30 days from deletable, 0013)
@@ -86,10 +86,10 @@ The DFD is aligned with the current repository routes:
 | `/api/sb/rest/rpc/store_model_lifecycle`, `keep_model` | P7 the shop's own model lifecycle; "Keep 3D model" records a use | D2 |
 | `/api/sb/status` | Health (no process data) | — |
 | `GET /api/sb/orders/config` | P10 — are payments / emails switched on (no secrets) | — |
-| `POST /api/sb/orders/checkout`, `pay`, `capture`, `verify`, `request`, `cancel` | P10 Orders & Payments (buyer); `checkout` / `pay` take `provider` = `paypal` \| `maya`; `verify` is the Maya return (10.16) | D2, D5, PayPal, Maya |
+| `POST /api/sb/orders/checkout`, `pay`, `capture`, `verify`, `request`, `cancel` | P10 Orders & Payments (buyer); `checkout` / `pay` take `provider` = `paypal` \| `paymongo`; `verify` is the GCash return (10.16); `refund` is an admin's GCash refund through PayMongo (10.17) | D2, D5, PayPal, PayMongo |
 | `GET /api/sb/orders/providers?store=<id>` | P10 10.14 Offer Payment Methods (public; provider ids only) | D5 (`store_payment_providers`) |
-| `POST /api/maya/webhook` | P10 10.16 — reference only; payment re-read with the secret key; once per (payment, status) | D5 (`payment_webhook_events`, `payments`, `payment_attempts`) |
-| `/api/sb/rest/rpc/admin_set_maya_account`, `record_store_remittance`; `/api/sb/rest/store_remittances` (read-only) | P8 10.17 Maya setup and payouts (admin only; audited) | D5 (`store_payment_accounts`, `store_remittances`), D4 (audit) |
+| `POST /api/paymongo/webhook` | P10 10.16 — signature, timestamp and mode verified on the raw body; once per event id; checkout session re-read with the secret key; refunds recorded when succeeded | D5 (`payment_webhook_events`, `payments`, `payment_attempts`, `payment_refunds`) |
+| `/api/sb/rest/rpc/admin_set_paymongo_account`, `record_store_remittance`; `/api/sb/rest/store_remittances` (read-only) | P8 10.17 GCash setup and payouts (admin only; audited) | D5 (`store_payment_accounts`, `store_remittances`), D4 (audit) |
 | `POST /api/sb/orders/quote`, `decline`, `ready`, `fulfil`, `delivery`, `store-billing` | P10 Orders & Payments (store owner) | D5 |
 | `/api/sb/rest/orders`, `payments`, `store_payout`, `fee_settlements` (read-only) | P10 reads, per RLS | D5 |
 | `/api/sb/rest/rpc/store_fee_summary`, `fee_overview`, `record_fee_settlement` | P7 fee balance, P8 settlement | D5, D4 (audit) |
@@ -141,10 +141,10 @@ flowchart LR
     F -->|create / capture order, payee = shop merchant id| PP
     PP -->|approval / capture result| F
     B -->|pays shop directly| PP
-    MY[Maya]
-    F -->|create checkout, public key; re-read payment, secret key| MY
-    MY -->|redirect back, unsigned webhooks: reference only| F
-    B -->|pays through Maya: received by FurnishAR, which pays the shop| MY
+    PM[PayMongo · GCash]
+    F -->|create checkout session, secret key, gcash; re-read session; refunds| PM
+    PM -->|redirect back; signed webhooks| F
+    B -->|pays with GCash on PayMongo's page: received by FurnishAR, which pays the shop| PM
     F -->|order emails| E
     E -->|receipt / quote / balance due| B
     E -->|new order / deposit paid| O
@@ -241,11 +241,11 @@ flowchart TB
     PP -->|merchant integration status| P7
     P7 -->|seller status| D5
     PP -->|signed webhooks: capture / refund / seller| P10
-    MY[Maya]
-    P10 -->|create checkout, public key: payee FurnishAR or PayFac sub-merchant| MY
-    MY -->|redirect / unsigned webhook: reference only| P10
-    P10 -->|re-read payment, secret key| MY
-    P8 -->|Maya setup per store, payouts to shops| D5
+    PM[PayMongo · GCash]
+    P10 -->|checkout session, secret key, gcash: payee FurnishAR or split child merchant| PM
+    PM -->|redirect / signed webhooks| P10
+    P10 -->|re-read session, secret key; refunds| PM
+    P8 -->|GCash setup per store, payouts to shops| D5
     P10 -->|payment-setup reminders, account and payment emails| EM
     P10 -->|receipt / delivery-step email| EM
     P8 -->|fee overview / settlements| D5
@@ -383,34 +383,37 @@ flowchart LR
     WHK[Seller webhooks] --> RA
 ```
 
-## Payment flow — Maya (P10, 0015)
+## Payment flow — GCash via PayMongo (P10, 0016)
 
 ```mermaid
 flowchart LR
     U[Buyer] --> PV[GET /api/sb/orders/providers\nshop's methods ∩ server's]
-    PV --> C[POST /api/sb/orders/checkout\nprovider = maya]
-    C --> BP[(begin_payment order, env, maya\namount, fee, store's Maya setup)]
-    BP --> MC[Maya Create Checkout\nPUBLIC key]
-    MC --> AT[(payment_attempts\nreference, payee, fee mode)]
-    MC --> PAY[Buyer pays on Maya]
-    PAY --> RET[/account/payment/return\n?provider=maya&ref=/]
+    PV --> C[POST /api/sb/orders/checkout\nprovider = paymongo]
+    C --> BP[(begin_payment order, env, paymongo\namount, fee, store's GCash setup)]
+    BP --> MC[PayMongo Checkout Session\nSECRET key, server side\ngcash, centavos]
+    MC --> AT[(payment_attempts\nreference, payee, fee mode, method gcash)]
+    MC --> PAY[Buyer pays with GCash\non PayMongo's page]
+    PAY --> RET[/account/payment/return\n?provider=paymongo&ref=/]
     RET --> VF[POST /api/sb/orders/verify\nthe caller's own order]
-    PAY -.-> WH[POST /api/maya/webhook\nunsigned: IP allowlist, reference only]
-    VF --> RR[Maya: payments for the reference\nSECRET key]
+    PAY -.-> WH[POST /api/paymongo/webhook\nsignature, timestamp, mode verified\nonce per event]
+    VF --> RR[PayMongo: re-read checkout session\nSECRET key]
     WH --> RR
-    RR --> J{PAYMENT_SUCCESS for the\nattempt's amount and currency?}
-    J -->|yes| RC[(record_capture, provider maya\nonce per payment id)]
-    J -->|other amount| UN[(recorded, not applied\nFurnishAR refunds in Maya Manager)]
+    RR --> J{paid for the attempt's\namount and currency?}
+    J -->|yes| RC[(record_capture, provider paymongo\nonce per payment id, processing fee)]
+    J -->|other amount| UN[(recorded, not applied\nadmin refunds through PayMongo)]
     J -->|failed / expired / cancelled| ST[(attempt DECLINED / CANCELLED)]
-    RC --> OW[(fee collected\nshop's share owed to the shop)]
+    RC --> OW[(fee held, not collected\nshop's share owed to the shop)]
     AD[Admin] -->|payout| RM[(store_remittances)]
     RM --> OW
+    AD -->|refund| RF[PayMongo refund API] --> PR[(payment_refunds\nrefund id and status)]
 ```
 
-Platform collect is the default and, today, the only Maya mode: FurnishAR's
-Maya account receives the payment. PayFac settles to a shop's sub-merchant
-only once Maya enables it (`MAYA_PAYFAC_ENABLED`); its fee is never recorded
-as collected. See `MAYA-INTEGRATION.md`.
+Platform settlement is the default: FurnishAR's PayMongo account receives the
+payment, less PayMongo's processing fee (recorded per payment and shown
+separately). Split settlement sends the shop's share to its PayMongo child
+merchant only when `PAYMONGO_SPLIT_MODE=split` and PayMongo has activated
+Split Payments; its fee is *expected*, never recorded as collected. A redirect
+is never proof of payment. See `PAYMONGO-GCASH-INTEGRATION.md`.
 
 ## Device check flow (P4)
 
@@ -490,15 +493,19 @@ verified, processed once) record pending captures, refunds (seller and
 platform portions) and seller status changes; approved shops that are not
 connected get scheduled reminder emails with a cooldown.
 
-Since 0015: a second provider, **Maya**, in the same orders, payments and fee
-records (`provider` on attempts, payments and payment accounts). 10.14 offers
-only the methods a shop takes; 10.15 creates a Maya Checkout with the public
-key; 10.16 settles it from the payment re-read with the secret key (the buyer's
-return and Maya's unsigned webhook are only prompts); 10.17 is the admin's Maya
-setup per store and the payouts FurnishAR owes shops. With platform collect,
-FurnishAR's Maya account receives the payment: the fee is collected, and the
-shop's share is owed to the shop until a payout is recorded. A capture of one
-provider can never satisfy another's attempt.
+Since 0015–0016: a second provider, **PayMongo**, with **GCash** as its
+payment method, in the same orders, payments and fee records (`provider` and
+`payment_method` on attempts and payments; `provider` on payment accounts).
+10.14 offers only the methods a shop takes; 10.15 creates a PayMongo Checkout
+Session server side with the secret key (amounts in centavos, one helper);
+10.16 settles it from the session re-read with the secret key (the buyer's
+return and the signed webhook are only prompts); 10.17 is the admin's GCash
+setup per store, the payouts FurnishAR owes shops, and GCash refunds through
+PayMongo's API. With platform settlement FurnishAR's PayMongo account receives
+the payment: the fee is **held** (accrued, not "collected"), the shop's share
+is owed to the shop until a payout is recorded, and PayMongo's processing fee
+is shown separately. A capture of one provider can never satisfy another's
+attempt, so switching between PayPal and GCash can never pay an order twice.
 
 ## Reliability rules for the diagram
 
@@ -605,14 +612,14 @@ Where this DFD and the code disagreed, and which one moved.
 - RECOMMENDED ARCHITECTURE: inside P4, `recommendExperience()` maps measured facts to one level A–E, with a reason and a fallback. The optional AI check loads ONNX Runtime Web and a test model from FurnishAR's own static files after a tap, proves WebGPU by a real inference or uses WASM, and reports a level from the measured p95. Scene quality is classical and needs no model. AI never overrides WebXR and never produces a measurement.
 - REASON: requested. **No process, endpoint or data store added**: all of it runs on the phone inside P4, and the static files are not a data store (rule 6). The drawio adds the "Flow — Device Check & Recommendation (P4)" page.
 
-**17. Maya as a second payment provider (added 2026-09-26)**
-- DFD ISSUE: P10 was PayPal-shaped: `provider = 'paypal'` constraints, "payee = shop merchant id" as the only payee, and no second external payment entity.
-- CURRENT CODE BEHAVIOR (before): PayPal only.
-- RECOMMENDED ARCHITECTURE: one P10 with a provider boundary (`lib/providers`). Maya is a second external entity. Its Checkout pays the owner of the keys (FurnishAR), so its money flow is recorded truthfully: platform collect, fee collected, shop's share owed and paid out (`store_remittances`, D5). 10.14–10.17 are drawn on the new Level 2 page. Setup is admin-only (there is no self-service Maya onboarding). Webhooks are unsigned, so they are only a prompt to re-read.
-- REASON: requested. **DFD and code changed together** (migration 0015, `lib/maya.js`, `lib/providers/`, `lib/maya-webhook.js`, `/account/payment/return`, `/api/maya/webhook`; drawio: Maya on Level 0, "PayPal / Maya" on Level 1 and Level 2 10.0, new page "Level 2 — 10.14–10.17 Maya Checkout, Webhook & Payouts").
+**17. GCash via PayMongo as the second payment provider (added 2026-09-26)**
+- DFD ISSUE: P10 was PayPal-shaped: `provider = 'paypal'` constraints, "payee = shop merchant id" as the only payee, and no second external payment entity. The first second provider (0015) was replaced by PayMongo in 0016.
+- CURRENT CODE BEHAVIOR (before): PayPal only in practice.
+- RECOMMENDED ARCHITECTURE: one P10 with a provider boundary (`lib/providers`). PayMongo is a second external entity; GCash is its payment method (no GCash key). Its Checkout Session pays the owner of the keys (FurnishAR), so the money flow is recorded truthfully: fee held (`platform_held`), shop's share owed and paid out (`store_remittances`, D5), processing fee per payment. Split Payments (`provider_split`, fee expected) only when activated. 10.14–10.17 are drawn on the Level 2 page. Setup is admin-only. Webhooks are HMAC-signed and processed once, and still only a prompt to re-read. Refunds are admin-only through PayMongo's API.
+- REASON: requested. **DFD and code changed together** (migration 0016, `lib/money.js`, `lib/paymongo.js`, `lib/providers/paymongo.js`, `lib/paymongo-webhook.js`, `/account/payment/return`, `/api/paymongo/webhook`; drawio: PayMongo · GCash on Level 0, "PayPal / PayMongo (GCash)" on Level 1 and Level 2 10.0, page "Level 2 — 10.14–10.17 GCash via PayMongo: Checkout, Webhook, Payouts & Refunds").
 
 **12. Database state**
-- Migrations 0005 (bucket limit), 0006 (buyers, `my_role`) and 0007 (private `furniture-models` bucket, `can_view_model` policy) are applied to the live project. 0012 (public `product-posters` bucket, `last_accessed_at`, lifecycle functions and cleanup policies) is applied too (2026-09-25); the models bucket stays private. 0013 (owner notice: `expiry_notice_at`, `model_notice_due`, the notice-aware `model_cleanup_eligible`, `server_models_due_notice`, `server_mark_model_notice`, `store_model_lifecycle`, `keep_model`) is applied to the live project too (2026-09-26). 0008 takes trigger functions off the RPC surface and stops anonymous calls to `can_view_model`. **Not applied yet (2026-09-26): 0014** (`model_uploaded_at` in the catalogue view) **and 0015** (payment providers, Maya). Both are in the repository and tested against a local Postgres. 0015 must follow 0014.
+- Migrations 0005 (bucket limit), 0006 (buyers, `my_role`) and 0007 (private `furniture-models` bucket, `can_view_model` policy) are applied to the live project. 0012 (public `product-posters` bucket, `last_accessed_at`, lifecycle functions and cleanup policies) is applied too (2026-09-25); the models bucket stays private. 0013 (owner notice: `expiry_notice_at`, `model_notice_due`, the notice-aware `model_cleanup_eligible`, `server_models_due_notice`, `server_mark_model_notice`, `store_model_lifecycle`, `keep_model`) is applied to the live project too (2026-09-26). 0008 takes trigger functions off the RPC surface and stops anonymous calls to `can_view_model`. 0014 (`model_uploaded_at` in the catalogue view) and 0015 (payment providers) are applied to the live project too (2026-09-26, in that order). 0016 (PayMongo / GCash) is not applied to the live project yet. 0011's objects were already live, although the project's migration history has no 0011 entry.
 
 ## DFD artifact
 
@@ -620,12 +627,12 @@ The companion `FURNISHAR-DFD-V2.drawio` holds every diagram as a draw.io page. O
 
 | Page | Shows |
 |---|---|
-| Level 0 — Context DFD | the system as one process and its seven external entities (Maya added in 0015) |
+| Level 0 — Context DFD | the system as one process and its seven external entities (PayMongo · GCash added in 0016) |
 | Level 1 — System DFD | processes 1.0–10.0 and data stores D1–D6 (this document's Level 1) |
 | Level 2 — 1.0 Authentication & Session | 1.1 Register · 1.2 Log In · 1.3 Resolve Role · 1.4 Renew Session · 1.5 Log Out |
 | Level 2 — 1.0 Google Sign-in & Onboarding | 1.6 Start Google Sign-in (PKCE) · 1.7 Exchange Code · 1.3 Resolve Role · 1.8 Onboard (0011) |
 | Level 2 — 10.9–10.13 PayPal Seller, Webhooks & Reminders | seller onboarding and status, verified webhooks, fee mode, payment-setup reminders (0011) |
-| Level 2 — 10.14–10.17 Maya Checkout, Webhook & Payouts | 10.14 Offer Payment Methods · 10.15 Start Maya Checkout · 10.16 Verify Maya Payment · 10.17 Maya Setup &amp; Payouts (0015) |
+| Level 2 — 10.14–10.17 GCash via PayMongo: Checkout, Webhook, Payouts & Refunds | 10.14 Offer Payment Methods · 10.15 Start GCash Checkout · 10.16 Verify GCash Payment · 10.17 GCash Setup, Payouts &amp; Refunds (0016) |
 | Level 2 — 5.0 3D Access & Authorization | 5.1 Validate · 5.2 Verify Session · 5.3 Authorize & Sign · 5.4 Deliver Signed URL · 5.5 Record Model Use |
 | Level 2 — 7.0/8.0 Posters & Model Lifecycle | 7.1 Check & Render Poster · 7.2 Upload · 2.1 Show Card · 8.1 Review Lifecycle · 8.2 Delete Stale Model (0012) · 8.3 Notify Owner (0013) |
 | Level 2 — 10.0 Orders & Payments | 10.1–10.8: place/cancel, quote, start payment, capture, fulfil, notify, billing, view |

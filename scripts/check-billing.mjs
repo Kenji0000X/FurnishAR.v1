@@ -15,12 +15,14 @@
  *     through Partner Referrals and the status comes from PayPal; a new
  *     Google account signs in, onboards as a buyer with only a municipality;
  *     the admin sees the fee mode truthfully and the sandbox marker.
- *   - (0015) a Maya-only shop offers "Buy with Maya"; the checkout is created
- *     with Maya's PUBLIC key for the database's amount, payable to
- *     FurnishAR's own Maya account (platform collect); the buyer returns to
- *     /account/payment/return, where the server re-reads the payment with the
- *     SECRET key and records it as Maya; a webhook redelivery changes
- *     nothing; the admin sees Maya's configuration and a provider filter.
+ *   - (0016) a GCash-only shop offers "Buy with GCash"; a PayMongo Checkout
+ *     Session is created server-side with the SECRET key, payment method
+ *     gcash, for the database's amount in centavos, payable to FurnishAR's
+ *     own PayMongo account (fee held); the buyer returns to
+ *     /account/payment/return, where the server re-reads the session and
+ *     records it once as PayMongo / GCash; a signed webhook redelivery changes
+ *     nothing and an unsigned one is refused; the admin sees PayMongo's
+ *     configuration and an All / PayPal / GCash filter.
  *
  * Needs `npm run build` first. Usage: node scripts/check-billing.mjs
  */
@@ -31,7 +33,9 @@ import { chromium } from 'playwright';
 const APP_PORT = 4481;
 const SB_PORT = 4797;
 const PP_PORT = 4798;
-const MY_PORT = 4799;
+const PM_PORT = 4799;
+const PM_SECRET = 'sk_test_billingcheck0000';
+const PM_WEBHOOK_SECRET = 'whsk_billingcheck0000';
 const APP = `http://127.0.0.1:${APP_PORT}`;
 const SECRET = 's'.repeat(40);
 
@@ -41,7 +45,7 @@ const CHAIR = '6f1c4e4e-0000-4000-8000-000000000001';
 const TABLE = '6f1c4e4e-0000-4000-8000-000000000009';
 const OFFLINE_STORE = '2b1c4e4e-0000-4000-8000-000000000004';
 const STOOL = '6f1c4e4e-0000-4000-8000-000000000010';
-const MAYA_STORE = '2b1c4e4e-0000-4000-8000-000000000005';
+const GCASH_STORE = '2b1c4e4e-0000-4000-8000-000000000005';
 const LAMP = '6f1c4e4e-0000-4000-8000-000000000011';
 
 const problems = [];
@@ -67,7 +71,7 @@ const catalog = [
   row(CHAIR, 'billing-check-chair', 'Billing Check Chair', STOCK_STORE, 'Stock Shop', 'stocked', 1000),
   row(TABLE, 'billing-check-table', 'Billing Check Table', CUSTOM_STORE, 'Maker Shop', 'custom', 5000),
   row(STOOL, 'billing-check-stool', 'Billing Check Stool', OFFLINE_STORE, 'Unconnected Shop', 'stocked', 800),
-  row(LAMP, 'billing-check-lamp', 'Billing Check Lamp', MAYA_STORE, 'Maya Shop', 'stocked', 1000)
+  row(LAMP, 'billing-check-lamp', 'Billing Check Lamp', GCASH_STORE, 'GCash Shop', 'stocked', 1000)
 ];
 const stores = [
   { id: STOCK_STORE, slug: 'stock-shop', name: 'Stock Shop', address: 'Mamburao', contact_number: '+63', hours: '8-6', plan: 'premium', fulfilment: 'stocked' },
@@ -77,10 +81,10 @@ const orders = [];
 const recorded = [];
 const paypalCreated = [];
 const delivered = [];
-const attempts = new Map();          // provider order id (PayPal order / Maya checkout) → the recorded attempt
-const mayaCheckouts = [];            // what Maya was asked for, with the key it was asked with
-const mayaPayments = new Map();      // FurnishAR reference → Maya's payments for it
-const mayaReads = [];                // every payment read, with its key
+const attempts = new Map();          // provider order id (PayPal order / PayMongo checkout session) → the recorded attempt
+const pmCheckouts = [];              // what PayMongo was asked for, with the key it was asked with
+const pmSessions = new Map();        // checkout session id → the session, paid at once
+const pmReads = [];                  // every session read, with its key
 const claimedEvents = new Set();     // payment_webhook_events
 const serverCalls = [];              // every server_* call, to check the secret
 // The owner's PayPal account: starts NOT connected, then goes through onboarding.
@@ -93,13 +97,13 @@ const who = auth => (/tok-buyer/.test(auth || '') ? 'buyer' : /tok-owner/.test(a
 function dueFor(order, provider = 'paypal') {
   const stage = { pending_payment: 'full', quoted: 'deposit', balance_due: 'balance' }[order.status] || null;
   const amount = stage === 'full' ? order.total : stage === 'deposit' ? order.deposit_amount : order.total - order.amount_paid;
-  const maya = order.store_id === MAYA_STORE;
-  if (maya !== (provider === 'maya')) return null;   // this shop does not take that method
+  const gcash = order.store_id === GCASH_STORE;
+  if (gcash !== (provider === 'paymongo')) return null;   // this shop does not take that method
   return { order_id: order.id, reference: order.reference, stage, amount, currency: 'PHP',
            platform_fee: order.platform_fee, provider,
-           merchant_id: maya ? null : 'STOCKMERCHANT1', partner_fee_granted: false,
-           settlement_mode: maya ? 'platform_collect' : null, provider_account_ref: null, provider_profile: null,
-           store_name: maya ? 'Maya Shop' : 'Stock Shop', product_name: order.product_name };
+           merchant_id: gcash ? null : 'STOCKMERCHANT1', partner_fee_granted: false,
+           settlement_mode: gcash ? 'platform' : null, provider_account_ref: null,
+           store_name: gcash ? 'GCash Shop' : 'Stock Shop', product_name: order.product_name };
 }
 
 const supabase = createServer((req, res) => {
@@ -144,7 +148,8 @@ const supabase = createServer((req, res) => {
     if (u.startsWith('/rest/v1/rpc/server_record_payment_attempt')) {
       attempts.set(body.p_provider_order, { order_id: body.p_order, stage: body.p_stage, amount: body.p_amount, currency: 'PHP',
         platform_fee: body.p_platform_fee, fee_mode: body.p_fee_mode, payee_merchant_id: body.p_merchant, environment: body.p_env,
-        provider: body.p_provider || 'paypal', provider_order_id: body.p_provider_order, provider_reference: body.p_reference ?? null });
+        provider: body.p_provider || 'paypal', provider_order_id: body.p_provider_order, provider_reference: body.p_reference ?? null,
+        payment_method: body.p_method ?? null });
       return send(200, { ok: true });
     }
     if (u.startsWith('/rest/v1/rpc/server_payment_attempt_by_reference')) {
@@ -157,7 +162,7 @@ const supabase = createServer((req, res) => {
     }
     if (u.startsWith('/rest/v1/rpc/server_finish_webhook_event')) return send(200, null);
     if (u.startsWith('/rest/v1/rpc/store_payment_providers')) {
-      return send(200, body.p_store === OFFLINE_STORE ? [] : body.p_store === MAYA_STORE ? ['maya'] : ['paypal']);
+      return send(200, body.p_store === OFFLINE_STORE ? [] : body.p_store === GCASH_STORE ? ['paymongo'] : ['paypal']);
     }
     if (u.startsWith('/rest/v1/rpc/server_payment_attempt')) return send(200, attempts.get(body.p_provider_order) || null);
     if (u.startsWith('/rest/v1/rpc/server_update_payment_attempt')) return send(200, { ok: true });
@@ -201,7 +206,7 @@ const supabase = createServer((req, res) => {
         stores: { name: o.store_id === STOCK_STORE ? 'Stock Shop' : 'Maker Shop', slug: 'x', address: 'Mamburao', contact_number: '0917' },
         payments: recorded.filter(r => r.p_order === o.id && r.p_secret === SECRET && !r.duplicate)
           .map(r => ({ stage: r.p_stage, amount: r.p_amount, capture_id: r.p_capture, captured_at: new Date().toISOString(),
-                       applied: true, provider: r.p_provider || 'paypal' })) })));
+                       applied: true, provider: r.p_provider || 'paypal', payment_method: r.p_method || null })) })));
     }
     if (u.startsWith('/rest/v1/rpc/update_delivery_status')) {
       const order = orders.find(o => o.id === body.p_order);
@@ -214,7 +219,7 @@ const supabase = createServer((req, res) => {
       const qty = body.p_quantity;
       const lamp = body.p_product === LAMP;
       const order = { id: `0000000${orders.length + 1}-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, reference: `REF${orders.length + 1}`,
-        kind: 'stock', status: 'pending_payment', store_id: lamp ? MAYA_STORE : STOCK_STORE, product_id: lamp ? LAMP : CHAIR,
+        kind: 'stock', status: 'pending_payment', store_id: lamp ? GCASH_STORE : STOCK_STORE, product_id: lamp ? LAMP : CHAIR,
         product_name: lamp ? 'Billing Check Lamp' : 'Billing Check Chair',
         quantity: qty, subtotal: 1000 * qty, platform_fee: 100 * qty, total: 1100 * qty, amount_paid: 0,
         created_at: new Date().toISOString(), hold_expires_at: new Date(Date.now() + 1800e3).toISOString(),
@@ -324,38 +329,53 @@ const paypal = createServer((req, res) => {
   });
 });
 
-/* A stand-in Maya: the checkout is paid at once and the buyer sent to the
-   success URL, as Maya does after they pay. Payments are read back by reference. */
+/* A stand-in PayMongo: a Checkout Session is paid at once (GCash, with a
+   processing fee) and the buyer sent to the success URL, as PayMongo does
+   after they authorise in GCash. Sessions are read back by id. */
 const basicUser = header => Buffer.from(String(header || '').replace(/^Basic /, ''), 'base64').toString().replace(/:$/, '');
-const mayaServer = createServer((req, res) => {
+const paymongoServer = createServer((req, res) => {
   let raw = '';
   req.on('data', chunk => { raw += chunk; });
   req.on('end', () => {
     const send = (status, body) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
     const key = basicUser(req.headers.authorization);
-    if (req.url === '/checkout/v1/checkouts' && req.method === 'POST') {
+    if (req.url === '/v1/checkout_sessions' && req.method === 'POST') {
       const body = JSON.parse(raw);
-      mayaCheckouts.push({ body, key });
-      if (key !== 'pk-check-public') return send(401, { code: 'K004' });
-      const id = `MAYACHK${mayaCheckouts.length}`;
-      mayaPayments.set(body.requestReferenceNumber, [{ id: `MAYAPAY${mayaCheckouts.length}`, status: 'PAYMENT_SUCCESS', isPaid: true,
-        amount: String(body.totalAmount.value), currency: body.totalAmount.currency, requestReferenceNumber: body.requestReferenceNumber,
-        receiptNumber: 'R1', buyer: { contact: { email: 'payer@maya.test' } } }]);
-      return send(200, { checkoutId: id, redirectUrl: body.redirectUrl.success });
+      pmCheckouts.push({ body, key });
+      if (key !== PM_SECRET) return send(401, { errors: [{ code: 'api_key_invalid' }] });
+      const a = body.data.attributes;
+      const id = `cs_check${String(pmCheckouts.length).padStart(6, '0')}`;
+      const total = a.line_items.reduce((sum, line) => sum + line.amount * line.quantity, 0);
+      pmSessions.set(id, { id, type: 'checkout_session', attributes: { ...a, status: 'active', checkout_url: `https://checkout.test/${id}`,
+        payments: [{ id: `pay_check${String(pmCheckouts.length).padStart(6, '0')}`, type: 'payment',
+          attributes: { amount: total, fee: Math.round(total * 0.025), net_amount: total - Math.round(total * 0.025), currency: 'PHP',
+            status: 'paid', livemode: false, source: { type: 'gcash' }, billing: { email: 'payer@gcash.test' } } }] } });
+      // The buyer would authorise in GCash on PayMongo's page; the stand-in returns them at once.
+      return send(200, { data: { id, type: 'checkout_session', attributes: { checkout_url: a.success_url } } });
     }
-    const match = req.url.match(/^\/payments\/v1\/payment-rrns\/(.+)$/);
+    const match = req.url.match(/^\/v1\/checkout_sessions\/(cs_[A-Za-z0-9]+)$/);
     if (match) {
-      mayaReads.push({ ref: decodeURIComponent(match[1]), key });
-      if (key !== 'sk-check-secret') return send(401, { code: 'K004' });
-      const list = mayaPayments.get(decodeURIComponent(match[1]));
-      return list ? send(200, list) : send(404, { code: 'PY0009' });
+      pmReads.push({ id: match[1], key });
+      if (key !== PM_SECRET) return send(401, { errors: [{ code: 'api_key_invalid' }] });
+      const session = pmSessions.get(match[1]);
+      return session ? send(200, { data: session }) : send(404, { errors: [{ code: 'resource_not_found' }] });
     }
     send(404, {});
   });
 });
 
+/** A webhook delivery signed as PayMongo signs test events. */
+async function signedWebhook(event, { secret = PM_WEBHOOK_SECRET, at = Math.floor(Date.now() / 1000) } = {}) {
+  const { createHmac } = await import('node:crypto');
+  const body = JSON.stringify(event);
+  const te = createHmac('sha256', secret).update(`${at}.${body}`).digest('hex');
+  return fetch(`${APP}/api/paymongo/webhook`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Paymongo-Signature': `t=${at},te=${te},li=` }, body
+  });
+}
+
 await new Promise(resolve => supabase.listen(SB_PORT, '127.0.0.1', resolve));
-await new Promise(resolve => mayaServer.listen(MY_PORT, '127.0.0.1', resolve));
+await new Promise(resolve => paymongoServer.listen(PM_PORT, '127.0.0.1', resolve));
 await new Promise(resolve => paypal.listen(PP_PORT, '127.0.0.1', resolve));
 try { execSync(`fuser -k ${APP_PORT}/tcp`, { stdio: 'ignore' }); } catch {}
 const app = spawn('npx', ['next', 'start', '-p', String(APP_PORT)], {
@@ -366,8 +386,8 @@ const app = spawn('npx', ['next', 'start', '-p', String(APP_PORT)], {
     PAYPAL_CLIENT_ID: 'id', PAYPAL_CLIENT_SECRET: 'secret', PAYPAL_API_BASE: `http://127.0.0.1:${PP_PORT}`,
     PAYMENT_RECORDER_SECRET: SECRET, FURNISHAR_JWT_SECRET: 'billing-check', SITE_URL: APP,
     PAYPAL_PARTNER_MERCHANT_ID: 'PARTNER1', PAYPAL_ENV: '', PAYPAL_FEE_MODE: '', PAYPAL_WEBHOOK_ID: '',
-    MAYA_PUBLIC_KEY: 'pk-check-public', MAYA_SECRET_KEY: 'sk-check-secret', MAYA_API_BASE: `http://127.0.0.1:${MY_PORT}`,
-    MAYA_ENV: '', MAYA_PAYFAC_ENABLED: '', MAYA_FEE_MODE: '', MAYA_WEBHOOK_ALLOWED_IPS: ''
+    PAYMONGO_SECRET_KEY: PM_SECRET, PAYMONGO_PUBLIC_KEY: 'pk_test_billingcheck0000', PAYMONGO_WEBHOOK_SECRET: PM_WEBHOOK_SECRET,
+    PAYMONGO_GCASH_ENABLED: 'true', PAYMONGO_API_BASE: `http://127.0.0.1:${PM_PORT}`, PAYMONGO_ENV: '', PAYMONGO_SPLIT_MODE: ''
   }
 });
 for (let i = 0; i < 60; i++) {
@@ -431,7 +451,7 @@ try {
   await shot(buyer, 'checkout-dialog');
   check('checkout says who is signed in', /Signed in as tok-buyer@test\.ph/.test(await checkout.innerText()));
   check('checkout carries the sandbox marker', /PayPal Sandbox/i.test(await checkout.innerText()));
-  await checkout.getByRole('button', { name: 'Continue to PayPal' }).click();
+  await checkout.getByRole('button', { name: 'Continue to payment' }).click();
   await buyer.waitForURL(/\/account/, { timeout: 20000 }).catch(async () => {
     console.log('  (still on', buyer.url(), '—', (await buyer.locator('[role="alert"], [role="status"]').allInnerTexts()).join(' | '), ')');
   });
@@ -459,60 +479,73 @@ try {
     receiptText.replace(/\s+/g, ' ').slice(0, 160));
   check('the receipt says where and when', /Purok 3, Brgy\. Poblacion/.test(receiptText) && /Estimated arrival/i.test(receiptText));
 
-  console.log('--- a buyer pays a Maya-only shop through Maya (0015) ---');
+  console.log('--- a buyer pays a GCash-only shop with GCash via PayMongo (0016) ---');
   await buyer.goto(`${APP}/furniture/billing-check-lamp`);
-  const buyMaya = buyer.getByRole('button', { name: 'Buy with Maya' });
-  await buyMaya.waitFor({ timeout: 15000 }).catch(() => {});
-  check('a Maya-only shop offers Maya, and not PayPal', await buyMaya.count() === 1
+  const buyGcash = buyer.getByRole('button', { name: 'Buy with GCash' });
+  await buyGcash.waitFor({ timeout: 15000 }).catch(() => {});
+  check('a GCash-only shop offers GCash, and not PayPal', await buyGcash.count() === 1
     && await buyer.getByRole('button', { name: /PayPal/ }).count() === 0);
-  check('it says FurnishAR receives a Maya payment and pays the shop',
-    /FurnishAR receives the payment and pays Maya Shop its share/.test(await buyer.locator('.purchase-panel').innerText().catch(() => '')));
-  await buyMaya.click();
-  const mayaCheckout = buyer.locator('dialog.request-dialog[open]');
-  await mayaCheckout.getByText('Store pickup').click();
-  await mayaCheckout.locator('input[name="phone"]').fill('0917 123 4567');
-  check('the dialog names Maya and its sandbox', /Maya Sandbox/i.test(await mayaCheckout.innerText()));
-  await shot(buyer, 'checkout-maya');
-  await mayaCheckout.getByRole('button', { name: 'Continue to Maya' }).click();
+  const panelText = await buyer.locator('.purchase-panel').innerText().catch(() => '');
+  check('it says GCash goes through PayMongo and FurnishAR pays the shop',
+    /GCash, securely through PayMongo/.test(panelText) && /FurnishAR receives the payment and pays GCash Shop its share/.test(panelText), panelText.replace(/\s+/g, ' ').slice(0, 200));
+  check('no Maya anywhere on the page', !/maya/i.test(await buyer.locator('body').innerText().catch(() => '')));
+  await buyGcash.click();
+  const gcashCheckout = buyer.locator('dialog.request-dialog[open]');
+  await gcashCheckout.getByText('Store pickup').click();
+  await gcashCheckout.locator('input[name="phone"]').fill('0917 123 4567');
+  check('the dialog says PayMongo test mode and never asks for GCash credentials',
+    /PayMongo test mode/i.test(await gcashCheckout.innerText())
+    && await gcashCheckout.locator('input[type="password"], input[name*="pin" i], input[name*="otp" i], input[name*="gcash" i]').count() === 0);
+  await shot(buyer, 'checkout-gcash');
+  await gcashCheckout.getByRole('button', { name: 'Continue to payment' }).click();
   await buyer.waitForURL(/\/account\/payment\/return/, { timeout: 20000 }).catch(() => {});
   await buyer.locator('h1', { hasText: /Payment received|couldn|Nothing|Sign in/ }).waitFor({ timeout: 20000 }).catch(() => {});
-  const mayaCreated = mayaCheckouts.at(-1);
-  check('Maya was asked with the PUBLIC key for the database amount', mayaCreated?.key === 'pk-check-public'
-    && mayaCreated?.body?.totalAmount?.value === 1100, JSON.stringify(mayaCreated?.body?.totalAmount));
-  const mayaAttempt = [...attempts.values()].find(a => a.provider === 'maya');
-  check('the attempt pays FurnishAR\'s own Maya account, platform collect', mayaAttempt?.payee_merchant_id === 'furnishar-platform'
-    && mayaAttempt?.fee_mode === 'platform_collect' && mayaAttempt?.provider_reference === mayaCreated?.body?.requestReferenceNumber,
-    JSON.stringify(mayaAttempt));
-  check('the return was confirmed by re-reading the payment with the SECRET key',
-    mayaReads.length > 0 && mayaReads.every(r => r.key === 'sk-check-secret'));
-  const mayaRecord = recorded.filter(r => r.p_provider === 'maya' && !r.duplicate);
-  check('the payment was recorded once, as Maya, with the server secret', mayaRecord.length === 1
-    && mayaRecord[0].p_secret === SECRET && mayaRecord[0].p_capture === 'MAYAPAY1' && mayaRecord[0].p_amount === 1100,
-    JSON.stringify(mayaRecord.map(r => ({ c: r.p_capture, a: r.p_amount }))));
+  const pmCreated = pmCheckouts.at(-1);
+  const pmAttrs = pmCreated?.body?.data?.attributes;
+  const pmTotal = (pmAttrs?.line_items || []).reduce((sum, line) => sum + line.amount * line.quantity, 0);
+  check('the Checkout Session was created with the SECRET key, GCash only, for the database amount in centavos',
+    pmCreated?.key === PM_SECRET && JSON.stringify(pmAttrs?.payment_method_types) === '["gcash"]' && pmTotal === 110000
+    && pmAttrs?.line_items?.some(line => /service fee/i.test(line.name) && line.amount === 10000),
+    JSON.stringify(pmAttrs?.line_items));
+  const pmAttempt = [...attempts.values()].find(a => a.provider === 'paymongo');
+  check('the attempt pays FurnishAR\'s own PayMongo account, fee held, method gcash', pmAttempt?.payee_merchant_id === 'furnishar-paymongo'
+    && pmAttempt?.fee_mode === 'platform_held' && pmAttempt?.payment_method === 'gcash'
+    && pmAttempt?.provider_reference === pmAttrs?.reference_number, JSON.stringify(pmAttempt));
+  check('the return was confirmed by re-reading the session with the SECRET key',
+    pmReads.length > 0 && pmReads.every(r => r.key === PM_SECRET));
+  const pmRecord = () => recorded.filter(r => r.p_provider === 'paymongo' && !r.duplicate);
+  check('the payment was recorded once, as PayMongo / GCash, with the server secret and PayMongo\'s fee', pmRecord().length === 1
+    && pmRecord()[0].p_secret === SECRET && pmRecord()[0].p_capture === 'pay_check000001' && Number(pmRecord()[0].p_amount) === 1100
+    && Number(pmRecord()[0].p_processing_fee) === 27.5,
+    JSON.stringify(pmRecord().map(r => ({ c: r.p_capture, a: r.p_amount, f: r.p_processing_fee }))));
   check('the return page says the payment was received', await buyer.locator('h1', { hasText: 'Payment received' }).count() === 1,
     await buyer.locator('h1').first().innerText().catch(() => ''));
   check('the reference is cleaned from the address', !/ref=/.test(buyer.url()), buyer.url());
-  await shot(buyer, 'payment-return-maya');
+  await shot(buyer, 'payment-return-gcash');
   await buyer.getByRole('link', { name: 'View receipt' }).click();
   await buyer.locator('.receipt').waitFor({ timeout: 15000 }).catch(() => {});
-  const mayaReceipt = await buyer.locator('.receipt').innerText().catch(() => '');
-  check('the receipt says Paid via Maya and who received it', /Paid via Maya/.test(mayaReceipt)
-    && /Maya payments are received by FurnishAR/.test(mayaReceipt), mayaReceipt.replace(/\s+/g, ' ').slice(0, 200));
+  const gcashReceipt = await buyer.locator('.receipt').innerText().catch(() => '');
+  check('the receipt says GCash · PayMongo and who received it', /Paid via GCash · PayMongo/.test(gcashReceipt)
+    && /GCash payments are processed by PayMongo and received by FurnishAR/.test(gcashReceipt), gcashReceipt.replace(/\s+/g, ' ').slice(0, 200));
 
-  const webhook = body => fetch(`${APP}/api/maya/webhook`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const reference = mayaCreated?.body?.requestReferenceNumber;
-  const hooked = await webhook({ id: 'MAYAPAY1', status: 'PAYMENT_SUCCESS', requestReferenceNumber: reference });
-  const hookedAgain = await webhook({ id: 'MAYAPAY1', status: 'PAYMENT_SUCCESS', requestReferenceNumber: reference });
-  check('Maya\'s webhook after the return changes nothing, and a redelivery is a no-op',
-    hooked.status === 200 && (await hookedAgain.json()).duplicate === true
-    && recorded.filter(r => r.p_provider === 'maya' && !r.duplicate).length === 1);
-  const forged = await webhook({ id: 'X', status: 'PAYMENT_SUCCESS', requestReferenceNumber: 'FA-NOT-OURS-1' });
-  check('a webhook for a reference FurnishAR never made is ignored', forged.status === 200
-    && recorded.filter(r => r.p_provider === 'maya' && !r.duplicate).length === 1);
+  const sessionId = [...pmSessions.keys()].at(-1);
+  const paidEvent = id => ({ data: { id, type: 'event', attributes: { type: 'checkout_session.payment.paid', livemode: false,
+    data: { id: sessionId, type: 'checkout_session', attributes: pmSessions.get(sessionId)?.attributes } } } });
+  const hooked = await signedWebhook(paidEvent('evt_check000001'));
+  const hookedAgain = await signedWebhook(paidEvent('evt_check000001'));
+  check('a signed webhook after the return records nothing new, and a redelivery is a duplicate',
+    hooked.status === 200 && (await hookedAgain.json()).duplicate === true && pmRecord().length === 1);
+  const forged = await signedWebhook(paidEvent('evt_check000002'), { secret: 'whsk_wrong' });
+  check('a webhook with a bad signature is refused', forged.status === 400 && pmRecord().length === 1);
+  const stale = await signedWebhook(paidEvent('evt_check000003'), { at: Math.floor(Date.now() / 1000) - 3600 });
+  check('a stale (replayed) webhook is refused', stale.status === 400);
+  const live = await signedWebhook({ data: { id: 'evt_check000004', attributes: { type: 'checkout_session.payment.paid', livemode: true,
+    data: { id: sessionId, type: 'checkout_session' } } } });
+  check('a live-mode event never settles a test-mode server', live.status === 200 && /other mode/.test(JSON.stringify(await live.json())));
 
-  await buyer.goto(`${APP}/account/payment/return?provider=maya&ref=REF9-Fdeadbeef&result=cancel`);
+  await buyer.goto(`${APP}/account/payment/return?provider=paymongo&ref=REF9-Fdeadbeef&result=cancel`);
   await buyer.locator('h1', { hasText: /cancelled|couldn|Nothing/ }).waitFor({ timeout: 15000 }).catch(() => {});
-  check('a cancelled Maya checkout says nothing was charged', /Payment cancelled/.test(await buyer.locator('h1').first().innerText().catch(() => ''))
+  check('a cancelled GCash checkout says nothing was charged', /Payment cancelled/.test(await buyer.locator('h1').first().innerText().catch(() => ''))
     && /Nothing was charged/.test(await buyer.locator('.payment-return').innerText().catch(() => '')));
 
   console.log('--- a buyer requests a custom build ---');
@@ -619,21 +652,27 @@ try {
   check('and never calls an accrued fee collected', /\bCollected\s*₱0\.00/i.test(adminText));
   check('the PayPal sandbox marker is visible to the admin', /PayPal Sandbox/i.test(adminText));
   check('each shop\'s PayPal status is listed', /Not connected/i.test(adminText) && /(^|[^t] )connected/im.test(adminText));
-  check('Maya\'s configuration is stated: FurnishAR collects, sandbox, no PayFac claimed',
-    /Configured · FurnishAR collects/i.test(adminText) && /Maya Sandbox/i.test(adminText) && /Payment Facilitator is not enabled/.test(adminText),
-    adminText.match(/Maya[^\n]*\n[^\n]*\n[^\n]*/)?.[0]?.replace(/\s+/g, ' '));
-  check('the table can be filtered by payment method', await admin.locator('.mode-switch button').count() === 3);
-  await admin.getByRole('button', { name: 'Maya', exact: true }).click();
-  check('filtering to Maya shows no PayPal-only shop', await admin.locator('tbody tr', { hasText: 'Stock Shop' }).count() === 0);
-  check('an admin can open Maya setup for a store', await admin.getByRole('button', { name: 'All Stores' }).click().then(
-    () => admin.getByRole('button', { name: /Maya setup for Stock Shop/ }).count()) === 1);
+  check('PayMongo\'s configuration is stated: FurnishAR receives GCash, test mode, fee held not collected, split off',
+    /Configured · FurnishAR receives GCash payments/i.test(adminText) && /PayMongo Test Mode/i.test(adminText)
+    && /held by FurnishAR/.test(adminText) && /Split Payments: disabled/.test(adminText),
+    adminText.match(/GCash via PayMongo[^\n]*\n[^\n]*\n[^\n]*/)?.[0]?.replace(/\s+/g, ' '));
+  check('no Maya anywhere in admin billing', !/maya/i.test(adminText));
+  check('the table can be filtered All / PayPal / GCash', await admin.locator('.mode-switch button').count() === 3
+    && await admin.getByRole('button', { name: 'GCash', exact: true }).count() === 1);
+  const tableHead = await admin.locator('thead').first().textContent().catch(() => '');
+  check('the table has provider columns and per-method sales', /GCash via PayMongo/.test(tableHead)
+    && /PayPal Sales/.test(tableHead) && /GCash Sales/.test(tableHead) && /Held \/ Expected/.test(tableHead), tableHead);
+  await admin.getByRole('button', { name: 'GCash', exact: true }).click();
+  check('filtering to GCash shows no PayPal-only shop', await admin.locator('tbody tr', { hasText: 'Stock Shop' }).count() === 0);
+  check('an admin can open GCash setup for a store', await admin.getByRole('button', { name: 'All', exact: true }).click().then(
+    () => admin.getByRole('button', { name: /GCash setup for Stock Shop/ }).count()) === 1);
   await shot(admin, 'admin-billing');
 } finally {
   await browser.close();
   try { process.kill(-app.pid); } catch {}
   supabase.close();
   paypal.close();
-  mayaServer.close();
+  paymongoServer.close();
 }
 
 console.log(problems.length ? `\n${problems.length} problem(s)` : '\nall billing checks passed');
