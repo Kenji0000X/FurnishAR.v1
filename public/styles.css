@@ -5648,8 +5648,8 @@ td .status-chip { margin-inline-start: 0; }
 .payment-reminder p { margin: .35rem 0 0; color: var(--ink-muted); max-width: 46rem; }
 .payment-reminder-actions { display: flex; align-items: center; gap: .75rem; }
 
-.paypal-card, .maya-card { margin-bottom: 1.25rem; }
-.paypal-card .bezel-core, .maya-card .bezel-core { display: grid; gap: .8rem; }
+.paypal-card, .gcash-card { margin-bottom: 1.25rem; }
+.paypal-card .bezel-core, .gcash-card .bezel-core { display: grid; gap: .8rem; }
 .paypal-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
 .paypal-card-head h3 { margin: 0; font-size: 1rem; }
 .paypal-facts { display: flex; flex-wrap: wrap; gap: 1.5rem; margin: 0; font-variant-numeric: tabular-nums; }

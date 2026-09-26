@@ -14,14 +14,15 @@ const PAY_NOW = ['pending_payment', 'quoted', 'balance_due'];
 const CLOSED = ['fulfilled', 'declined', 'cancelled', 'expired'];
 const rank = order => (PAY_NOW.includes(order.status) ? 0 : CLOSED.includes(order.status) ? 2 : 1);
 
-const PROVIDER_LABEL = { paypal: 'PayPal', maya: 'Maya' };
+const PROVIDER_LABEL = { paypal: 'PayPal', paymongo: 'GCash' };
 
 /**
  * A shopper's orders, and the way back from PayPal.            DFD: P10
  *
  * Each order that is waiting on money offers the payment methods its shop
- * can take right now (/api/sb/orders/providers). Maya returns the buyer to
- * /account/payment/return, which confirms the payment the same way.
+ * can take right now (/api/sb/orders/providers). GCash (through PayMongo)
+ * returns the buyer to /account/payment/return, where the server re-reads the
+ * PayMongo checkout before anything is recorded — the redirect proves nothing.
  *
  * PayPal returns the buyer to /account?paypal=return&token=<PayPal order>.
  * That token is only a pointer: the server re-reads the PayPal order,
@@ -164,8 +165,8 @@ export default function BuyerOrders() {
         />
       )}
       <p className="card-copy demo-note">
-        PayPal payments go directly to the shop&rsquo;s PayPal account. Maya payments are received by FurnishAR&rsquo;s
-        Maya account, which pays the shop its share, unless Maya settles to the shop directly. The price includes FurnishAR&rsquo;s 10% service fee.
+        PayPal payments go directly to the shop&rsquo;s PayPal account. GCash payments are processed by PayMongo and received by
+        FurnishAR, which pays the shop its share. The price includes FurnishAR&rsquo;s 10% service fee.
       </p>
     </section>
   );

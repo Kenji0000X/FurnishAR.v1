@@ -41,7 +41,7 @@ function paidThrough(order, store) {
   if (!used.size) return '';
   const parts = [];
   if (used.has('paypal')) parts.push(`PayPal payments go directly to ${store}.`);
-  if (used.has('maya')) parts.push(`Maya payments are received by FurnishAR, which pays ${store} its share.`);
+  if (used.has('paymongo')) parts.push(`GCash payments are processed by PayMongo and received by FurnishAR, which pays ${store} its share.`);
   return parts.join(' ');
 }
 
@@ -132,7 +132,7 @@ export default function ReceiptView({ orderId }) {
               {payments.map(p => (
                 <tr key={p.capture_id}>
                   <td colSpan={3}>
-                    Paid via {p.provider === 'maya' ? 'Maya' : 'PayPal'}{p.stage !== 'full' ? ` (${p.stage})` : ''} · {when(p.captured_at)}
+                    Paid via {p.provider === 'paymongo' ? 'GCash · PayMongo' : 'PayPal'}{p.stage !== 'full' ? ` (${p.stage})` : ''} · {when(p.captured_at)}
                     <small className="receipt-txn">Transaction {p.capture_id}</small>
                   </td>
                   <td>−{money(p.amount)}</td>

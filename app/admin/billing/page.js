@@ -17,12 +17,16 @@ import { describeStatus } from '../../billing/payment-status.mjs';
  *                   only when PayPal's capture breakdown reported it. Any
  *                   payment where it did not (seller without the partner-fee
  *                   permission, older payments) still accrues.
- * Maya (0015) beside PayPal, in the same table: an admin enables Maya for a
- * store (there is no self-service Maya onboarding), and with platform
- * collect FurnishAR's Maya account receives the payment and OWES the store
- * its share, paid out and recorded here (record_store_remittance).
- * fee_overview(), record_fee_settlement(), admin_set_maya_account(),
- * record_store_remittance() and /api/sb/payments/admin refuse
+ * GCash via PayMongo (0016) beside PayPal, in the same table: an admin
+ * enables GCash for a store (buyers and stores never connect GCash). In
+ * platform settlement FurnishAR's PayMongo account receives the payment: the
+ * 10% is HELD (accrued, not "collected"), the store's share is OWED and paid
+ * out here (record_store_remittance), and PayMongo's processing fee is shown
+ * on its own. Split settlement is offered only when PAYMONGO_SPLIT_MODE=split;
+ * its fee is EXPECTED until reconciled with PayMongo. GCash refunds go
+ * through PayMongo's refund API (orders action "refund").
+ * fee_overview(), record_fee_settlement(), admin_set_paymongo_account(),
+ * record_store_remittance(), the refund action and /api/sb/payments/admin refuse
  * anyone who is not a platform admin; this page being behind the console
  * gate is the convenience, not the protection.
  */
@@ -33,9 +37,10 @@ export default function AdminBilling() {
   const [settling, setSettling] = useState(null);
   const [busy, setBusy] = useState(false);
   const [unlinking, setUnlinking] = useState(null);   // the row awaiting confirmation
-  const [provider, setProvider] = useState('all');    // table filter: all | paypal | maya
-  const [mayaFor, setMayaFor] = useState(null);       // the row whose Maya setup is open
-  const [paying, setPaying] = useState(null);         // the row being paid out (Maya platform collect)
+  const [provider, setProvider] = useState('all');    // table filter: all | paypal | gcash
+  const [gcashFor, setGcashFor] = useState(null);     // the row whose GCash setup is open
+  const [paying, setPaying] = useState(null);         // the row being paid out (GCash, platform settlement)
+  const [refundsFor, setRefundsFor] = useState(null); // { row, payments } for GCash refunds
 
   const load = useCallback(async () => {
     const sb = supabase();
@@ -80,18 +85,44 @@ export default function AdminBilling() {
     setBusy(false);
   }
 
-  async function saveMaya(event) {
+  async function saveGcash(event) {
     event.preventDefault();
     const v = Object.fromEntries(new FormData(event.currentTarget));
     const enabled = v.settlement !== 'off';
     setBusy(true);
     try {
-      await supabase().setMayaAccount({
-        storeUuid: mayaFor.store_id, environment: config?.maya?.environment || 'sandbox', enabled,
-        settlement: enabled ? v.settlement : null, submerchant: v.submerchant, city: v.city, postal: v.postal
+      await supabase().setPaymongoAccount({
+        storeUuid: gcashFor.store_id, environment: config?.paymongo?.environment || 'sandbox', enabled,
+        settlement: enabled ? v.settlement : null, childMerchant: v.childMerchant
       });
-      alert.showSuccess(enabled ? `Maya is set up for ${mayaFor.store_name}.` : `Maya is off for ${mayaFor.store_name}.`);
-      setMayaFor(null);
+      alert.showSuccess(enabled ? `GCash is set up for ${gcashFor.store_name}.` : `GCash is off for ${gcashFor.store_name}.`);
+      setGcashFor(null);
+      await load();
+    } catch (error) {
+      alert.showError(error.message);
+    }
+    setBusy(false);
+  }
+
+  async function openRefunds(row) {
+    try {
+      setRefundsFor({ row, payments: await supabase().storeGcashPayments(row.store_id) });
+    } catch (error) {
+      alert.showError(error.message);
+    }
+  }
+
+  /** Refund through PayMongo; recorded when PayMongo reports it succeeded (here or by webhook). */
+  async function refund(event) {
+    event.preventDefault();
+    const v = Object.fromEntries(new FormData(event.currentTarget));
+    setBusy(true);
+    try {
+      const result = await supabase().orderAction('refund', { paymentId: v.paymentId, amount: v.amount, note: v.note });
+      alert.showSuccess(result.status === 'succeeded'
+        ? `Refunded through PayMongo (${result.refundId}).`
+        : `PayMongo accepted the refund (${result.refundId}); it is recorded when PayMongo reports it succeeded.`);
+      await openRefunds(refundsFor.row);
       await load();
     } catch (error) {
       alert.showError(error.message);
@@ -115,15 +146,15 @@ export default function AdminBilling() {
   }
 
   const all = rows || [];
-  const usesMaya = row => row.maya_status === 'CONNECTED' || Number(row.maya_sales) > 0 || Number(row.owed_to_store) > 0;
+  const usesGcash = row => row.paymongo_status === 'CONNECTED' || Number(row.gcash_sales) > 0 || Number(row.owed_to_store) > 0;
   const usesPaypal = row => row.payment_status === 'CONNECTED' || Number(row.paypal_sales) > 0;
-  const list = provider === 'maya' ? all.filter(usesMaya) : provider === 'paypal' ? all.filter(usesPaypal) : all;
+  const list = provider === 'gcash' ? all.filter(usesGcash) : provider === 'paypal' ? all.filter(usesPaypal) : all;
   const sum = key => all.reduce((total, row) => total + Number(row[key] || 0), 0);
-  const mayaConfig = config?.maya;
+  const gcashConfig = config?.paymongo;
   const split = config?.feeMode === 'platform_split';
   const splitAskedButOff = config?.feeModeConfigured === 'platform_split' && !split;
   const connected = all.filter(row => row.payment_status === 'CONNECTED').length;
-  const mayaEnabled = all.filter(row => row.maya_status === 'CONNECTED').length;
+  const gcashEnabled = all.filter(row => row.paymongo_status === 'CONNECTED').length;
 
   return (
     <>
@@ -136,7 +167,7 @@ export default function AdminBilling() {
         <p>
           {rows === null ? 'Loading…'
             : `${money(sum('sales'))} in sales · ${connected} of ${all.length} shops connected to PayPal`
-              + (mayaConfig?.configured ? ` · ${mayaEnabled} set up for Maya.` : '.')}
+              + (gcashConfig?.configured ? ` · ${gcashEnabled} set up for GCash.` : '.')}
         </p>
       </section>
 
@@ -168,26 +199,26 @@ export default function AdminBilling() {
 
       <div className="bezel console-panel fee-mode">
         <div className="bezel-core">
-          <p className="console-tile-label">Maya</p>
+          <p className="console-tile-label">GCash via PayMongo</p>
           <h2>
             {!config ? 'Checking…'
-              : !mayaConfig?.configured ? 'Not configured'
-              : mayaConfig.payfac ? 'Configured · Payment Facilitator enabled' : 'Configured · FurnishAR collects'}
-            {mayaConfig?.configured && mayaConfig.sandbox && <span className="status-chip is-sandbox" title="No real money moves">Maya Sandbox</span>}
+              : !gcashConfig?.configured ? 'Not configured'
+              : gcashConfig.splitEnabled ? 'Configured · Split Payments available' : 'Configured · FurnishAR receives GCash payments'}
+            {gcashConfig?.configured && gcashConfig.sandbox && <span className="status-chip is-sandbox" title="No real money moves">PayMongo Test Mode</span>}
           </h2>
           <p>
-            {mayaConfig?.payfac
-              ? `Stores set to PayFac are settled by Maya to their sub-merchant; the fee is ${mayaConfig.payfacFeeMode === 'provider_settlement' ? 'expected via Maya’s settlement (never counted as collected until reconciled)' : 'owed by the store (accrual)'}. Stores set to platform collect are paid into FurnishAR’s Maya account.`
-              : 'Maya payments are received by FurnishAR’s Maya account. FurnishAR keeps the 10% and owes each store its share, paid out and recorded below. Payment Facilitator is not enabled (MAYA_PAYFAC_ENABLED).'}
+            {gcashConfig?.splitEnabled
+              ? 'Stores set to split are paid their share by PayMongo Split Payments; FurnishAR’s 10% is expected until reconciled against PayMongo’s records, never counted as collected. Stores set to platform are paid into FurnishAR’s PayMongo account.'
+              : `GCash payments are received by FurnishAR’s PayMongo account, less PayMongo’s processing fee. The 10% is held by FurnishAR (not “collected” from anyone) and each store’s share is owed to it, paid out and recorded below. Split Payments: ${gcashConfig?.splitMode || 'disabled'}.`}
           </p>
-          {mayaConfig?.problems?.length > 0 && (
-            <ul className="config-problems" aria-label="Maya configuration problems">
-              {mayaConfig.problems.map(problem => <li key={problem}>{problem}</li>)}
+          {gcashConfig?.problems?.length > 0 && (
+            <ul className="config-problems" aria-label="PayMongo configuration problems">
+              {gcashConfig.problems.map(problem => <li key={problem}>{problem}</li>)}
             </ul>
           )}
-          {mayaConfig?.warnings?.length > 0 && (
-            <ul className="config-warnings" aria-label="Maya configuration warnings">
-              {mayaConfig.warnings.map(warning => <li key={warning}>{warning}</li>)}
+          {gcashConfig?.warnings?.length > 0 && (
+            <ul className="config-warnings" aria-label="PayMongo configuration warnings">
+              {gcashConfig.warnings.map(warning => <li key={warning}>{warning}</li>)}
             </ul>
           )}
         </div>
@@ -196,39 +227,52 @@ export default function AdminBilling() {
       <dl className="billing-summary">
         <div><dt>Accrued (Owed)</dt><dd>{money(sum('accrued'))}</dd></div>
         <div><dt>Collected</dt><dd>{money(sum('collected'))}</dd></div>
-        {sum('expected_via_settlement') > 0 && (
-          <div><dt>Expected via Maya Settlement</dt><dd>{money(sum('expected_via_settlement'))}</dd></div>
+        {sum('held') > 0 && (
+          <div><dt>Held from GCash Sales</dt><dd>{money(sum('held'))}</dd></div>
+        )}
+        {sum('expected_via_split') > 0 && (
+          <div><dt>Expected via PayMongo Split</dt><dd>{money(sum('expected_via_split'))}</dd></div>
+        )}
+        {sum('processing_fees') > 0 && (
+          <div><dt>PayMongo Processing Fees</dt><dd>{money(sum('processing_fees'))}</dd></div>
         )}
         <div><dt>Refunded to Buyers</dt><dd>{money(sum('refunded'))}</dd></div>
         <div><dt>Outstanding</dt><dd>{money(sum('outstanding'))}</dd></div>
-        {(mayaConfig?.configured || sum('owed_to_store') > 0) && (
-          <div><dt>Owed to Shops (Maya)</dt><dd>{money(sum('owed_to_store'))}</dd></div>
+        {(gcashConfig?.configured || sum('owed_to_store') > 0) && (
+          <div><dt>Owed to Shops (GCash)</dt><dd>{money(sum('owed_to_store'))}</dd></div>
         )}
       </dl>
 
       <div className="mode-switch" role="group" aria-label="Payment method">
-        {[['all', 'All Stores'], ['paypal', 'PayPal'], ['maya', 'Maya']].map(([id, label]) => (
+        {[['all', 'All'], ['paypal', 'PayPal'], ['gcash', 'GCash']].map(([id, label]) => (
           <button key={id} type="button" className={`mode-option${provider === id ? ' is-active' : ''}`}
             aria-pressed={provider === id} onClick={() => setProvider(id)}>{label}</button>
         ))}
       </div>
 
-      {mayaFor && (
+      {gcashFor && (
         <div className="bezel console-panel">
-          <MayaForm row={mayaFor} busy={busy} payfac={Boolean(mayaConfig?.payfac)} onSubmit={saveMaya} onCancel={() => setMayaFor(null)} />
+          <GcashForm row={gcashFor} busy={busy} split={Boolean(gcashConfig?.splitEnabled)} onSubmit={saveGcash} onCancel={() => setGcashFor(null)} />
+        </div>
+      )}
+
+      {refundsFor && (
+        <div className="bezel console-panel">
+          <RefundForm row={refundsFor.row} payments={refundsFor.payments} busy={busy}
+            onSubmit={refund} onCancel={() => setRefundsFor(null)} />
         </div>
       )}
 
       {paying && (
         <div className="bezel console-panel">
         <form className="bezel-core product-form order-quote" onSubmit={payOut} aria-label={`Record a payout to ${paying.store_name}`}>
-          <p className="form-note">FurnishAR owes {paying.store_name} {money(paying.owed_to_store)} from Maya payments it received.</p>
+          <p className="form-note">FurnishAR owes {paying.store_name} {money(paying.owed_to_store)} from GCash payments its PayMongo account received. PayMongo&rsquo;s processing fees are listed separately.</p>
           <label>Amount Paid Out (₱)
             <input name="amount" type="text" required inputMode="decimal" pattern="[0-9]+([.][0-9]{1,2})?"
               autoComplete="off" autoFocus
               defaultValue={Number(paying.owed_to_store) > 0 ? Number(paying.owed_to_store).toFixed(2) : ''} />
           </label>
-          <label>Reference<input name="reference" maxLength={120} autoComplete="off" spellCheck={false} placeholder="Bank or Maya transfer reference…" /></label>
+          <label>Reference<input name="reference" maxLength={120} autoComplete="off" spellCheck={false} placeholder="Bank or GCash transfer reference…" /></label>
           <label>Note<input name="note" maxLength={500} autoComplete="off" placeholder="Optional…" /></label>
           <div className="order-actions">
             <button className="button button-primary" type="submit" disabled={busy} aria-busy={busy || undefined}>
@@ -262,12 +306,13 @@ export default function AdminBilling() {
 
       <PagedTable
         rows={list}
-        colSpan={8}
-        empty={rows === null ? 'Loading…' : provider === 'all' ? 'No stores yet.' : `No stores use ${provider === 'maya' ? 'Maya' : 'PayPal'} yet.`}
+        colSpan={10}
+        empty={rows === null ? 'Loading…' : provider === 'all' ? 'No stores yet.' : `No stores use ${provider === 'gcash' ? 'GCash' : 'PayPal'} yet.`}
         head={<tr>
-          <th scope="col">Store</th><th scope="col">PayPal</th><th scope="col">Maya</th>
-          <th scope="col" className="num">Paid to Shop</th><th scope="col" className="num">Accrued</th>
-          <th scope="col" className="num">Collected</th><th scope="col" className="num">Outstanding</th>
+          <th scope="col">Store</th><th scope="col">PayPal</th><th scope="col">GCash via PayMongo</th>
+          <th scope="col" className="num">PayPal Sales</th><th scope="col" className="num">GCash Sales</th>
+          <th scope="col" className="num">Accrued</th><th scope="col" className="num">Collected</th>
+          <th scope="col" className="num">Held / Expected</th><th scope="col" className="num">Outstanding</th>
           <th><span className="sr-only">Actions</span></th>
         </tr>}
         renderRow={row => {
@@ -280,22 +325,29 @@ export default function AdminBilling() {
                 {row.merchant_id_masked && <><br /><small translate="no">{row.merchant_id_masked}{row.payment_environment === 'sandbox' ? ' · sandbox' : ''}</small></>}
               </td>
               <td>
-                <span className={`status-chip ${row.maya_status === 'CONNECTED' ? 'is-success' : ''}`}>
-                  {row.maya_status === 'CONNECTED' ? (row.maya_settlement === 'payfac' ? 'PayFac' : 'FurnishAR collects') : 'Not set up'}
+                <span className={`status-chip ${row.paymongo_status === 'CONNECTED' ? 'is-success' : ''}`}>
+                  {row.paymongo_status === 'CONNECTED' ? (row.paymongo_settlement === 'split' ? 'Split' : 'FurnishAR receives') : 'Not set up'}
                 </span>
                 {Number(row.owed_to_store) > 0 && <><br /><small>Owed {money(row.owed_to_store)}</small></>}
+                {Number(row.processing_fees) > 0 && <><br /><small>Processing fees {money(row.processing_fees)}</small></>}
               </td>
-              <td className="num">{money(row.sales)}</td>
+              <td className="num">{money(row.paypal_sales)}</td>
+              <td className="num">{money(row.gcash_sales)}</td>
               <td className="num">{money(row.accrued)}</td>
               <td className="num">{money(row.collected)}</td>
+              <td className="num">{money(Number(row.held || 0) + Number(row.expected_via_split || 0))}</td>
               <td className="num"><b>{money(row.outstanding)}</b></td>
               <td>
                 <div className="table-actions">
                   <button className="icon-button" type="button" onClick={() => setSettling(row)}
                     aria-label={`Record a payment from ${row.store_name}`}>Record Payment…</button>
-                  {mayaConfig?.configured && (
-                    <button className="icon-button" type="button" onClick={() => setMayaFor(row)}
-                      aria-label={`Maya setup for ${row.store_name}…`}>Maya…</button>
+                  {gcashConfig?.configured && (
+                    <button className="icon-button" type="button" onClick={() => setGcashFor(row)}
+                      aria-label={`GCash setup for ${row.store_name}…`}>GCash…</button>
+                  )}
+                  {gcashConfig?.configured && Number(row.gcash_sales) > 0 && (
+                    <button className="icon-button" type="button" onClick={() => openRefunds(row)}
+                      aria-label={`GCash refunds for ${row.store_name}…`}>Refunds…</button>
                   )}
                   {Number(row.owed_to_store) > 0 && (
                     <button className="icon-button" type="button" onClick={() => setPaying(row)}
@@ -326,33 +378,75 @@ export default function AdminBilling() {
 }
 
 /**
- * Maya for one store. Platform collect needs nothing from the store: the
- * payment lands in FurnishAR's Maya account. PayFac needs the sub-merchant id,
- * city and postal code exactly as Maya registered them, and is offered only
- * once Maya has enabled Payment Facilitator for FurnishAR.
+ * GCash for one store. Platform settlement needs nothing from the store: the
+ * payment lands in FurnishAR's PayMongo account. Split needs the store's
+ * PayMongo child-merchant id, exactly as PayMongo registered it under
+ * FurnishAR, and is offered only when PAYMONGO_SPLIT_MODE=split.
  */
-function MayaForm({ row, busy, payfac, onSubmit, onCancel }) {
+function GcashForm({ row, busy, split, onSubmit, onCancel }) {
   const [settlement, setSettlement] = useState(
-    row.maya_status === 'CONNECTED' ? (row.maya_settlement || 'platform_collect') : 'platform_collect');
+    row.paymongo_status === 'CONNECTED' ? (row.paymongo_settlement || 'platform') : 'platform');
   return (
-    <form className="bezel-core product-form order-quote" onSubmit={onSubmit} aria-label={`Maya setup for ${row.store_name}`}>
-      <label>Maya for {row.store_name}
+    <form className="bezel-core product-form order-quote" onSubmit={onSubmit} aria-label={`GCash setup for ${row.store_name}`}>
+      <label>GCash for {row.store_name}
         <select name="settlement" value={settlement} onChange={event => setSettlement(event.target.value)}>
-          <option value="platform_collect">On — FurnishAR collects and pays the shop</option>
-          {payfac && <option value="payfac">On — Maya settles to the shop (PayFac)</option>}
+          <option value="platform">On — FurnishAR receives and pays the shop</option>
+          {split && <option value="split">On — PayMongo splits to the shop&rsquo;s child merchant</option>}
           <option value="off">Off</option>
         </select>
       </label>
-      {settlement === 'payfac' && (
-        <>
-          <label>Sub-merchant ID<input name="submerchant" required maxLength={64} autoComplete="off" spellCheck={false} /></label>
-          <label>City<input name="city" required maxLength={60} autoComplete="off" /></label>
-          <label>Postal Code<input name="postal" required inputMode="numeric" pattern="[0-9]{4}" maxLength={4} autoComplete="off" /></label>
-        </>
+      {settlement === 'split' && (
+        <label>PayMongo Child Merchant ID
+          <input name="childMerchant" required maxLength={64} pattern="[A-Za-z0-9_-]+" autoComplete="off" spellCheck={false} />
+        </label>
       )}
       <div className="order-actions">
         <button className="button button-primary" type="submit" disabled={busy} aria-busy={busy || undefined}>
-          {busy && <span className="loading-spinner" aria-hidden="true" />}Save Maya Setup
+          {busy && <span className="loading-spinner" aria-hidden="true" />}Save GCash Setup
+        </button>
+        <button className="button" type="button" onClick={onCancel}>Cancel</button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * Refund one GCash payment through PayMongo. The server re-checks that the
+ * caller is a platform admin and that the amount is within what is left.
+ */
+function RefundForm({ row, payments, busy, onSubmit, onCancel }) {
+  const refundable = payments.filter(p => Number(p.amount) - Number(p.refunded_amount || 0) > 0);
+  const [paymentId, setPaymentId] = useState(refundable[0]?.capture_id || '');
+  const chosen = refundable.find(p => p.capture_id === paymentId);
+  const left = chosen ? Number(chosen.amount) - Number(chosen.refunded_amount || 0) : 0;
+  if (!refundable.length) {
+    return (
+      <div className="bezel-core">
+        <p className="form-note">{row.store_name} has no GCash payments left to refund.</p>
+        <div className="order-actions"><button className="button" type="button" onClick={onCancel}>Close</button></div>
+      </div>
+    );
+  }
+  return (
+    <form className="bezel-core product-form order-quote" onSubmit={onSubmit} aria-label={`Refund a GCash payment for ${row.store_name}`}>
+      <label>GCash Payment
+        <select name="paymentId" value={paymentId} onChange={event => setPaymentId(event.target.value)}>
+          {refundable.map(p => (
+            <option key={p.capture_id} value={p.capture_id}>
+              {p.capture_id} · {p.stage} · {money(p.amount)}{Number(p.refunded_amount) > 0 ? ` (refunded ${money(p.refunded_amount)})` : ''}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>Amount to Refund (₱)
+        <input key={paymentId} name="amount" type="text" required inputMode="decimal" pattern="[0-9]+([.][0-9]{1,2})?"
+          autoComplete="off" defaultValue={left > 0 ? left.toFixed(2) : ''} />
+      </label>
+      <label>Note<input name="note" maxLength={255} autoComplete="off" placeholder="Optional…" /></label>
+      <p className="form-note">Sent to PayMongo. GCash refunds usually reach the buyer within the day; the order updates when PayMongo reports the refund succeeded.</p>
+      <div className="order-actions">
+        <button className="button button-primary" type="submit" disabled={busy} aria-busy={busy || undefined}>
+          {busy && <span className="loading-spinner" aria-hidden="true" />}Refund through PayMongo
         </button>
         <button className="button" type="button" onClick={onCancel}>Cancel</button>
       </div>

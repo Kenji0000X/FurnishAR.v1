@@ -6,13 +6,13 @@
 >
 > See `GOOGLE-PAYPAL-SETUP.md`.
 >
-> **Since 0015**, Maya is a second payment method in the same orders and payments system. See `MAYA-INTEGRATION.md`.
+> **Since 0016**, GCash (processed by PayMongo) is a second payment method in the same orders and payments system. See `PAYMONGO-GCASH-INTEGRATION.md`.
 
 DFD process **P10**, data store **D5**. Migration `supabase/migrations/0009_orders_billing.sql`.
 
 ## How the money moves
 
-- **Stocked shops**: the buyer pays in full. The piece is held for 30 minutes while they are on PayPal.
+- **Stocked shops**: the buyer pays in full. The piece is held (reserved when the order is placed) for 30 minutes while they pay on PayPal's or PayMongo's page; starting or switching a checkout never changes stock again.
 - **Custom shops**:
   1. The buyer sends a request.
   2. The shop quotes a price and lead time.
@@ -21,13 +21,13 @@ DFD process **P10**, data store **D5**. Migration `supabase/migrations/0009_orde
   5. The buyer pays the balance.
 - **Where the money goes depends on the method:**
   - **PayPal** pays **directly into the shop's own PayPal account**; FurnishAR never holds that money.
-  - **Maya**, as set up today ("platform collect"), pays into **FurnishAR's** Maya account. FurnishAR keeps its 10% and **owes the shop the rest**, which it pays out and records (`store_remittances`).
-  - Maya settling straight to a shop needs Maya's Payment Facilitator programme, which is not enabled.
+  - **GCash via PayMongo**, as set up by default (`platform`), pays into **FurnishAR's** PayMongo account, less PayMongo's processing fee. FurnishAR holds its 10% and **owes the shop its share**, which it pays out and records (`store_remittances`). The processing fee is shown separately; a shop's exact net is never promised in advance.
+  - GCash settling straight to a shop needs PayMongo Split Payments (activated by PayMongo, with the shop registered as a child merchant) and `PAYMONGO_SPLIT_MODE=split`.
 - **The fee:** the buyer pays the shop's price **plus a 10% service fee**. Per payment, `payments.fee_mode` says where the fee is:
   - `accrual`: the shop owes it;
   - `platform_split`: PayPal took it and reported it;
-  - `platform_collect`: FurnishAR received it through Maya;
-  - `provider_settlement`: expected from Maya's settlement, not yet reconciled.
+  - `platform_held`: a GCash payment was received by FurnishAR's PayMongo account; the fee is accrued and held, not "collected";
+  - `provider_split`: expected via PayMongo Split Payments, not collected until reconciled.
 
   Shops see the figures in the portal; an admin records settlements and payouts in `/admin/billing`.
 
@@ -42,10 +42,10 @@ DFD process **P10**, data store **D5**. Migration `supabase/migrations/0009_orde
 | `GMAIL_USER` | The Gmail address that sends receipts and order emails, e.g. `furnishar.orders@gmail.com` |
 | `GMAIL_APP_PASSWORD` | A Google **App Password** for that Gmail (16 letters; spaces are fine). Not the normal Gmail password. |
 | `RESEND_API_KEY` / `EMAIL_FROM` | Alternative to Gmail. Only used when the Gmail pair is not set; without a verified domain Resend only delivers to its own account's address. |
-| `SITE_URL` | optional, e.g. `https://furnisharv1.vercel.app` — where PayPal and Maya send buyers back |
-| `MAYA_*` | Maya's keys and settings — see `MAYA-INTEGRATION.md` §5 |
+| `SITE_URL` | optional, e.g. `https://furnisharv1.vercel.app` — where PayPal and PayMongo send buyers back |
+| `PAYMONGO_*` | PayMongo's test/live keys, webhook secret, GCash and split settings — see `PAYMONGO-GCASH-INTEGRATION.md` §6. There is no GCash key. |
 
-Payments stay switched off until the recorder secret and at least one provider (PayPal, or Maya) are set. Without an email sender the orders still work; the emails are skipped and logged.
+Payments stay switched off until the recorder secret and at least one provider (PayPal, or PayMongo with GCash enabled) are set. Without an email sender the orders still work; the emails are skipped and logged.
 
 ## The payment-recorder secret
 
@@ -69,7 +69,7 @@ In `/portal`, under **Billing & store type**:
 
 - **Store type:** stocked or custom.
 - **PayPal seller account:** connected with a PayPal Merchant ID, which PayPal checks, or through PayPal's own onboarding page. Checkout by PayPal opens only once PayPal reports the account `CONNECTED` (0011). The "PayPal email" field is a record for the shop only; it no longer enables checkout.
-- **Maya:** nothing to do. An administrator enables Maya for a shop in `/admin/billing`, and the portal shows "Set up by FurnishAR" and where the money goes.
+- **GCash via PayMongo:** nothing to connect. An administrator enables GCash for a shop in `/admin/billing`, and the portal shows "Available", "Pending setup" or "Not enabled" and where the money goes.
 - **Notification email:** optional. If it's empty, order emails go to the owner's sign-in email.
 
 A shop can take online orders once it can be paid through at least one method.
@@ -84,8 +84,8 @@ A shop can take online orders once it can be paid through at least one method.
 
 - `node --test tests/billing.test.js`: the database rules, against a local Postgres.
 - `node --test tests/orders.test.js`: the server, against a fake PayPal.
-- `node --test tests/maya-db.test.js tests/maya-server.test.js`: Maya's database rules and server, against a fake Maya.
-- `npm run check:billing`: the browser flow end to end, PayPal and Maya. Run `npm run build` first.
+- `node --test tests/paymongo-db.test.js tests/paymongo-server.test.js`: GCash via PayMongo — database rules and server, against a stand-in PayMongo.
+- `npm run check:billing`: the browser flow end to end, PayPal and GCash. Run `npm run build` first.
 
 ## Gmail App Password (for receipts)
 

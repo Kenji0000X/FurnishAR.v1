@@ -56,24 +56,25 @@ no account, application or payment-setup emails.
 | No refund accounting | `payment_refunds`, split into the seller portion and the platform portion. |
 | Emails | New events for the account, the application, PayPal connection and refunds. Reminders come from a cron route with a cooldown and never from a page load. |
 
-## 5. What 0015 adds: Maya beside PayPal (2026-09-26)
+## 5. What 0015–0016 add: GCash via PayMongo beside PayPal (2026-09-26)
 
-The flows above hold for PayPal unchanged. 0015 generalises P10 to more than
-one provider without a second order or payment system
-(`docs/MAYA-INTEGRATION.md`):
+The flows above hold for PayPal unchanged. 0015 generalised P10 to more than
+one provider without a second order or payment system; 0016 made the second
+provider **PayMongo**, with **GCash** as its payment method
+(`docs/PAYMONGO-GCASH-INTEGRATION.md`):
 
-| Step | PayPal | Maya |
+| Step | PayPal | GCash via PayMongo |
 |---|---|---|
-| Store set-up | The owner connects a PayPal seller account (Merchant ID or Partner Referrals); the status comes from PayPal | **An admin** enables Maya per store (`admin_set_maya_account`); there is no self-service. Portal: "Set up by FurnishAR". |
+| Store set-up | The owner connects a PayPal seller account (Merchant ID or Partner Referrals); the status comes from PayPal | **An admin** enables GCash per store (`admin_set_paymongo_account`); nothing to connect. Portal: "GCash via PayMongo: Available / Pending setup / Not enabled". |
 | What is offered | `GET /api/sb/orders/providers?store=` → `store_payment_providers()` ∩ what the server has configured | same |
-| Start | `begin_payment(order, env, 'paypal')` → PayPal order payable to the shop's merchant id | `begin_payment(order, env, 'maya')` → Maya Checkout (public key) payable to FurnishAR's Maya account, or to a PayFac sub-merchant |
-| Attempt | `server_record_payment_attempt(…, 'paypal')` | same, `'maya'`, with FurnishAR's reference (`provider_reference`) |
-| Return | `/account?paypal=return&token=` → `orders/capture` | `/account/payment/return?provider=maya&ref=` → `orders/verify` → payment re-read with the **secret** key |
-| Webhook | `/api/paypal/webhook`, signature verified with PayPal | `/api/maya/webhook`, unsigned: optional IP allowlist, then the payment re-read from Maya |
-| Record | `record_capture(…, 'paypal')` | `record_capture(…, 'maya')`; a capture of one provider can never satisfy the other's attempt |
-| Where the money is | the shop's PayPal account | FurnishAR's Maya account (platform collect): fee **collected**, the shop's share **owed to the shop** until paid out (`store_remittances`) |
-| Refunds | recorded from PayPal's webhooks | by hand in Maya Manager; not yet recorded automatically |
+| Start | `begin_payment(order, env, 'paypal')` → PayPal order payable to the shop's merchant id | `begin_payment(order, env, 'paymongo')` → Checkout Session (**secret** key, server side, `payment_method_types ["gcash"]`, amounts in centavos) payable to FurnishAR's PayMongo account, or split to a child merchant |
+| Attempt | `server_record_payment_attempt(…, 'paypal')` | same, `'paymongo'`, method `gcash`, with FurnishAR's reference (`provider_reference`) |
+| Return | `/account?paypal=return&token=` → `orders/capture` | `/account/payment/return?provider=paymongo&ref=` → `orders/verify` → session re-read with the secret key (a redirect is not proof) |
+| Webhook | `/api/paypal/webhook`, signature verified with PayPal | `/api/paymongo/webhook`, `Paymongo-Signature` HMAC verified (timestamp, test/live), once per event, then the session re-read |
+| Record | `record_capture(…, 'paypal')` | `record_capture(…, 'paymongo')` with PayMongo's processing fee; a capture of one provider can never satisfy the other's attempt |
+| Where the money is | the shop's PayPal account | FurnishAR's PayMongo account (platform): fee **held**, not "collected"; the shop's share **owed to the shop** until paid out (`store_remittances`); processing fees shown separately |
+| Refunds | recorded from PayPal's webhooks | admin-only through PayMongo's refund API; recorded when PayMongo reports `succeeded` (refund id and status) |
 
 Authentication is unchanged. Google identifies a person. Their role, and
 whether they may pay, is still decided by `my_role()` and the database.
-Neither PayPal nor Maya is an identity.
+Neither PayPal nor GCash is an identity; a GCash number is never used to identify anyone.

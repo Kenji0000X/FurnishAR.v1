@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { initBackend, usingSupabase, supabase } from '../../../portal/backend.js';
 
-const LABEL = { paypal: 'PayPal', maya: 'Maya' };
+const LABEL = { paypal: 'PayPal', paymongo: 'GCash' };
 
 /* What each server verdict means to the buyer. */
 const OUTCOME = {
@@ -39,7 +39,7 @@ export default function PaymentReturn() {
     window.history.replaceState(null, '', '/account/payment/return');
 
     (async () => {
-      if (provider !== 'maya' || !reference) { setView({ state: 'unknown' }); return; }
+      if (provider !== 'paymongo' || !reference) { setView({ state: 'unknown' }); return; }
       await initBackend();
       if (!usingSupabase()) { setView({ state: 'unknown' }); return; }
       try {
@@ -60,7 +60,7 @@ export default function PaymentReturn() {
   const outcome = OUTCOME[state];
   return (
     <article className="account-card payment-return" aria-live="polite">
-      <p className="eyebrow">{LABEL[provider] || 'Payment'}</p>
+      <p className="eyebrow">{provider === 'paymongo' ? 'GCash · PayMongo' : LABEL[provider] || 'Payment'}</p>
       {state === 'checking' ? (
         <>
           <h1 id="payment-return-title">Confirming your payment…</h1>

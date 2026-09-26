@@ -11,12 +11,15 @@ Migration `supabase/migrations/0011_google_paypal_marketplace.sql`. DFD: P1, P7,
   - A buyer uses PayPal only on PayPal's own page, for one payment, and never connects it to FurnishAR.
 - Neither account is the other's key.
 
-**Since 0015 there is a second payment provider, Maya** (`MAYA-INTEGRATION.md`).
-It changes nothing on this page. Google remains the identity, and PayPal is
-set up exactly as below. Two things differ for Maya:
-- a shop never connects Maya itself: an admin enables it;
-- a Maya payment is received by FurnishAR's own Maya account, which owes the
-  shop its share.
+**Since 0016 there is a second payment method, GCash, processed by PayMongo**
+(`PAYMONGO-GCASH-INTEGRATION.md`). It changes nothing on this page. Google
+remains the identity, and PayPal is set up exactly as below. Two things differ
+for GCash:
+- a shop never connects GCash itself, and a buyer never links GCash to
+  FurnishAR: an admin enables it per shop, and the buyer authorises one
+  payment on PayMongo's page;
+- a GCash payment is received by FurnishAR's own PayMongo account, which owes
+  the shop its share (unless PayMongo Split Payments is activated).
 - A Google login never grants admin. Admin rights come only from `platform_admins`.
 
 Real Google accounts may be used while PayPal stays in the sandbox.

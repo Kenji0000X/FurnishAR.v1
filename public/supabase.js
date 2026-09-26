@@ -1365,8 +1365,8 @@ export async function orderAction(action, payload = {}) {
 }
 
 /**
- * The payment methods a shop can be paid through right now ('paypal',
- * 'maya'), as the server decides: what the shop is set up for, intersected
+ * The payment methods a shop can be paid through right now ('paypal', or
+ * 'paymongo' for GCash), as the server decides: what the shop is set up for, intersected
  * with what this deployment has switched on. Empty on any failure.
  */
 export async function storePaymentProviders(storeUuid) {
@@ -1510,7 +1510,7 @@ export async function storeBilling(storeUuid) {
     restCall(`stores?id=eq.${id}&select=fulfilment`),
     restCall('rpc/store_fee_summary', { method: 'POST', body: JSON.stringify({ p_store: storeUuid }) }),
     // 0011. Read under RLS: this store's members and admins only.
-    // 0015: one row per provider; PayPal's and Maya's are kept apart here.
+    // One row per provider (0015/0016); PayPal's and PayMongo's are kept apart here.
     restCall(`store_payment_accounts?store_id=eq.${id}&select=${ACCOUNT_FIELDS},settlement_mode&order=updated_at.desc`)
       // settlement_mode arrives with 0015; before it, read the PayPal columns alone.
       .catch(() => restCall(`store_payment_accounts?store_id=eq.${id}&select=${ACCOUNT_FIELDS}&order=updated_at.desc`))
@@ -1521,7 +1521,7 @@ export async function storeBilling(storeUuid) {
   const rows = accounts || [];
   return {
     paymentAccounts: rows.filter(a => (a.provider || 'paypal') === 'paypal'),
-    mayaAccounts: rows.filter(a => a.provider === 'maya'),
+    paymongoAccounts: rows.filter(a => a.provider === 'paymongo'),
     remittances: remittances || [],
     fulfilment: store?.[0]?.fulfilment || 'stocked',
     deliveryDays: payout?.[0]?.delivery_days ?? 3,
@@ -1537,18 +1537,31 @@ export async function feeOverview() {
   return (await restCall('rpc/fee_overview', { method: 'POST', body: '{}' })) || [];
 }
 
-/** Admin: enable or disable Maya for a store (0015 checks is_platform_admin). */
-export async function setMayaAccount({ storeUuid, environment, enabled, settlement, submerchant, city, postal }) {
-  return restCall('rpc/admin_set_maya_account', {
+/** Admin: enable or disable GCash via PayMongo for a store (0016 checks is_platform_admin). */
+export async function setPaymongoAccount({ storeUuid, environment, enabled, settlement, childMerchant }) {
+  return restCall('rpc/admin_set_paymongo_account', {
     method: 'POST',
     body: JSON.stringify({
       p_store: storeUuid, p_env: environment, p_enabled: Boolean(enabled), p_settlement: settlement || null,
-      p_submerchant: submerchant || null, p_city: city || null, p_postal: postal || null
+      p_child_merchant: childMerchant || null
     })
   });
 }
 
-/** Admin: a payout FurnishAR made to a store for Maya payments it collected. */
+/**
+ * Admin: a store's GCash payments, for refunds. Read under RLS (payments are
+ * visible to the order's parties and platform admins); the refund itself is
+ * a server action that re-checks the admin and the remaining amount.
+ */
+export async function storeGcashPayments(storeUuid) {
+  return (await restCall(
+    `payments?store_id=eq.${encodeURIComponent(storeUuid)}&provider=eq.paymongo`
+    + '&select=capture_id,order_id,stage,amount,refunded_amount,processing_fee,applied,captured_at'
+    + '&order=captured_at.desc&limit=50'
+  )) || [];
+}
+
+/** Admin: a payout FurnishAR made to a store for GCash payments its PayMongo account received. */
 export async function recordStoreRemittance({ storeUuid, amount, reference, note }) {
   return restCall('rpc/record_store_remittance', {
     method: 'POST',

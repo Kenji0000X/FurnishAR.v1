@@ -275,7 +275,7 @@ def level0():
     p.node('X', 'Supabase<br>(Auth / Postgres / Storage)', EXTERNAL, 1140, 415, 220, 70)
     p.node('O', 'Store Owner', EXTERNAL, 140, 740, 200, 70)
     p.node('A', 'Platform Admin', EXTERNAL, 1100, 740, 200, 70)
-    p.node('MY', 'Maya<br>(FurnishAR\'s merchant account)', EXTERNAL, 1150, 575, 210, 70)
+    p.node('PM', 'PayMongo · GCash<br>(FurnishAR\'s PayMongo account)', EXTERNAL, 1150, 575, 210, 70)
 
     S = EDGE_STRAIGHT
     p.edge('B', 'SYS', 'browse, sign in, planner,<br>3D requests, orders', S, exit=(1, 0.3), entry=(0.02, 0.38))
@@ -301,10 +301,10 @@ def level0():
     p.edge('B', 'PP', 'approves & pays the shop directly', EDGE_ORTHO, exit=(0.1, 0), entry=(0.5, 0),
            points=[(58, 60), (1200, 60)])
 
-    # 0015: Maya Checkout pays the owner of the keys (FurnishAR), and its webhooks are unsigned.
-    p.edge('SYS', 'MY', 'create checkout (public key);<br>re-read payment (secret key)', S, exit=(0.97, 0.62), entry=(0, 0.2))
-    p.edge('MY', 'SYS', 'redirect back, webhooks<br>(reference only)', S, exit=(0, 0.6), entry=(0.9, 0.78), label_pos=0.1)
-    p.edge('B', 'MY', 'pays through Maya (received by FurnishAR, which pays the shop)', EDGE_ORTHO, exit=(0.5, 1), entry=(1, 0.5),
+    # 0016: a PayMongo Checkout Session (GCash) pays the owner of the keys (FurnishAR); its webhooks are signed.
+    p.edge('SYS', 'PM', 'checkout session, re-read,<br>refunds (secret key)', S, exit=(0.97, 0.62), entry=(0, 0.2))
+    p.edge('PM', 'SYS', 'redirect back,<br>signed webhooks', S, exit=(0, 0.6), entry=(0.9, 0.78), label_pos=0.1)
+    p.edge('B', 'PM', 'pays with GCash on PayMongo\'s page (received by FurnishAR, which pays the shop)', EDGE_ORTHO, exit=(0.5, 1), entry=(1, 0.5),
            points=[(130, 915), (1385, 915), (1385, 610)])
 
     p.edge('SYS', 'E', 'confirmation / order<br>email requests', S, exit=(0.15, 0.15), entry=(1, 0.6))
@@ -533,7 +533,7 @@ def level1():
     ext(p, 'O', 'Store Owner', 40, 880, 160, 120)
     ext(p, 'A', 'Platform Admin', 40, 1075, 160, 70)
     ext(p, 'EM1', 'Email Service', 1480, 95, 170, 54)
-    ext(p, 'PP', 'PayPal / Maya<br>(payment providers)', 1480, 690, 170, 64)
+    ext(p, 'PP', 'PayPal / PayMongo (GCash)<br>(payment providers)', 1480, 690, 170, 64)
     ext(p, 'EM', 'Email Service', 1480, 830, 170, 64)
 
     proc(p, 'P1', '1.0', 'Authentication &amp; Session', 420, 60)
@@ -592,8 +592,8 @@ def level1():
     # 10.0
     p.edge('P10', 'D2b', 'stock hold', O, exit=(1, 0.1), entry=(0, 0.9))
     p.edge('D2b', 'P10', 'price, stock', O, exit=(0, 0.2), entry=(0.9, 0), points=[(636, 688.8)])
-    p.edge('P10', 'PP', 'create / capture (PayPal: payee = shop); checkout, re-read (Maya)', O, exit=(1, 0.3), entry=(0, 0.69))
-    p.edge('PP', 'P10', 'approval / capture result; Maya redirect, webhook (re-read)', O, exit=(0.3, 0), entry=(0.7, 0), points=[(1531, 650), (588, 650)])
+    p.edge('P10', 'PP', 'create / capture (PayPal: payee = shop); checkout session, re-read, refunds (PayMongo)', O, exit=(1, 0.3), entry=(0, 0.69))
+    p.edge('PP', 'P10', 'approval / capture result; PayMongo redirect, signed webhook (re-read)', O, exit=(0.3, 0), entry=(0.7, 0), points=[(1531, 650), (588, 650)])
     p.edge('P10', 'D5', 'orders, verified payments', O, exit=(1, 0.6), entry=(0, 0.1))
     p.edge('D5', 'P10', 'amount due, order state', O, exit=(0, 0.4), entry=(1, 0.95))
     p.edge('P10', 'EM', 'receipt / order emails', O, exit=(0.8, 1), entry=(0, 0.3), points=[(612, 849.2)])
@@ -608,7 +608,7 @@ def level1():
     p.edge('P7', 'D4', 'store application', O, exit=(0.95, 1), entry=(0, 0.13), points=[(648, 1010), (770, 1010), (770, 1057.8)])
     # 8.0
     p.edge('P8', 'D4', 'applications, audit, usage', O, exit=(1, 0.3), entry=(0, 0.73))
-    p.edge('P8', 'D5b', 'fee overview, settlements; Maya setup, payouts', O, exit=(1, 0.9), entry=(0, 0.3))
+    p.edge('P8', 'D5b', 'fee overview, settlements; GCash setup, payouts', O, exit=(1, 0.9), entry=(0, 0.3))
     p.edge('P8', 'D3b', 'model review; delete a model unused 365 days', O, exit=(1, 0.05), entry=(0, 0.8), points=[(790, 1078.2), (790, 975.2)])
     # 9.0: every process reports its events on one bus; alerts go back to the three people.
     for pid in ('P1', 'P2', 'P3', 'P4', 'P6', 'P10', 'P7', 'P8'):
@@ -836,7 +836,7 @@ def level2_orders():
     p.node('title', 'Level 2 DFD — Process 10.0 Orders &amp; Payments', TITLE, 40, 10, 800, 30)
     ext(p, 'B', 'Buyer', 40, 150, 160, 580)
     ext(p, 'O', 'Store Owner', 1560, 300, 160, 460)
-    ext(p, 'PP', 'PayPal / Maya (detail: 10.9–10.13, 10.14–10.17)', 760, 20, 300, 60)
+    ext(p, 'PP', 'PayPal / PayMongo · GCash (detail: 10.9–10.13, 10.14–10.17)', 760, 20, 300, 60)
     ext(p, 'EM', 'Email Service', 1170, 910, 230, 64)
     ref(p, 'R1', '1.0', 'Authentication &amp; Session', 40, 60, 200, 56)
 
@@ -859,11 +859,11 @@ def level2_orders():
     # Buyer and owner.
     p.edge('B', 'P101', 'product, qty, delivery /<br>custom request / cancel', D, exit=(1, 0.0552), entry=(0, 0.5))
     p.edge('B', 'P103', 'pay order / approval link', D, exit=(1, 0.3655), entry=(0, 0.5))
-    p.edge('B', 'P104', 'PayPal / Maya return / payment result', D, exit=(1, 0.6759), entry=(0, 0.5))
+    p.edge('B', 'P104', 'PayPal / GCash return / payment result', D, exit=(1, 0.6759), entry=(0, 0.5))
     p.edge('P108', 'B', 'orders, receipt', O, exit=(0, 0.3), entry=(1, 0.9641))
     p.edge('O', 'P102', 'quote (price, lead days) /<br>decline reason', S, exit=(0, 0.1348), entry=(1, 0.5))
     p.edge('O', 'P105', 'ready / out for delivery /<br>ready for pickup / delivered', S, exit=(0, 0.5261), entry=(1, 0.5))
-    p.edge('O', 'P107', 'store type, days /<br>fees owed, Maya sales owed to you', D, exit=(0, 0.9174), entry=(1, 0.5))
+    p.edge('O', 'P107', 'store type, days /<br>fees owed, GCash sales owed to you', D, exit=(0, 0.9174), entry=(1, 0.5))
     p.edge('P108', 'O', 'incoming orders', O, exit=(0, 0.9), entry=(0.5, 1),
            points=[(280, 747.6), (280, 1060), (1640, 1060)])
 
@@ -875,7 +875,7 @@ def level2_orders():
     # 10.3 and 10.4 with PayPal (four lanes between the processes and the stores)
     p.edge('P103', 'PP', 'create order or checkout (payee per provider) / link', O + DIALOG, exit=(1, 0.3), entry=(0, 0.3),
            points=[(575, 349.2), (575, 38)], label_pos=0.75)
-    p.edge('P104', 'PP', 'capture (PayPal) or re-read (Maya) / payment facts', O + DIALOG, exit=(1, 0.25), entry=(0, 0.75),
+    p.edge('P104', 'PP', 'capture (PayPal) or re-read (PayMongo) / payment facts', O + DIALOG, exit=(1, 0.25), entry=(0, 0.75),
            points=[(610, 526), (610, 65)], label_pos=0.8)
     p.edge('D53c', 'P103', 'payee per provider', O, exit=(0, 0.5), entry=(0.95, 0), points=[(518.5, 252)])
     p.edge('D51', 'P103', 'amount due, stage', O, exit=(0, 0.186), entry=(1, 0.75), label_pos=-0.5)
@@ -904,43 +904,45 @@ def level2_orders():
     return p
 
 
-def level2_maya():
-    p = Page('dfd-2-maya', 'Level 2 — 10.14–10.17 Maya Checkout, Webhook & Payouts', 1620, 1000)
-    p.node('title', 'Level 2 DFD — Maya as a second payment provider (0015)', TITLE, 40, 10, 900, 30)
+def level2_paymongo():
+    p = Page('dfd-2-paymongo', 'Level 2 — 10.14–10.17 GCash via PayMongo: Checkout, Webhook, Payouts & Refunds', 1620, 1000)
+    p.node('title', 'Level 2 DFD — GCash via PayMongo as the second payment provider (0016)', TITLE, 40, 10, 900, 30)
     ext(p, 'B', 'Buyer', 40, 80, 170, 400)
     ext(p, 'A', 'Platform Admin', 40, 760, 170, 64)
-    ext(p, 'MY', 'Maya', 1400, 150, 180, 380)
+    ext(p, 'PM', 'PayMongo · GCash', 1400, 150, 180, 380)
     ext(p, 'EM', 'Email Service', 1400, 590, 180, 64)
     ref(p, 'R7', '7.0', 'Store Portal', 1400, 790, 180, 56)
     proc(p, 'P1014', '10.14', 'Offer Payment Methods', 420, 80)
-    proc(p, 'P1015', '10.15', 'Start Maya Checkout', 420, 230)
-    proc(p, 'P1016', '10.16', 'Verify Maya Payment<br>(return or webhook; re-read)', 420, 400)
-    proc(p, 'P1017', '10.17', 'Maya Setup &amp; Payouts<br>(admin only)', 420, 760)
-    store(p, 'D54', 'D5.4', 'store_payment_accounts (provider = maya)', 880, 80, 380, 44)
-    store(p, 'D52', 'D5.2', 'payment_attempts · payments', 880, 300, 380, 44)
+    proc(p, 'P1015', '10.15', 'Start GCash Checkout', 420, 230)
+    proc(p, 'P1016', '10.16', 'Verify GCash Payment<br>(return or signed webhook; re-read)', 420, 400)
+    proc(p, 'P1017', '10.17', 'GCash Setup, Payouts &amp; Refunds<br>(admin only)', 420, 760)
+    store(p, 'D54', 'D5.4', 'store_payment_accounts (provider = paymongo)', 880, 80, 380, 44)
+    store(p, 'D52', 'D5.2', 'payment_attempts · payments · payment_refunds', 880, 300, 380, 44)
     store(p, 'D55', 'D5.5', 'payment_webhook_events', 880, 480, 320, 44)
     store(p, 'D54b', 'D5.4', 'store_payment_accounts (copy)', 880, 700, 320, 44)
     store(p, 'D56', 'D5.6', 'store_remittances', 880, 800, 320, 44)
 
     p.edge('B', 'P1014', 'product page / the methods this shop takes', D, exit=(1, 0.08), entry=(0, 0.5))
-    p.edge('D54', 'P1014', 'set up for Maya? (this environment)', S, exit=(0, 0.5), entry=(1, 0.5))
-    p.edge('B', 'P1015', 'pay with Maya / Maya\'s page', D, exit=(1, 0.455), entry=(0, 0.5))
-    p.edge('P1015', 'MY', 'create checkout (PUBLIC key): amount, fee, reference', S, exit=(1, 0.3), entry=(0, 0.25))
-    p.edge('P1015', 'D52', 'attempt: reference, payee, fee mode', O, exit=(1, 0.8), entry=(0, 0.3))
-    p.edge('MY', 'P1016', 'redirect (reference) · unsigned webhook', S, exit=(0, 0.72), entry=(1, 0.37))
-    p.edge('P1016', 'MY', 're-read payment (SECRET key)', S, exit=(1, 0.8), entry=(0, 0.79))
-    p.edge('B', 'P1016', 'back from Maya / paid · pending · failed · cancelled', D, exit=(1, 0.86), entry=(0, 0.35))
+    p.edge('D54', 'P1014', 'GCash set up? (this environment)', S, exit=(0, 0.5), entry=(1, 0.5))
+    p.edge('B', 'P1015', 'pay with GCash / PayMongo\'s page', D, exit=(1, 0.455), entry=(0, 0.5))
+    p.edge('P1015', 'PM', 'checkout session (SECRET key, server side): gcash, centavos, reference', S, exit=(1, 0.3), entry=(0, 0.25))
+    p.edge('P1015', 'D52', 'attempt: reference, payee, fee mode, method', O, exit=(1, 0.8), entry=(0, 0.3))
+    p.edge('PM', 'P1016', 'redirect (reference) · signed webhook', S, exit=(0, 0.72), entry=(1, 0.37))
+    p.edge('P1016', 'PM', 're-read checkout session (SECRET key)', S, exit=(1, 0.8), entry=(0, 0.79))
+    p.edge('B', 'P1016', 'back from PayMongo / paid · pending · failed · cancelled', D, exit=(1, 0.86), entry=(0, 0.35))
     p.edge('P1016', 'D52', 'attempt by reference / payment recorded once', D, exit=(0.8, 0), entry=(0, 0.7), points=[(612, 330.8)])
-    p.edge('P1016', 'D55', 'claim (payment, status) once', O, exit=(1, 0.95), entry=(0, 0.5), points=[(840, 460.8), (840, 502)])
-    p.edge('P1016', 'EM', 'paid / not completed / refund-needed emails', O, exit=(0.5, 1), entry=(0, 0.5), points=[(540, 622)])
-    p.edge('A', 'P1017', 'enable Maya, record a payout / result', D, exit=(1, 0.5), entry=(0, 0.5))
-    p.edge('P1017', 'D54b', 'platform collect or PayFac (sub-merchant)', O, exit=(1, 0.3), entry=(0, 0.5))
+    p.edge('P1016', 'D55', 'claim each event once', O, exit=(1, 0.95), entry=(0, 0.5), points=[(840, 460.8), (840, 502)])
+    p.edge('P1016', 'EM', 'paid / not completed / refund emails', O, exit=(0.5, 1), entry=(0, 0.5), points=[(540, 622)])
+    p.edge('A', 'P1017', 'enable GCash, record a payout, refund / result', D, exit=(1, 0.5), entry=(0, 0.5))
+    p.edge('P1017', 'D54b', 'platform or split (child merchant)', O, exit=(1, 0.3), entry=(0, 0.5))
     p.edge('P1017', 'D56', 'payout to the store', O, exit=(1, 0.8), entry=(0, 0.5))
+    p.edge('P1017', 'PM', 'refund (SECRET key) / refund id, status', O + DIALOG, exit=(0.9, 0), entry=(0.2, 1),
+           points=[(636, 670), (1340, 670), (1340, 560), (1436, 560)], label_pos=-0.3)
     p.edge('D56', 'R7', 'owed to the store, payouts', S, exit=(1, 0.5), entry=(0, 0.6))
-    p.node('note', '<b>Who receives the money.</b> Platform collect (default): FurnishAR\'s Maya account receives the whole payment; '
-                   'the fee is collected and the store\'s share is OWED to the store until a payout is recorded (D5.6). '
-                   'PayFac only when Maya enables it: settled to the store\'s sub-merchant, fee accrued or expected, never "collected". '
-                   'Maya webhooks are unsigned: every one is re-read with the secret key before anything is recorded.',
+    p.node('note', '<b>Who receives the money.</b> Platform (default): FurnishAR\'s PayMongo account receives the payment, less PayMongo\'s '
+                   'processing fee (recorded per payment). The 10% is HELD, never "collected"; the store\'s share is OWED until a payout is recorded (D5.6). '
+                   'Split only when PayMongo activates Split Payments and the store is a child merchant: its share is settled by PayMongo, the fee is EXPECTED. '
+                   'GCash is a PayMongo payment method: no GCash key, no GCash credentials. Webhooks are signed, claimed once, and still re-read before recording.',
            NOTE, 40, 880, 1300, 90)
     return p
 
@@ -1079,7 +1081,7 @@ def level3_capture():
 
 def main():
     pages = [level0(), level1(), level2_auth(), level2_google(), level2_access(), level2_lifecycle(), level2_orders(), level2_paypal(),
-             level2_maya(), level3_authz(), level3_capture(), access3d(), payments(), device_flow(), usecases()]
+             level2_paymongo(), level3_authz(), level3_capture(), access3d(), payments(), device_flow(), usecases()]
     DRAWIO.write_text('<mxfile host="app.diagrams.net" modified="2026-09-24T00:00:00.000Z" '
                       f'agent="FurnishAR DFD v2" version="24.7.17" pages="{len(pages)}">\n'
                       + '\n'.join(page.xml() for page in pages) + '\n</mxfile>\n', encoding='utf-8')
