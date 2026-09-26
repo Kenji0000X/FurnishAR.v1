@@ -839,6 +839,7 @@ export default function Portal({ initialProducts }) {
                           ? ' · 3D model ready'
                           : <span className="missing-model"> · No 3D model, not shown in AR</span>}
                         {needsPoster(product) && <span className="missing-model"> · Catalogue preview needed</span>}
+                        {usingSupabase() && product.modelGlb && product.posterPath && ' · Catalogue preview ready'}
                       </small>
                     </span>
                   </div>
