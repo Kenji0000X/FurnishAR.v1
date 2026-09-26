@@ -71,17 +71,44 @@ export function thumbnailFor(product) {
 }
 
 /**
- * Whether a product may appear in the PUBLIC collection at all.
+ * How long after a model's upload its card may say "Preparing preview…".
  *
- * Only a piece with a real uploaded model: the collection is the catalogue of
- * things you can stand in your room, and a listing without its model is an
- * incomplete record, not a smaller product. It still exists — the shop edits
- * it and uploads the model in the portal, and its own page still answers —
- * it is just not presented as if it were ready. `arReady` is not consulted,
- * for the reason modelState() gives.
+ * The poster is rendered in the owner's browser and uploaded straight after
+ * the model (app/portal/ProductFormDialog.js): seconds, not hours. Inside
+ * this window a missing poster really is being prepared. Past it, nothing is
+ * — the model predates posters, or its poster failed — and saying
+ * "Preparing preview…" would be a promise nobody is keeping.
  */
-export function isListable(product) {
-  return canPlaceInSpace(product);
+export const PREVIEW_GRACE_MS = 15 * 60 * 1000;
+
+/**
+ * The state of a product's catalogue picture:
+ *   'ready'     — its poster, rendered from its own model, exists;
+ *   'preparing' — a model was uploaded within PREVIEW_GRACE_MS and its
+ *                 poster is not linked yet;
+ *   'missing'   — no model, or a model with no poster past the grace window.
+ */
+export function previewState(product, now = Date.now()) {
+  if (modelState(product) !== MODEL_STATE.MODEL) return 'missing';
+  if (product.thumbnail) return 'ready';
+  const uploaded = Date.parse(product.modelUploadedAt || '');
+  return Number.isFinite(uploaded) && now - uploaded >= -60000 && now - uploaded < PREVIEW_GRACE_MS
+    ? 'preparing' : 'missing';
+}
+
+/**
+ * Whether a product may appear in the PUBLIC collection as a real card.
+ *
+ * Only when a shopper can see its 3D model: a real uploaded .glb AND its
+ * catalogue picture (or that picture being made right now). A listing with no
+ * model, or a model nobody can see on the card, is an incomplete record, not
+ * a product to show — and a grey box above a name, a price and "View in my
+ * space" reads as complete when it is not. It still exists: the shop edits it
+ * in the portal (which says what is missing) and its own page still answers.
+ * `arReady` is not consulted, for the reason modelState() gives.
+ */
+export function isListable(product, now = Date.now()) {
+  return previewState(product, now) !== 'missing';
 }
 
 /**

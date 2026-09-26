@@ -176,7 +176,7 @@ export default async function HomePage() {
   const [{ products: catalog }, stores] = await Promise.all([getCatalog(), getStores()]);
   // The same pieces the collection shows: the category rail links there, so
   // its counts must be of what the shopper will find.
-  const products = catalog.filter(isListable);
+  const products = catalog.filter(product => isListable(product));
 
   const facts = {
     stores: Object.keys(stores).length,

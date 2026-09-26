@@ -42,13 +42,30 @@ let catalogEmpty = false;
 let nextId = 1;
 const uuid = () => `6a6a${String(nextId++).padStart(4, '0')}-98f1-4b14-bec9-ddd8272d6819`;
 
-const catalogRows = () => catalogEmpty ? [] : [...products.values()]
+/* Production as it stood on 2026-09-26: six real models uploaded before
+   posters existed (none has one), and one listing with no model at all. */
+let productionLike = false;
+const PRODUCTION = [
+  ['Cane Back Armchair', 4000, [11, 11, 24], true], ['Round Wicker Table', 5000, [11, 11, 24], true],
+  ['High Level Cabinet', 6500, [31, 35, 29], true], ['Cabint 200', 12000, [200, 100, 123], true],
+  ['maquia', 3000, [100, 100, 100], true], ['Wooden Desk', 7500, [90, 85, 74], true],
+  ['Sandbox Test Chair', 2500, [60, 60, 85], false]
+].map(([name, price, [w, d, h], model], i) => ({
+  id: `0000000${i}-prod-4000-8000-000000000000`, slug: name.toLowerCase().replace(/\s+/g, '-'), name,
+  store_id: STORE, store_slug: 'sandbox', store_name: 'Sandbox Test Shop', store_fulfilment: 'stocked',
+  category: 'Chair', style: 'Modern', color: 'Natural', price_php: price, stock: 1,
+  width_cm: w, depth_cm: d, height_cm: h, status: 'published', updated_at: new Date().toISOString(),
+  model_glb_path: model ? `${STORE}/p${i}/model.glb` : null, model_usdz_path: null, poster_path: null,
+  model_uploaded_at: model ? new Date(Date.now() - 3 * 864e5).toISOString() : null
+}));
+const catalogRows = () => productionLike ? PRODUCTION : catalogEmpty ? [] : [...products.values()]
   .filter(p => p.status === 'published')
   .map(p => ({
     ...p, store_id: STORE, store_slug: 'sc-variety', store_name: 'S&C Variety Store', store_fulfilment: 'stocked',
     model_glb_path: assets.find(a => a.product_id === p.id && a.kind === 'glb')?.object_path || null,
     model_usdz_path: null,
-    poster_path: assets.find(a => a.product_id === p.id && a.kind === 'poster')?.object_path || null
+    poster_path: assets.find(a => a.product_id === p.id && a.kind === 'poster')?.object_path || null,
+    model_uploaded_at: assets.find(a => a.product_id === p.id && a.kind === 'glb')?.created_at || null
   }));
 
 const supabase = createServer((req, res) => {
@@ -145,7 +162,7 @@ const supabase = createServer((req, res) => {
     }
     if (url.startsWith('/rest/v1/product_assets')) {
       if (req.method === 'POST') {
-        const row = JSON.parse(raw || '{}');
+        const row = { ...JSON.parse(raw || '{}'), created_at: new Date().toISOString() };
         if (row.kind === 'poster') log.posterLinks += 1;
         const at = assets.findIndex(a => a.product_id === row.product_id && a.kind === row.kind);
         if (at >= 0) assets[at] = row; else assets.push(row);
@@ -248,12 +265,13 @@ try {
   check('it says the catalogue preview is ready', /Catalogue preview ready/.test(inventory));
 
   /* More listings, straight into the fake database. */
-  const add = (name, extra = []) => {
+  const add = (name, extra = [], { uploadedDaysAgo = 0 } = {}) => {
     const id = uuid();
     products.set(id, { id, slug: name.toLowerCase().replace(/\s+/g, '-'), name, category: 'Table', style: 'Modern', color: 'Natural',
       price_php: 900, stock: 1, width_cm: 60, height_cm: 70, depth_cm: 60, status: 'published', updated_at: new Date().toISOString() });
     for (const kind of extra) {
-      assets.push({ product_id: id, kind, object_path: kind === 'glb' ? `${STORE}/${id}/model.glb` : `${STORE}/${id}/poster-deadbeefdeadbeef.webp` });
+      assets.push({ product_id: id, kind, object_path: kind === 'glb' ? `${STORE}/${id}/model.glb` : `${STORE}/${id}/poster-deadbeefdeadbeef.webp`,
+        created_at: new Date(Date.now() - uploadedDaysAgo * 864e5).toISOString() });
     }
     return id;
   };
@@ -294,6 +312,10 @@ try {
   await refresh();
   g = await grid();
   check('more than three: the normal catalogue', g.real === 4 && g.placeholders === 0 && g.count === '4 pieces', JSON.stringify(g));
+  add('Old Unposted Wardrobe', ['glb'], { uploadedDaysAgo: 2 });   // a model nobody can see on a card
+  await refresh();
+  g = await grid();
+  check('a model with no picture for days is not shown as a product', g.real === 4 && !g.names.includes('Old Unposted Wardrobe'), JSON.stringify(g));
 
   console.log('--- a shopper browses the collection ---');
   const shopper = await browser.newPage({ viewport: { width: 390, height: 844 } });
@@ -370,7 +392,11 @@ try {
   check('and it actually loaded', cls.complete);
 
   const unposted = await card('Unposted Cabinet').innerText();
-  check('model but no poster: "Preparing preview…", not "no model"', /Preparing preview/i.test(unposted) && !/No 3D model/i.test(unposted));
+  check('model uploaded moments ago, poster not linked yet: "Preparing preview…", not "no model"',
+    /Preparing preview/i.test(unposted) && !/No 3D model/i.test(unposted));
+  check('and while preparing it claims nothing about 3D: no badge, no "View in my space", no "3D model available"',
+    await card('Unposted Cabinet').locator('.model-badge').count() === 0
+    && !/View in my space|3D model available/i.test(unposted));
   await card('Broken Poster Shelf').locator('.product-thumb-empty').waitFor({ timeout: 5000 }).catch(() => {});
   const broken = await card('Broken Poster Shelf').innerText();
   check('a poster that fails says "Preview unavailable", not "no model"', /Preview unavailable/i.test(broken) && !/No 3D model/i.test(broken), broken.slice(0, 80));
@@ -427,6 +453,32 @@ try {
   check('the card now shows the real poster, and no longer "Preparing preview…"',
     await updated.locator('img.product-thumb').count() === 1 && !/Preparing preview/i.test(await updated.innerText()));
 
+  console.log('--- production as it is today: models without pictures are not products ---');
+  productionLike = true;
+  await refresh();
+  for (const [width, height] of [[1440, 900], [390, 844]]) {
+    const prod = await browser.newPage({ viewport: { width, height } });
+    await prod.goto(`${BASE}/collection`, { waitUntil: 'load' });
+    await prod.waitForTimeout(400);
+    await prod.screenshot({ path: `${SHOTS}/collection-production-like-${width}.png`, fullPage: true });
+    const html = await prod.content();
+    const shape = await prod.evaluate(() => ({
+      real: document.querySelectorAll('article.product-card').length,
+      grid: document.querySelectorAll('.product-grid .placeholder-card').length,
+      rail: document.querySelectorAll('.marquee-section .placeholder-card').length
+    }));
+    check(`${width}px: three placeholders in the grid, none a product`, shape.real === 0 && shape.grid === 3, JSON.stringify(shape));
+    check(`${width}px: the rail holds placeholders only`, shape.rail > 0 && shape.rail <= 3, JSON.stringify(shape));
+    const leaked = ['Cane Back Armchair', 'Round Wicker Table', 'High Level Cabinet', 'Sandbox Test Chair', 'Wooden Desk',
+      '₱4,000', '₱5,000', 'View in my space', 'VIEW IN MY SPACE', '3D model available', '3D MODEL AVAILABLE', 'Sandbox Test Shop']
+      .filter(text => html.includes(text));
+    check(`${width}px: the page HTML carries none of those products, prices, stores or AR actions`, leaked.length === 0, leaked.join(', '));
+    const visible = await prod.locator('main').innerText();
+    check(`${width}px: it says "No 3D model yet", and no count`, /No 3D model yet/i.test(visible) && !/\d+ pieces?/i.test(visible));
+    await prod.close();
+  }
+  productionLike = false;
+
   console.log('--- an empty database: three placeholders, nothing else ---');
   catalogEmpty = true;
   await refresh();
@@ -452,8 +504,9 @@ try {
       && await empty.locator('.model-badge, .product-price, .product-store, .product-action').count() === 0);
     check(`${width}px: no search, filters, sort or count`,
       !/\d+ pieces?/.test(text) && await empty.locator('.filters, .sort-control, .result-count, .catalog-search').count() === 0);
-    check(`${width}px: no "In the shops now" rail and no product links`,
-      await empty.locator('.marquee-section, a[href^="/furniture/"]').count() === 0);
+    check(`${width}px: "In the shops now" holds at most three placeholders, and nothing links to a product`,
+      await empty.locator('.marquee-section .placeholder-card').count() <= 3
+      && await empty.locator('.marquee-section a, a[href^="/furniture/"]').count() === 0);
     check(`${width}px: no sideways scroll`, shape.overflow <= 0, `${shape.overflow}px`);
     await empty.close();
   }

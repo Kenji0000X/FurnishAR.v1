@@ -18,7 +18,7 @@ export default function PlaceholderCard() {
       <div className="product-media placeholder-media">
         <Cube className="placeholder-icon" size={24} weight="light" />
         <p className="placeholder-title">No 3D model yet</p>
-        <p className="placeholder-copy">Uploaded furniture will appear here.</p>
+        <p className="placeholder-copy">Furniture uploaded by stores will appear here.</p>
       </div>
     </div>
   );

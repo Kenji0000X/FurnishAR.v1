@@ -117,7 +117,7 @@ check('no visible text labels in the bar', naming.every(i => i.text === ''), JSO
 check('every item has an icon and an accessible name',
   naming.every(i => i.icon && i.name.length > 2), naming.map(i => i.name).join(', '));
 check('the names say where each goes',
-  ['Discover', 'Collection', 'Scan room', 'Device check', 'Account'].every(n => naming.some(i => i.name === n)));
+  ['Discover', 'Collection', 'Scan', 'Device', 'Account'].every(n => naming.some(i => i.name === n)));
 check('icons are 22–26px', naming.every(i => i.iconSize >= 22 && i.iconSize <= 26), naming.map(i => i.iconSize).join(', '));
 const activeLook = await phone.evaluate(() => {
   const on = document.querySelector('.bottom-nav-item[aria-current="page"]');
@@ -141,19 +141,19 @@ await phone.waitForTimeout(300);
 const barBox = await phone.locator('.bottom-nav').boundingBox();
 check('it stays pinned at the bottom', barBox && Math.abs(barBox.y + barBox.height - 780) < 2,
   barBox ? `bottom ${Math.round(barBox.y + barBox.height)}` : 'missing');
-await phone.locator('.bottom-nav-item[aria-label="Scan room"]').click();
+await phone.locator('.bottom-nav-item[aria-label="Scan"]').click();
 await phone.waitForURL('**/plan', { timeout: 10000 }).catch(() => {});
 check('tapping Scan goes to the planner', new URL(phone.url()).pathname === '/plan', phone.url());
 check(
   'and Scan is now the current item',
-  await phone.locator('.bottom-nav-item[aria-current="page"][aria-label="Scan room"]').count() === 1
+  await phone.locator('.bottom-nav-item[aria-current="page"][aria-label="Scan"]').count() === 1
 );
 
 /* The device check is reachable from the bar, and the page it lands on is the
    real one rather than a 404 wearing the site's chrome. It is the answer to
    "will the scanner work on my phone", so it has to be reachable FROM the
    phone that is failing — a footer link on a desktop is no use there. */
-await phone.locator('.bottom-nav-item[aria-label="Device check"]').click();
+await phone.locator('.bottom-nav-item[aria-label="Device"]').click();
 await phone.waitForURL('**/diagnose', { timeout: 10000 }).catch(() => {});
 check('tapping Device goes to the check', new URL(phone.url()).pathname === '/diagnose', phone.url());
 /* The page renders "Asking the browser…" until the capability probe resolves,

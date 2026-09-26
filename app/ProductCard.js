@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { peso, dimensionLabel } from './format.js';
-import { modelState, MODEL_STATE } from './model-state.js';
+import { previewState } from './model-state.js';
 import ProductThumb from './ProductThumb.js';
 
 /**
@@ -23,8 +23,13 @@ import ProductThumb from './ProductThumb.js';
  */
 export default function ProductCard({ product, priority = false }) {
   const href = `/furniture/${product.slug || product.id}`;
-  const state = modelState(product);
-  const hasModel = state === MODEL_STATE.MODEL;
+  /* Only real, listable pieces reach this card (isListable in model-state.js;
+     everything else is a PlaceholderCard, which has no product at all). Of
+     those, a piece whose poster is still being made shows its details but
+     claims nothing about 3D yet: no badge and no AR action until the shopper
+     can see the model it would be claiming. */
+  const ready = previewState(product) === 'ready';
+  const hasModel = ready;
 
   return (
     <article className="product-card">
@@ -56,17 +61,13 @@ export default function ProductCard({ product, priority = false }) {
           space" button on a product with no model is a button that takes you
           to an empty planner and makes you work out why.
         */}
-        {hasModel ? (
+        {hasModel && (
           <Link
             className="product-action"
             href={`/plan?product=${product.slug || product.id}&ar=1`}
           >
             View in my space <span aria-hidden="true">→</span>
           </Link>
-        ) : (
-          <span className="product-action is-unavailable">
-            Not available in AR
-          </span>
         )}
       </div>
     </article>

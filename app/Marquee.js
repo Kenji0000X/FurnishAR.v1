@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { useEffect, useRef } from 'react';
 import ProductThumb from './ProductThumb.js';
+import PlaceholderCard from './PlaceholderCard.js';
+import { PLACEHOLDER_SLOTS } from './model-state.js';
 import { peso } from './format.js';
 
 /**
@@ -106,7 +108,20 @@ export default function Marquee({ products }) {
     };
   }, [products.length]);
 
-  if (!products.length) return null;
+  /* No real piece to show: the same three placeholders as the grid, standing
+     still — nothing to scroll past, and nothing a shopper can open. */
+  if (!products.length) {
+    return (
+      <section className="marquee-section marquee-empty" aria-labelledby="marquee-title">
+        <div className="marquee-head">
+          <h2 id="marquee-title">In the shops now</h2>
+        </div>
+        <div className="marquee-placeholders">
+          {Array.from({ length: PLACEHOLDER_SLOTS }, (_, index) => <PlaceholderCard key={index} />)}
+        </div>
+      </section>
+    );
+  }
 
   // Twice through, so the loop has something to land on. The duplicate is
   // scenery: it carries the same links, so it is hidden from assistive tech

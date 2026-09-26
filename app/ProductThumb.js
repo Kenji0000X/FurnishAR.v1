@@ -55,7 +55,7 @@ export default function ProductThumb({ product, className = '', sizes, priority 
   return (
     <span className={`${classes} product-thumb-empty${hasModel ? ' is-preparing' : ''}`} role="img"
       aria-label={hasModel
-        ? `${product.name}, 3D model available, preview being prepared`
+        ? `${product.name}, preview being prepared`
         : state === MODEL_STATE.IMAGE
           ? `${product.name}, no picture available`
           : `${product.name}, no 3D model uploaded yet`}

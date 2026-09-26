@@ -435,27 +435,22 @@ const browser = await chromium.launch({
   })));
   check(cards.length > 0, 'the grid rendered', `${cards.length} cards`);
 
-  /* The collection lists only pieces with a real model (isListable), so every
-     card is one: a 3D badge, "View in my space", and either its own poster or
-     "Preparing preview…" — never "No 3D model yet" on a real card. */
+  /* The collection lists only pieces a shopper can see the model of
+     (isListable): each has its poster, a 3D badge and "View in my space".
+     A modelled piece with no poster, and a piece with no model, are not
+     cards at all. */
   for (const card of cards) {
-    check(Boolean(card.src) !== card.empty,
-      `${card.name}: has either a render or an empty state, not both or neither`,
-      card.src || (card.empty ? 'empty state' : 'NEITHER'));
+    check(Boolean(card.src) && !card.empty,
+      `${card.name}: a listed piece shows its own picture`, card.src || 'no picture');
     check(card.badge && !card.unavailable && /View in my space/i.test(card.action || ''),
       `${card.name}: a listed piece has its 3D badge and AR action`,
       `badge=${card.badge} action=${card.action}`);
-    check(card.src || card.preparing,
-      `${card.name}: no poster yet says "Preparing preview…", not "no model"`);
-    // The picture must be this product's own poster, not a shared asset.
-    if (card.src) {
-      check(/\/product-posters\//.test(card.src),
-        `${card.name}: the render is its own catalogue poster`, card.src);
-    }
   }
   const fixtureListings = await page.locator('main').innerText();
   check(!/Fixture Bed Frame|Fixture Cabinet/.test(fixtureListings),
     'listings without a model are not in the collection');
+  check(!/Fixture Three-Seat Sofa/.test(fixtureListings),
+    'a model with no picture is not in the collection either');
   check(await page.locator('.placeholder-card').count() === 0,
     'with more than three real pieces there are no placeholders');
 
