@@ -2,7 +2,7 @@ import Diagnostics from './Diagnostics.js';
 
 export const metadata = {
   title: 'Device check — FurnishAR',
-  description: 'What this phone can and cannot do for the room scanner.',
+  description: 'Which FurnishAR experience this phone can run: tracked AR, AI-assisted or photo measurement, or a tape measure.',
   robots: { index: false, follow: false }
 };
 
@@ -27,7 +27,7 @@ export default function DiagnosePage() {
     <section className="view active">
       <div className="diagnose">
         <p className="eyebrow">Workshop tool</p>
-        <h1>What can this phone do?</h1>
+        <h1>Can this phone use FurnishAR?</h1>
         <p className="diagnose-intro">
           Open this on the phone that is having trouble. Nothing here is stored or
           sent anywhere — it asks the browser a list of questions and prints what

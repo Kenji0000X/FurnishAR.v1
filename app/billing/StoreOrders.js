@@ -304,7 +304,9 @@ export default function StoreOrders({ storeUuid, onOpenCount, onPaymentStatus })
       <ConsoleSection
         id="billing"
         title="Billing & Store Type"
-        note={config?.feeMode === 'platform_split'
+        note={(config?.providers || []).some(p => p.id === 'maya')
+          ? 'Buyers pay your price plus FurnishAR’s 10% service fee, with PayPal (into your PayPal account) or, where FurnishAR has set it up, Maya (into FurnishAR’s Maya account, which pays you your share).'
+          : config?.feeMode === 'platform_split'
           ? 'Buyers pay your price plus FurnishAR’s 10% service fee. When your PayPal account allows it, PayPal takes the 10% at checkout and reports it; otherwise it is owed and settled separately.'
           : 'Buyers pay your price plus FurnishAR’s 10% service fee into your PayPal account; you settle the 10% with FurnishAR separately.'}
       >
@@ -319,6 +321,7 @@ export default function StoreOrders({ storeUuid, onOpenCount, onPaymentStatus })
             <PaypalCard account={account} config={config} busy={paypalBusy}
               onConnect={connectPaypal} onRefresh={() => refreshPaypal()}
               onLink={linkPaypal} onUnlink={() => setConfirmUnlink(true)} />
+            <MayaCard accounts={billing.mayaAccounts || []} config={config} />
             {confirmUnlink && (
               <ConfirmDialog
                 title="Disconnect PayPal?"
@@ -331,10 +334,19 @@ export default function StoreOrders({ storeUuid, onOpenCount, onPaymentStatus })
             <dl className="billing-summary">
               <div><dt>Fees Owed (Accrued)</dt><dd>{money(billing.fees.accrued)}</dd></div>
               {Number(billing.fees.collected) > 0 && (
-                <div><dt>Collected by PayPal</dt><dd>{money(billing.fees.collected)}</dd></div>
+                <div><dt>Fees Already Collected</dt><dd>{money(billing.fees.collected)}</dd></div>
+              )}
+              {Number(billing.fees.expected_via_settlement) > 0 && (
+                <div><dt>Expected via Maya Settlement</dt><dd>{money(billing.fees.expected_via_settlement)}</dd></div>
               )}
               <div><dt>Settled</dt><dd>{money(billing.fees.settled)}</dd></div>
               <div><dt>Owed to FurnishAR</dt><dd>{money(billing.fees.outstanding)}</dd></div>
+              {(Number(billing.fees.owed_to_store) > 0 || Number(billing.fees.remitted) > 0) && (
+                <>
+                  <div><dt>Maya Sales Owed to You</dt><dd>{money(billing.fees.owed_to_store)}</dd></div>
+                  <div><dt>Paid Out to You</dt><dd>{money(billing.fees.remitted)}</dd></div>
+                </>
+              )}
             </dl>
             <div className="bezel console-panel">
               <div className="bezel-core">
@@ -524,6 +536,36 @@ function PaypalCard({ account, config, busy, onConnect, onRefresh, onLink, onUnl
 }
 
 /** Declining tells the buyer and cannot be undone, so it is asked, with a reason. */
+/**
+ * Maya (0015). There is no self-service Maya onboarding into a platform's
+ * account: the FurnishAR team enables Maya for a store, so this card only
+ * reports what was set up and where the money goes. Nothing to connect.
+ */
+function MayaCard({ accounts, config }) {
+  const maya = (config?.providers || []).find(p => p.id === 'maya');
+  if (!maya) return null;   // Maya is not switched on for this site
+  const account = accounts.find(a => a.environment === maya.environment) || null;
+  const enabled = account?.onboarding_status === 'CONNECTED';
+  return (
+    <div className="bezel console-panel maya-card">
+      <div className="bezel-core">
+        <div className="paypal-card-head">
+          <h3>Maya</h3>
+          <span className={`status-chip ${enabled ? 'is-success' : ''}`}>{enabled ? 'Set up by FurnishAR' : 'Not set up'}</span>
+          {maya.sandbox && <span className="status-chip is-sandbox" title="Maya sandbox: no real money moves">Maya Sandbox</span>}
+        </div>
+        <p className="card-copy">
+          {!enabled
+            ? 'Maya is set up for shops by the FurnishAR team, not from this page. Ask FurnishAR if you would like buyers to be able to pay you with Maya.'
+            : account.settlement_mode === 'payfac'
+              ? 'Buyers can pay with Maya. Maya settles those payments to your store’s Maya account; FurnishAR’s 10% service fee is settled separately.'
+              : 'Buyers can pay with Maya. Maya payments are received by FurnishAR’s Maya account; FurnishAR keeps its 10% service fee and pays you the rest. What is owed to you is shown below.'}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function DeclineDialog({ order, busy, onConfirm, onCancel }) {
   const ref = useRef(null);
   useEffect(() => {

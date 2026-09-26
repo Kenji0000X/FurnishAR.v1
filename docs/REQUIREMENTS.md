@@ -20,14 +20,31 @@ such rather than quietly assumed.
 
 ## 2. Scope
 
-**In scope.** Browser-based AR placement on Android Chrome with ARCore; camera
-preview fallback elsewhere; room measurement (clearance and floor area); a
-per-store catalogue with 3D model upload; owner accounts and a store
-application queue; subscription tiers.
+**In scope.**
+- Browser-based AR placement on Android Chrome with ARCore; iPhone furniture
+  in AR Quick Look when the piece has a USDZ; an untracked preview elsewhere.
+- Room measurement (clearance and floor area).
+- A device check that recommends one experience level (A–E) from measured
+  facts, including an optional on-device AI benchmark and camera
+  scene-quality reading (`docs/AI-DEVICE-COMPATIBILITY.md`).
+- A per-store catalogue with 3D model upload, owner accounts and a store
+  application queue.
+- Google sign-in.
+- Orders, checkout and payments through PayPal or Maya, delivery or pickup,
+  receipts and order emails, and FurnishAR's 10% service fee
+  (`docs/BILLING.md`, `docs/MAYA-INTEGRATION.md`).
 
-**Out of scope for the pilot.** Payments and checkout, delivery logistics,
-multi-language UI, iOS ARKit Quick Look (needs a USDZ per product), and
-automatic 3D scanning of furniture by the store.
+*Changed 2026-09-26: payments, delivery, receipts and iOS Quick Look were
+listed as out of scope while the code already shipped them
+(`docs/AUDIT-AI-MAYA-2026-09.md`).*
+
+**Out of scope for the pilot.**
+- Multi-language UI.
+- Automatic 3D scanning of furniture by the store.
+- A trained on-device floor/wall segmentation model.
+- Automated Maya refunds.
+- Maya Payment Facilitator settlement: the code supports it, but it is not
+  enabled.
 
 ## 3. Functional requirements
 
@@ -45,11 +62,20 @@ since the Next.js port; the measurement mathematics are in `public/geometry.js`.
 | FR-6 | A shopper can measure a **clearance** between two points and get a fit verdict. | `captureNativePoint`, `fitAgainstClearance` | `tests/geometry.test.js` "fit against a linear clearance" |
 | FR-7 | A shopper can measure a **floor area** from three or more points and get a fit verdict against the piece's footprint. | `captureAreaPoint`, `closeAreaOutline`, `fitAgainstArea` | `tests/geometry.test.js` (8 area cases); end-to-end scan of a 4 × 3 m floor reading 12.0 m² |
 | FR-8 | A measurement is accepted only when two independent scans agree within 5%. | `reconcileReadings` | `tests/geometry.test.js` "the panel's 5% rule"; end-to-end rejection at 32% |
-| FR-9 | A store owner can sign up, creating an account and an application for review. | Schema only — `store_applications`. **Not active**: sign-ups are closed while there is no database. | `tests/db.test.js` "the sign-up form is open to the public but its queue is not" (schema level) |
-| FR-10 | An owner can add, edit and remove **their own** products only. | Schema only — RLS on `products`. **Not active**: the demo API scopes edits to the signed-in owner's store, but the database rules are what enforce it. | `tests/db.test.js` cross-store read/write/delete cases |
-| FR-11 | An owner can upload a `.glb` model, stored under their own store's folder. | Schema only — storage policies. **Not active**: models are committed to `public/models/`. | `tests/db.test.js` "storage: a store can only write under its own folder" |
+| FR-9 | A store owner can sign up, creating an account and an application for review. | `store_applications`, `approve_store_application` (live Supabase) | `tests/db.test.js` sign-up queue cases; `tests/admin.test.js` approval cases |
+| FR-10 | An owner can add, edit and remove **their own** products only. | RLS on `products`, the store portal (`app/portal`) | `tests/db.test.js` cross-store read/write/delete cases; `npm run check:roles` |
+| FR-11 | An owner can upload a `.glb` model, stored under their own store's folder, and only allowed viewers get it. | Private `models` bucket and storage policies; signed access (`grantModelAccess`) | `tests/db.test.js` storage cases; `tests/model-access.test.js`; `npm run check:access` |
 | FR-12 | A shopper can share a link to a specific piece. | `app/furniture/[slug]/page.js` — a real URL per piece, plus `ProductActions` for the share sheet | Browser pass: link copied and re-opened the dialog |
-| FR-13 | The catalogue updates without a refresh when a store publishes. | **Not implemented** — there is no live backend to publish to. | — |
+| FR-13 | A store's change shows in the catalogue on the next page load. | `revalidateTag('catalog')` after a store's change (0012), a 60 s cache otherwise | `npm run check:posters` (revalidation) |
+| FR-14 | A shopper can buy a stocked piece: the price, the 10% fee and the total come from the database, never the browser. | `create_stock_order`, `begin_payment`, `lib/orders.js` | `tests/billing.test.js`; `tests/orders.test.js`; `npm run check:billing` |
+| FR-15 | A shopper can request a custom build, accept a quote, and pay a deposit and a balance. | `create_custom_request`, `quote_custom_order`, `mark_order_ready` | `tests/billing.test.js` custom build; `tests/maya-db.test.js` PayFac deposit/balance |
+| FR-16 | A shopper chooses PayPal or Maya where the shop takes both; only methods the shop can take are offered. | `lib/providers`, `store_payment_providers` (0015), `PurchasePanel.js` | `tests/maya-server.test.js`; `npm run check:billing` |
+| FR-17 | A payment counts only when the server has re-read it from the provider and it matches the recorded attempt; each is recorded once. | `record_capture`, `lib/orders.js`, `lib/payments.js`, `lib/maya-webhook.js` | `tests/billing.test.js`; `tests/maya-db.test.js`; `tests/maya-server.test.js` |
+| FR-18 | The shopper gets a receipt, and the shop and shopper get emails for each order event, naming the payment provider. | `lib/notify.js`, `app/billing/ReceiptView.js` | `tests/orders.test.js`; `tests/maya-server.test.js` email wording |
+| FR-19 | Delivery or pickup is chosen at checkout and tracked to hand-over. | 0010, `update_delivery_status` | `tests/billing.test.js`; `npm run check:billing` |
+| FR-20 | A person can sign in with Google; authentication never grants a role by itself. | `lib/oauth.js`, `/auth/callback`, onboarding | `tests/marketplace-server.test.js`; `tests/marketplace.test.js`; `npm run check:billing` Google section |
+| FR-21 | `/diagnose` recommends one experience level (A–E) from measured facts, with a reason and a fallback. | `recommendExperience` in `lib/spatial/capabilities.mjs` | `tests/experience-router.test.js`; `npm run check:diagnose` |
+| FR-22 | An optional AI check times a model on the phone (WebGPU or WASM) and reports a level, without uploading anything. | `lib/spatial/ai/` | `tests/ai-benchmark.test.js`; `tests/ai-scene.test.js`; `npm run check:ai` |
 
 ## 4. Non-functional requirements
 
@@ -62,8 +88,9 @@ since the Next.js port; the measurement mathematics are in `public/geometry.js`.
 | NFR-5 | **Performance** — the interface never blocks on the 3D library or the database. | Skeleton within one frame; graceful fallback | Skeleton verified against a 1.5 s throttled response; CDN-failure fallback verified |
 | NFR-6 | **Motion** — respects `prefers-reduced-motion`. | All transforms stop | Audit: 0.001 s transitions under reduced motion |
 | NFR-7 | **Security** — one store can never read or write another's data. | Enforced in the database, not the UI | `tests/db.test.js`, 14 cases |
-| NFR-8 | **Security** — the browser never holds a privileged key. | No keys at all | The app makes no third-party calls; there is nothing to hold |
-| NFR-9 | **Maintainability** — the system can be understood and changed by someone new. | Documented + tested | 50 automated tests; `docs/MAINTENANCE.md` |
+| NFR-8 | **Security** — the browser never holds a privileged key. | The server holds the Supabase publishable key, the PayPal and Maya secrets, the payment-recorder secret and the email credentials; the browser holds none | `lib/supabase-proxy.js` refuses a secret key (`tests/env.test.js`); `check:billing` asserts the config the browser sees carries no secret |
+| NFR-9 | **Maintainability** — the system can be understood and changed by someone new. | Documented + tested | 500 automated tests (`node --test tests/*.test.js`) plus the `npm run check:*` browser checks; `docs/MAINTENANCE.md` |
+| NFR-11 | **Performance** — the on-device AI never costs a shopper who did not ask for it. | Zero AI bytes while browsing | `npm run check:ai` |
 | NFR-10 | **Measurement accuracy** — readings within ±5% of a tape measure. | ±5% | Geometry proven exact against known shapes. Two scans agreeing within 5% is enforced, but that is **repeatability, not accuracy**. **Field validation against a tape measure is still outstanding**: `docs/ROOM-MEASUREMENT-VALIDATION.md` |
 
 ## 5. Constraints and assumptions
@@ -88,9 +115,12 @@ These are open, and saying so is part of the analysis:
    but no measurements have yet been taken against a tape measure on a real
    floor with a real phone. `docs/MAINTENANCE.md` §5 gives the protocol and the
    table to fill in. This must be done before the accuracy claim is defended.
-2. **No live backend (FR-9, FR-10, FR-11, FR-13).** The schema and its access
-   rules are verified against a real Postgres, but the app is not connected to
-   a database: the catalogue is a committed file and owners cannot edit it on
-   the deployed site. See `docs/DATABASE-LATER.md`.
-3. **iOS AR.** Requires a `.usdz` per product. The field exists; no files yet.
-4. **Store addresses** are placeholders and must be replaced before launch.
+2. **iOS AR.** Requires a `.usdz` per product. The path works; few products
+   have one yet.
+3. **Store addresses** are placeholders and must be replaced before launch.
+4. **No phone has run the AI check** (FR-22), and no trained floor/wall model
+   exists. See `docs/AR-DEVICE-MATRIX.md`, which includes the Redmi 14C.
+5. **Maya is sandbox-ready, not live** (FR-16). Its field names must be
+   confirmed against Maya's documentation, and a sandbox run completed, first
+   (`docs/MAYA-INTEGRATION.md` §6, §9). With platform collect, FurnishAR
+   holds buyer money for shops and must pay them out.

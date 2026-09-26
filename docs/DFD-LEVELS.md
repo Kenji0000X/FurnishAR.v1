@@ -239,6 +239,7 @@ This is where money is recorded, so every step checks something.
 ## Other pages in the file
 
 - **Flow — Protected 3D Access** and **Flow — Checkout & Custom-Build Stages** are step-by-step flowcharts, with decisions, of the same processes. They are useful for explaining the order of events. They are not DFD levels.
+- **Flow — Device Check & Recommendation (P4)** shows how `/diagnose` turns measured facts (AR check, sensors, scene quality, optional AI benchmark) into one recommended mode A–E. It is all on the phone inside 4.0, so it is a flowchart, not a DFD level: no process, store or external flow is added.
 - **Use Case Diagram** shows what each actor can do, in UML notation.
 
 
@@ -247,3 +248,19 @@ This is where money is recorded, so every step checks something.
 **Level 2 — 1.0 Google Sign-in & Onboarding.** 1.6 starts a PKCE flow (verifier in an httpOnly cookie, identity scopes only); 1.7 trades the one-time code for a D1.1 session and discards Google's provider tokens; 1.3 resolves the role from D1.2 exactly as for a password sign-in; 1.8 onboards an account with no role — a buyers row (D1.2) or a store application linked by account id (D4). Balances with Level 1: the Buyer/Owner ↔ 1.0 flows gained "Continue with Google" and the onboarding choice; Google is a new external entity of 1.0 only. No flow from 1.0 reaches platform_admins.
 
 **Level 2 — 10.9–10.13 PayPal Seller, Webhooks & Reminders.** 10.9 records the onboarding attempt (member check, tracking id) in D5.4 and asks PayPal for a referral; 10.10 reads the seller's status from PayPal only and records it; 10.11 verifies each PayPal webhook, claims it once in D5.5 and records captures/refunds in D5.2 and seller changes in D5.4; 10.12 reports the fee mode and configuration to the admin from D5.3; 10.13 emails not-connected shops on a schedule with a cooldown. Balances with Level 1: the Store Owner → 7.0 → PayPal "connect PayPal" flow, PayPal → 10.0 "signed webhooks", and 10.0 → Email "reminders" added there.
+
+## Added with migration 0015 (2026-09-26)
+
+**Level 2 — 10.14–10.17 Maya Checkout, Webhook & Payouts.**
+- 10.14 answers which payment methods a shop takes, from D5.4 (its Maya row in this server's environment).
+- 10.15 creates a Maya Checkout with the public key and records the attempt in D5.2: FurnishAR's reference, the payee and the fee mode.
+- 10.16 settles a Maya payment. The buyer's return and Maya's unsigned webhook bring only a reference. 10.16 reads the attempt from D5.2, re-reads the payment from Maya with the secret key, claims each (payment, status) once in D5.5, records the payment once in D5.2, and emails.
+- 10.17 is the admin's Maya setup per store (D5.4) and the payouts FurnishAR makes to stores (D5.6 `store_remittances`), which 7.0 shows the store.
+
+Balances with Level 1:
+- Payment Providers (PayPal / Maya) ↔ 10.0;
+- 8.0 → D5 "Maya setup, payouts";
+- 10.0 → Email.
+
+On Level 0, Maya is its own external entity, because its money goes to FurnishAR's own merchant account rather than to the shop.
+

@@ -55,3 +55,25 @@ no account, application or payment-setup emails.
 | No webhooks | `POST /api/paypal/webhook`: signature verified with PayPal, processed once per event id, covering capture completed/denied/pending, refunds and reversals, onboarding and capability changes. |
 | No refund accounting | `payment_refunds`, split into the seller portion and the platform portion. |
 | Emails | New events for the account, the application, PayPal connection and refunds. Reminders come from a cron route with a cooldown and never from a page load. |
+
+## 5. What 0015 adds: Maya beside PayPal (2026-09-26)
+
+The flows above hold for PayPal unchanged. 0015 generalises P10 to more than
+one provider without a second order or payment system
+(`docs/MAYA-INTEGRATION.md`):
+
+| Step | PayPal | Maya |
+|---|---|---|
+| Store set-up | The owner connects a PayPal seller account (Merchant ID or Partner Referrals); the status comes from PayPal | **An admin** enables Maya per store (`admin_set_maya_account`); there is no self-service. Portal: "Set up by FurnishAR". |
+| What is offered | `GET /api/sb/orders/providers?store=` → `store_payment_providers()` ∩ what the server has configured | same |
+| Start | `begin_payment(order, env, 'paypal')` → PayPal order payable to the shop's merchant id | `begin_payment(order, env, 'maya')` → Maya Checkout (public key) payable to FurnishAR's Maya account, or to a PayFac sub-merchant |
+| Attempt | `server_record_payment_attempt(…, 'paypal')` | same, `'maya'`, with FurnishAR's reference (`provider_reference`) |
+| Return | `/account?paypal=return&token=` → `orders/capture` | `/account/payment/return?provider=maya&ref=` → `orders/verify` → payment re-read with the **secret** key |
+| Webhook | `/api/paypal/webhook`, signature verified with PayPal | `/api/maya/webhook`, unsigned: optional IP allowlist, then the payment re-read from Maya |
+| Record | `record_capture(…, 'paypal')` | `record_capture(…, 'maya')`; a capture of one provider can never satisfy the other's attempt |
+| Where the money is | the shop's PayPal account | FurnishAR's Maya account (platform collect): fee **collected**, the shop's share **owed to the shop** until paid out (`store_remittances`) |
+| Refunds | recorded from PayPal's webhooks | by hand in Maya Manager; not yet recorded automatically |
+
+Authentication is unchanged. Google identifies a person. Their role, and
+whether they may pay, is still decided by `my_role()` and the database.
+Neither PayPal nor Maya is an identity.

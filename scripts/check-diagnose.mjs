@@ -92,9 +92,9 @@ const rowText = async (page, label) => page.locator(`.diag-row:has(.diag-q:text-
 console.log('--- a phone that tracks and finds the floor, with no planes and no depth ---');
 {
   const { page, errors, context } = await open('works');
-  check('it reads as a health check, with the six rows', await page.locator('.diag-row').count() === 6);
-  check('before the check, tracked AR is "not checked", not "yes"',
-    /Not checked/.test(await rowText(page, 'Tracked AR')), await rowText(page, 'Tracked AR'));
+  check('it reads as a health check, with the nine rows', await page.locator('.diag-row').count() === 9);
+  check('before the check, tracked AR is "not tested", not "yes"',
+    /Not tested/.test(await rowText(page, 'Tracked AR')), await rowText(page, 'Tracked AR'));
   await page.click('button:has-text("Run the AR check")');
   await page.waitForFunction(() => /Available/.test(document.querySelector('.diag-row')?.textContent || ''), null, { timeout: 20000 }).catch(() => {});
   await page.waitForTimeout(300);

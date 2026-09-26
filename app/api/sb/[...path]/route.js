@@ -16,8 +16,9 @@
  *   POST /api/sb/auth/exchange  finish it: code → session (no provider tokens)
  *   GET  /api/sb/account/state  the caller's role and onboarding needs
  *   POST /api/sb/account/<action> buyer | apply
- *   GET  /api/sb/orders/config  are online payments / emails switched on?
- *   POST /api/sb/orders/<action> checkout | pay | capture | request | cancel |
+ *   GET  /api/sb/orders/config  are online payments / emails switched on? which methods?
+ *   GET  /api/sb/orders/providers?store=<id>  the payment methods a shop takes (public)
+ *   POST /api/sb/orders/<action> checkout | pay | capture | verify | request | cancel |
  *                               quote | decline | ready | fulfil | delivery | store-billing
  *   POST /api/sb/payments/<action> connect | refresh   (the shop's PayPal seller account)
  *   POST /api/sb/models/<action>  poster | revalidate | admin-cleanup   (0012)
@@ -238,7 +239,7 @@ async function route(request, context) {
   */
   if (section === 'orders' && rest.length === 1) {
     const body = request.method === 'POST' ? await request.json().catch(() => ({})) : null;
-    const result = await orders.handleOrders(asNodeRequest(request), rest[0], body, site);
+    const result = await orders.handleOrders(asNodeRequest(request), rest[0], body, site, url.searchParams);
     return json(result.status, result.body, { 'Cache-Control': 'private, no-store' });
   }
 

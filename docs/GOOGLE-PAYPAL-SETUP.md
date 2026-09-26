@@ -10,6 +10,13 @@ Migration `supabase/migrations/0011_google_paypal_marketplace.sql`. DFD: P1, P7,
   - A shop connects a PayPal *seller* account, identified by its merchant id.
   - A buyer uses PayPal only on PayPal's own page, for one payment, and never connects it to FurnishAR.
 - Neither account is the other's key.
+
+**Since 0015 there is a second payment provider, Maya** (`MAYA-INTEGRATION.md`).
+It changes nothing on this page. Google remains the identity, and PayPal is
+set up exactly as below. Two things differ for Maya:
+- a shop never connects Maya itself: an admin enables it;
+- a Maya payment is received by FurnishAR's own Maya account, which owes the
+  shop its share.
 - A Google login never grants admin. Admin rights come only from `platform_admins`.
 
 Real Google accounts may be used while PayPal stays in the sandbox.

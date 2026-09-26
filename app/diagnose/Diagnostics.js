@@ -3,10 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   browserContext, browserHandoff, assessCapabilities, classifyRefusal, sessionInit,
-  minimalSessionInit, diagnosticReport, DIAG, DIAG_COPY, EXPERIENCE, MEASURE_METHOD, METHOD_LABEL
+  minimalSessionInit, diagnosticReport, DIAG, DIAG_COPY, MEASURE_METHOD, METHOD_LABEL,
+  LEVEL, LEVEL_LABEL
 } from '../../lib/spatial/capabilities.mjs';
 import { HeadingTracker } from '../../lib/spatial/heading.mjs';
 import { cameraPose } from '../../lib/spatial/orientation.mjs';
+import { AI_VISION, AI_VISION_LABEL } from '../../lib/spatial/ai/config.mjs';
+import { AI_ERROR_COPY } from '../../lib/spatial/ai/benchmark.mjs';
+import { sampleScene } from '../../lib/spatial/ai/camera-scene.mjs';
 
 /*
    A device health check, not a verdict.
@@ -28,13 +32,23 @@ import { cameraPose } from '../../lib/spatial/orientation.mjs';
 
    Nothing here leaves the phone except what the person copies themselves,
    and the copyable report is an allowlist with no hardware identifiers.
+
+   The page answers one question first: CAN THIS PHONE USE FURNISHAR, and
+   how? That answer is recommendExperience() in capabilities.mjs, levels A–E,
+   decided from what was observed here — never a percentage. The optional AI
+   check measures a real inference on this phone (lib/spatial/ai/runtime.mjs,
+   downloaded only after its button is tapped) and can only ADD to the
+   answer: it never makes tracked AR "work", and a failed or skipped AI check
+   takes nothing away.
 */
 
 const STATUS = {
   yes: { label: 'Available', tone: 'ok' },
+  limited: { label: 'Available with limitations', tone: 'warn' },
   no: { label: 'Unavailable', tone: 'bad' },
   warn: { label: 'Needs attention', tone: 'warn' },
-  idle: { label: 'Not checked', tone: 'idle' }
+  idle: { label: 'Not tested', tone: 'idle' },
+  na: { label: 'Not required', tone: 'idle' }
 };
 
 function HealthRow({ label, status, detail }) {
@@ -52,7 +66,8 @@ function HealthRow({ label, status, detail }) {
 
 export default function Diagnostics() {
   const [facts, setFacts] = useState(null);
-  const [busy, setBusy] = useState(null);          // 'ar' | 'sensors' | null
+  const [busy, setBusy] = useState(null);          // 'ar' | 'sensors' | 'ai' | null
+  const [aiProgress, setAiProgress] = useState('');
   const [copied, setCopied] = useState('');
   const overlayRef = useRef(null);
   const merge = patch => setFacts(current => ({ ...current, ...patch }));
@@ -145,7 +160,8 @@ export default function Diagnostics() {
             try { if (frame.getDepthInformation?.(view)) out.depthObserved = true; } catch { /* not granted */ }
           }
           if (performance.now() - started > 6000) {
-            out.trackingQuality = out.frames ? `${Math.round((1 - lostFrames / out.frames) * 100)}% of frames tracked` : 'no frames';
+            out.trackedFrameRatio = out.frames ? Math.round((1 - lostFrames / out.frames) * 100) / 100 : 0;
+            out.trackingQuality = out.frames ? `${Math.round(out.trackedFrameRatio * 100)}% of frames tracked` : 'no frames';
             return resolve();
           }
           session.requestAnimationFrame(onFrame);
@@ -167,12 +183,52 @@ export default function Diagnostics() {
   async function runSensors() {
     setBusy('sensors');
     const out = { cameraOpened: false, orientationEvents: 0, motionEvents: 0, absoluteHeadingAvailable: false };
+
+    try {
+      const gate = window.DeviceOrientationEvent?.requestPermission;
+      if (typeof gate === 'function' && (await gate.call(window.DeviceOrientationEvent)) !== 'granted') out.motionDenied = true;
+    } catch { /* Android has no gate */ }
+
+    /* Four seconds of real readings. The heading is judged by the same
+       glitch rejector the measurer uses, on the line of sight's bearing.
+       The camera opens inside the same window, so the scene check knows
+       where the camera is pointing (is the floor in view?). */
+    const tracker = new HeadingTracker();
+    let angleFromDown = null;
+    const onOrient = e => {
+      if (!Number.isFinite(e.beta)) return;
+      out.orientationEvents += 1;
+      if (e.absolute || Number.isFinite(e.webkitCompassHeading)) out.absoluteHeadingAvailable = true;
+      const pose = cameraPose({ alpha: e.alpha, beta: e.beta, gamma: e.gamma }, window.screen?.orientation?.angle || 0);
+      if (Number.isFinite(pose?.angleFromDown)) angleFromDown = pose.angleFromDown;
+      tracker.push(Number.isFinite(pose?.heading) ? pose.heading : null, performance.now());
+    };
+    const onMotion = e => { if (e.accelerationIncludingGravity?.x != null) out.motionEvents += 1; };
+    window.addEventListener('deviceorientation', onOrient);
+    window.addEventListener('devicemotion', onMotion);
+    const started = performance.now();
+
     let stream = null;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
       const settings = stream.getVideoTracks()[0]?.getSettings?.() || {};
       out.cameraOpened = true;
       out.cameraResolution = settings.width && settings.height ? `${settings.width}x${settings.height}` : 'unknown';
+      /* Scene quality: a few frames judged on the phone (light, blur,
+         detail, motion). The frames are never kept or sent. */
+      const scene = await sampleScene(stream, { angleFromDown: () => angleFromDown });
+      if (scene) {
+        Object.assign(out, {
+          sceneAnalysisAvailable: true,
+          lightingQuality: scene.lightingQuality,
+          motionBlur: scene.motionBlur,
+          sceneTextureQuality: scene.sceneTextureQuality,
+          cameraMotion: scene.cameraMotion,
+          floorConfidence: scene.floorConfidence,
+          wallConfidence: scene.wallConfidence,
+          sceneGuidance: scene.guidance
+        });
+      }
     } catch (err) {
       out.cameraOpened = false;
       out.cameraDenied = err?.name === 'NotAllowedError';
@@ -181,37 +237,33 @@ export default function Diagnostics() {
       for (const track of stream?.getTracks() || []) track.stop();
     }
 
-    try {
-      const gate = window.DeviceOrientationEvent?.requestPermission;
-      if (typeof gate === 'function' && (await gate.call(window.DeviceOrientationEvent)) !== 'granted') out.motionDenied = true;
-    } catch { /* Android has no gate */ }
-
-    /* Four seconds of real readings. The heading is judged by the same
-       glitch rejector the measurer uses, on the line of sight's bearing. */
-    const tracker = new HeadingTracker();
-    await new Promise(resolve => {
-      const started = performance.now();
-      const onOrient = e => {
-        if (!Number.isFinite(e.beta)) return;
-        out.orientationEvents += 1;
-        if (e.absolute || Number.isFinite(e.webkitCompassHeading)) out.absoluteHeadingAvailable = true;
-        const pose = cameraPose({ alpha: e.alpha, beta: e.beta, gamma: e.gamma }, window.screen?.orientation?.angle || 0);
-        tracker.push(Number.isFinite(pose?.heading) ? pose.heading : null, performance.now());
-      };
-      const onMotion = e => { if (e.accelerationIncludingGravity?.x != null) out.motionEvents += 1; };
-      window.addEventListener('deviceorientation', onOrient);
-      window.addEventListener('devicemotion', onMotion);
-      setTimeout(() => {
-        window.removeEventListener('deviceorientation', onOrient);
-        window.removeEventListener('devicemotion', onMotion);
-        out.orientationRate = Math.round((out.orientationEvents / ((performance.now() - started) / 1000)) * 10) / 10;
-        out.headingVerdict = tracker.reliability.verdict;
-        out.headingRejected = Math.round(tracker.reliability.rejectedFraction * 100);
-        resolve();
-      }, 4000);
-    });
+    await new Promise(resolve => setTimeout(resolve, Math.max(0, 4000 - (performance.now() - started))));
+    window.removeEventListener('deviceorientation', onOrient);
+    window.removeEventListener('devicemotion', onMotion);
+    out.orientationRate = Math.round((out.orientationEvents / ((performance.now() - started) / 1000)) * 10) / 10;
+    out.headingVerdict = tracker.reliability.verdict;
+    out.headingRejected = Math.round(tracker.reliability.rejectedFraction * 100);
     merge(out);
     setBusy(null);
+  }
+
+  /* ----------------------------------------------------------- AI check -- */
+  /* Optional. The runtime and the test model download only now, after this
+     tap (never while browsing), run on this phone, and are released at the
+     end. A failure is recorded as a level ("Unavailable") and a reason; it
+     never disables anything else on the page. */
+  async function runAI() {
+    setBusy('ai');
+    setAiProgress('Starting…');
+    try {
+      const { checkAiCapability } = await import('../../lib/spatial/ai/runtime.mjs');
+      merge(await checkAiCapability({ onProgress: setAiProgress }));
+    } catch (error) {
+      merge({ aiMode: AI_VISION.NONE, aiRuntimeAvailable: false, aiError: { code: 'ai-unavailable', name: error?.name || 'Error', message: String(error?.message || '').slice(0, 200) } });
+    } finally {
+      setAiProgress('');
+      setBusy(null);
+    }
   }
 
   async function copyReport() {
@@ -247,13 +299,24 @@ export default function Diagnostics() {
   const headingStatus = !sensorsChecked || !facts.orientationEvents ? 'idle'
     : facts.headingVerdict === 'good' ? 'yes' : facts.headingVerdict === 'unknown' ? 'idle' : 'warn';
 
-  const recommendation = {
-    [EXPERIENCE.TRACKED_WEBXR]: assessment.trackedVerified ? 'Tracked AR' : 'Tracked AR (to be confirmed by the AR check)',
-    [EXPERIENCE.SENSOR_MEASUREMENT]: 'Aim with phone, photo reference or tape measure',
-    [EXPERIENCE.PHOTO_MEASUREMENT]: 'Photo reference and tape measure',
-    [EXPERIENCE.MANUAL_MEASUREMENT]: 'Tape measure',
-    [EXPERIENCE.UNSUPPORTED_CONTEXT]: embedded ? 'Open in your browser first' : 'Open the secure (https) address'
-  }[assessment.recommendedExperience];
+  const depthStatus = !arChecked || !facts.sessionStarted ? 'na' : facts.depthObserved ? 'yes' : 'na';
+  const aiTested = facts.aiMode !== undefined;
+  const aiStatus = !aiTested ? 'idle'
+    : facts.aiMode === AI_VISION.GPU || facts.aiMode === AI_VISION.REALTIME ? 'yes'
+      : facts.aiMode === AI_VISION.SINGLE_FRAME ? 'limited' : 'no';
+  const aiDetail = !aiTested ? 'Optional. Tap “Check AI camera capability” below.'
+    : facts.aiRuntimeAvailable
+      ? `${AI_VISION_LABEL[facts.aiMode] || 'Unavailable'} · ${facts.aiBackend === 'webgpu' ? 'GPU (WebGPU)' : 'CPU (WebAssembly)'} · ${facts.aiAverageInferenceMs} ms average, ${facts.aiP95InferenceMs} ms at worst (p95).`
+      : AI_ERROR_COPY[facts.aiError?.code] || AI_ERROR_COPY['ai-unavailable'];
+  const sceneChecked = facts.sceneAnalysisAvailable === true && facts.lightingQuality;
+  const sceneStatus = !sensorsChecked ? 'idle' : !sceneChecked ? (facts.cameraOpened ? 'idle' : 'no')
+    : (facts.sceneGuidance || []).length ? 'warn' : 'yes';
+  const sceneDetail = !sceneChecked ? (sensorsChecked && facts.cameraOpened ? 'The camera frames could not be read here.' : null)
+    : (facts.sceneGuidance || []).length ? facts.sceneGuidance.join(' ')
+      : 'Good light, sharp, enough detail to track.';
+
+  const rec = assessment.recommendation;
+  const fallbackLabel = rec.fallback ? LEVEL_LABEL[rec.fallback] : null;
 
   return (
     <>
@@ -272,14 +335,23 @@ export default function Diagnostics() {
 
       <section className="diag-summary" aria-labelledby="diag-summary-title">
         <p className="eyebrow">Device check</p>
-        <h2 id="diag-summary-title">{copy.title}</h2>
+        <p className="diag-recommend diag-recommend-top">
+          <span>Recommended FurnishAR mode</span>
+          <b id="diag-summary-title">{LEVEL_LABEL[rec.level]}</b>
+          <small className={`status-chip ${rec.confirmed ? 'is-success' : 'is-warning'}`}>
+            {rec.level === LEVEL.OPEN_EXTERNAL_BROWSER || rec.level === LEVEL.OPEN_SECURE_ADDRESS ? 'Do this first'
+              : rec.confirmed ? 'Best available on this phone' : 'To be confirmed'}
+          </small>
+        </p>
+        <p className="diag-reason">{rec.reason}</p>
+        {fallbackLabel && <p className="diag-fallback"><b>Fallback.</b> {fallbackLabel}</p>}
+        <h2 className="diag-state">{copy.title}</h2>
         <p><b>Observed.</b> {copy.observed}</p>
         {copy.likely && <p><b>Likely cause.</b> {copy.likely}</p>}
         {facts.sessionError?.likelyCauses && !copy.likely && (
           <p><b>Possible causes.</b> {facts.sessionError.likelyCauses.join('; ')}. Which one is not known from this alone.</p>
         )}
         {copy.action && <p><b>What to do.</b> {copy.action}</p>}
-        <p className="diag-recommend"><span>Recommended FurnishAR mode</span> <b>{recommendation}</b></p>
       </section>
 
       <div className="diag-list" role="list">
@@ -295,6 +367,10 @@ export default function Diagnostics() {
           detail={sensorsChecked ? (facts.orientationEvents ? `${facts.orientationEvents} readings, about ${facts.orientationRate} per second.` : facts.motionDenied ? 'Motion access was refused.' : 'No readings.') : null} />
         <HealthRow label="Heading quality" status={headingStatus}
           detail={headingStatus === 'yes' ? 'Steady. A room outline can be built by turning.' : headingStatus === 'warn' ? `Unsteady (${facts.headingRejected}% of readings rejected). Single distances work; use photo or tape for the room.` : null} />
+        <HealthRow label="Depth" status={depthStatus}
+          detail={facts.depthObserved ? 'The session also provided depth. It is an extra, never needed.' : 'Placing and measuring never need depth.'} />
+        <HealthRow label="Scene" status={sceneStatus} detail={sceneDetail} />
+        <HealthRow label="AI vision" status={aiStatus} detail={aiDetail} />
       </div>
 
       {!embedded && !ios && facts.webxr && facts.secureContext && (
@@ -319,11 +395,23 @@ export default function Diagnostics() {
 
       <div className="diag-deep">
         <p className="diagnose-intro">
-          The sensor check opens the camera briefly and reads the motion sensors
-          for four seconds. Hold the phone up and turn slowly left and right.
+          The sensor check opens the camera briefly, looks at the light and detail in
+          view, and reads the motion sensors for four seconds. Hold the phone up and
+          turn slowly left and right.
         </p>
         <button className="button" type="button" onClick={runSensors} disabled={Boolean(busy)}>
           {busy === 'sensors' ? 'Checking — turn slowly…' : 'Check the camera and motion sensors'}
+        </button>
+      </div>
+
+      <div className="diag-deep">
+        <p className="diagnose-intro">
+          Optional: time an AI camera model on this phone. It downloads about 8 MB
+          once (up to 15 MB on a phone with a usable GPU): the runtime and a test model.
+          It runs entirely on the phone and sends nothing anywhere. FurnishAR works without it.
+        </p>
+        <button className="button" type="button" onClick={runAI} disabled={Boolean(busy)} aria-busy={busy === 'ai' || undefined}>
+          {busy === 'ai' ? (aiProgress || 'Checking…') : aiTested ? 'Check AI camera capability again' : 'Check AI camera capability'}
         </button>
       </div>
 

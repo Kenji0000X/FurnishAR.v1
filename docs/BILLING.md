@@ -1,6 +1,12 @@
 # Orders & payments — setup
 
-> **Since 0011** shops are paid through a connected PayPal **seller** account (Partner Referrals), not a typed email; the fee can be split by PayPal (`platform_split`) or accrue (default); webhooks, refunds and reminders exist. See `GOOGLE-PAYPAL-SETUP.md`. The sections below describe the 0009/0010 base that still applies.
+> **Since 0011**, shops are paid through a connected PayPal **seller** account, not a typed email:
+> - the fee can be split by PayPal (`platform_split`) or accrue (the default);
+> - webhooks, refunds and reminders exist.
+>
+> See `GOOGLE-PAYPAL-SETUP.md`.
+>
+> **Since 0015**, Maya is a second payment method in the same orders and payments system. See `MAYA-INTEGRATION.md`.
 
 DFD process **P10**, data store **D5**. Migration `supabase/migrations/0009_orders_billing.sql`.
 
@@ -13,8 +19,17 @@ DFD process **P10**, data store **D5**. Migration `supabase/migrations/0009_orde
   3. The buyer pays a 50% deposit.
   4. The shop marks the piece ready.
   5. The buyer pays the balance.
-- **Where the money goes:** every payment goes **directly to the shop's own PayPal account**. FurnishAR never holds buyer money.
-- **The fee:** the buyer pays the shop's price **plus a 10% service fee**. The fee accrues per payment in `payments.platform_fee`. Shops see what they owe in the portal, and an admin records settlements in `/admin/billing`.
+- **Where the money goes depends on the method:**
+  - **PayPal** pays **directly into the shop's own PayPal account**; FurnishAR never holds that money.
+  - **Maya**, as set up today ("platform collect"), pays into **FurnishAR's** Maya account. FurnishAR keeps its 10% and **owes the shop the rest**, which it pays out and records (`store_remittances`).
+  - Maya settling straight to a shop needs Maya's Payment Facilitator programme, which is not enabled.
+- **The fee:** the buyer pays the shop's price **plus a 10% service fee**. Per payment, `payments.fee_mode` says where the fee is:
+  - `accrual`: the shop owes it;
+  - `platform_split`: PayPal took it and reported it;
+  - `platform_collect`: FurnishAR received it through Maya;
+  - `provider_settlement`: expected from Maya's settlement, not yet reconciled.
+
+  Shops see the figures in the portal; an admin records settlements and payouts in `/admin/billing`.
 
 ## Environment variables (server only — Vercel → Settings → Environment Variables)
 
@@ -27,9 +42,10 @@ DFD process **P10**, data store **D5**. Migration `supabase/migrations/0009_orde
 | `GMAIL_USER` | The Gmail address that sends receipts and order emails, e.g. `furnishar.orders@gmail.com` |
 | `GMAIL_APP_PASSWORD` | A Google **App Password** for that Gmail (16 letters; spaces are fine). Not the normal Gmail password. |
 | `RESEND_API_KEY` / `EMAIL_FROM` | Alternative to Gmail. Only used when the Gmail pair is not set; without a verified domain Resend only delivers to its own account's address. |
-| `SITE_URL` | optional, e.g. `https://furnisharv1.vercel.app` — where PayPal sends buyers back |
+| `SITE_URL` | optional, e.g. `https://furnisharv1.vercel.app` — where PayPal and Maya send buyers back |
+| `MAYA_*` | Maya's keys and settings — see `MAYA-INTEGRATION.md` §5 |
 
-Payments stay switched off until PayPal and the recorder secret are both set. Without an email sender the orders still work; the emails are skipped and logged.
+Payments stay switched off until the recorder secret and at least one provider (PayPal, or Maya) are set. Without an email sender the orders still work; the emails are skipped and logged.
 
 ## The payment-recorder secret
 
@@ -49,11 +65,14 @@ To rotate it, repeat all three steps with a new value.
 
 ## Each shop
 
-In `/portal`, under **Billing & store type**, each shop sets three things:
+In `/portal`, under **Billing & store type**:
 
 - **Store type:** stocked or custom.
-- **PayPal email:** where buyers pay the shop. It must be a PayPal account that can receive payments. A Business account is best.
+- **PayPal seller account:** connected with a PayPal Merchant ID, which PayPal checks, or through PayPal's own onboarding page. Checkout by PayPal opens only once PayPal reports the account `CONNECTED` (0011). The "PayPal email" field is a record for the shop only; it no longer enables checkout.
+- **Maya:** nothing to do. An administrator enables Maya for a shop in `/admin/billing`, and the portal shows "Set up by FurnishAR" and where the money goes.
 - **Notification email:** optional. If it's empty, order emails go to the owner's sign-in email.
+
+A shop can take online orders once it can be paid through at least one method.
 
 ## Limits worth knowing
 
@@ -65,7 +84,8 @@ In `/portal`, under **Billing & store type**, each shop sets three things:
 
 - `node --test tests/billing.test.js`: the database rules, against a local Postgres.
 - `node --test tests/orders.test.js`: the server, against a fake PayPal.
-- `npm run check:billing`: the browser flow, end to end. Run `npm run build` first.
+- `node --test tests/maya-db.test.js tests/maya-server.test.js`: Maya's database rules and server, against a fake Maya.
+- `npm run check:billing`: the browser flow end to end, PayPal and Maya. Run `npm run build` first.
 
 ## Gmail App Password (for receipts)
 
