@@ -775,7 +775,7 @@ export default function Portal({ initialProducts }) {
           openOrders > 0 && { href: '#orders', count: openOrders, title: openOrders === 1 ? 'Open order' : 'Open orders', note: 'Confirm, prepare and hand over.' },
           missingModels > 0 && { href: '#inventory', count: missingModels, title: missingModels === 1 ? 'Listing without a 3D model' : 'Listings without a 3D model', note: 'Shoppers can’t place these in their room.' },
           expiring.length > 0 && { href: '#inventory', count: expiring.length, title: expiring.length === 1 ? '3D model unused for 11 months' : '3D models unused for 11 months', note: `An administrator may delete ${expiring.length === 1 ? 'it' : 'them'} from ${shortDate(Math.min(...expiring.map(p => Date.parse(modelLife.get(p.id).deletable_from))))}. Choose “Keep 3D model” to keep ${expiring.length === 1 ? 'it' : 'them'}.` },
-          missingPosters > 0 && { href: '#inventory', count: missingPosters, title: missingPosters === 1 ? 'Listing without a catalogue preview' : 'Listings without a catalogue preview', note: 'Shoppers see a placeholder on the card. Use “Regenerate preview”.' },
+          missingPosters > 0 && { href: '#inventory', count: missingPosters, title: missingPosters === 1 ? 'Listing without a catalogue preview' : 'Listings without a catalogue preview', note: 'Not shown in the public collection until its preview exists. Use “Regenerate preview”.' },
           soldOut > 0 && { href: '#inventory', count: soldOut, title: soldOut === 1 ? 'Listing out of stock' : 'Listings out of stock', note: 'Shoppers can’t buy these until you restock.' }
         ].filter(Boolean)} ready={ownProducts.length > 0} />
 
@@ -877,7 +877,7 @@ export default function Portal({ initialProducts }) {
                         {product.modelGlb
                           ? ' · 3D model ready'
                           : <span className="missing-model"> · No 3D model, not shown in AR</span>}
-                        {needsPoster(product) && <span className="missing-model"> · Catalogue preview needed</span>}
+                        {needsPoster(product) && <span className="missing-model"> · Catalogue preview needed, not shown in the collection yet</span>}
                         {usingSupabase() && product.modelGlb && product.posterPath && ' · Catalogue preview ready'}
                         {atRisk(product) && (
                           <span className="missing-model"> · 3D model unused {spanSince(modelLife.get(product.id).idle_days)}; can be deleted from {shortDate(Date.parse(modelLife.get(product.id).deletable_from))}</span>

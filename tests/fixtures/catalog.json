@@ -18,7 +18,8 @@
     "description": "Test fixture: fixture rattan chair for automated checks. Not a real listing.",
     "featured": true,
     "updatedAt": "2026-09-25T00:00:00Z",
-    "modelGlb": "models/modern-living-room.glb"
+    "modelGlb": "models/modern-living-room.glb",
+    "thumbnail": "/models/living-room-poster.webp?fixture=fixture-1"
   },
   {
     "id": "fixture-2",
@@ -39,7 +40,8 @@
     "description": "Test fixture: fixture dining chair for automated checks. Not a real listing.",
     "featured": true,
     "updatedAt": "2026-09-25T00:00:00Z",
-    "modelGlb": "models/modern-living-room.glb"
+    "modelGlb": "models/modern-living-room.glb",
+    "thumbnail": "/models/living-room-poster.webp?fixture=fixture-2"
   },
   {
     "id": "fixture-3",
@@ -60,7 +62,8 @@
     "description": "Test fixture: fixture oak table for automated checks. Not a real listing.",
     "featured": false,
     "updatedAt": "2026-09-25T00:00:00Z",
-    "modelGlb": "models/modern-living-room.glb"
+    "modelGlb": "models/modern-living-room.glb",
+    "thumbnail": "/models/living-room-poster.webp?fixture=fixture-3"
   },
   {
     "id": "fixture-4",
@@ -81,7 +84,8 @@
     "description": "Test fixture: fixture side table for automated checks. Not a real listing.",
     "featured": false,
     "updatedAt": "2026-09-25T00:00:00Z",
-    "modelGlb": "models/modern-living-room.glb"
+    "modelGlb": "models/modern-living-room.glb",
+    "thumbnail": "/models/living-room-poster.webp?fixture=fixture-4"
   },
   {
     "id": "fixture-5",
@@ -102,7 +106,8 @@
     "description": "Test fixture: fixture bookshelf for automated checks. Not a real listing.",
     "featured": false,
     "updatedAt": "2026-09-25T00:00:00Z",
-    "modelGlb": "models/modern-living-room.glb"
+    "modelGlb": "models/modern-living-room.glb",
+    "thumbnail": "/models/living-room-poster.webp?fixture=fixture-5"
   },
   {
     "id": "fixture-6",

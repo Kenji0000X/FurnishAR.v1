@@ -1131,6 +1131,18 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -.03em; line-height: 1.02; }
   letter-spacing: .12em; color: var(--ink-faint);
 }
 
+/* No real pieces yet: three still placeholders in place of the strip. */
+.marquee-placeholders {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem;
+  max-width: 56rem; margin: 0 auto; padding: 0 var(--gutter);
+}
+.marquee-placeholders .placeholder-media { aspect-ratio: 4 / 3; }
+@media (max-width: 700px) {
+  .marquee-placeholders { gap: .6rem; }
+  .marquee-placeholders .placeholder-media { padding: .75rem .5rem; aspect-ratio: 1 / 1; }
+  .marquee-placeholders .placeholder-title { font-size: .8125rem; }
+}
+
 /* ------------------------------------------------------------ buttons ---- */
 
 .button {

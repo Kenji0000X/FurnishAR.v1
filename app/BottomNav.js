@@ -106,8 +106,8 @@ function Icon({ name, filled }) {
 const ITEMS = [
   { href: '/', label: 'Discover', icon: 'discover' },
   { href: '/collection', label: 'Collection', icon: 'collection' },
-  { href: '/plan', label: 'Scan room', icon: 'scan', primary: true },
-  { href: '/diagnose', label: 'Device check', icon: 'device' },
+  { href: '/plan', label: 'Scan', icon: 'scan', primary: true },
+  { href: '/diagnose', label: 'Device', icon: 'device' },
   /* Was "Stores", pointing at /portal. This bar is the shopper's menu — it
      is why it is hidden on the workspace routes — and /portal is the store
      owner's door, not a shopper's destination. It is still one tap away in

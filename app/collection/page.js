@@ -28,7 +28,7 @@ export default async function CollectionPage() {
   const { products: catalog, source } = await getCatalog();
   // Only pieces with a real 3D model are shown here (isListable). The rest
   // stay in their shop's portal until the model is uploaded.
-  const products = catalog.filter(isListable);
+  const products = catalog.filter(product => isListable(product));
 
   return (
     <section className="view active">
