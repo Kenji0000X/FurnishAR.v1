@@ -14,8 +14,14 @@ const PAY_NOW = ['pending_payment', 'quoted', 'balance_due'];
 const CLOSED = ['fulfilled', 'declined', 'cancelled', 'expired'];
 const rank = order => (PAY_NOW.includes(order.status) ? 0 : CLOSED.includes(order.status) ? 2 : 1);
 
+const PROVIDER_LABEL = { paypal: 'PayPal', maya: 'Maya' };
+
 /**
  * A shopper's orders, and the way back from PayPal.            DFD: P10
+ *
+ * Each order that is waiting on money offers the payment methods its shop
+ * can take right now (/api/sb/orders/providers). Maya returns the buyer to
+ * /account/payment/return, which confirms the payment the same way.
  *
  * PayPal returns the buyer to /account?paypal=return&token=<PayPal order>.
  * That token is only a pointer: the server re-reads the PayPal order,
@@ -26,12 +32,17 @@ const rank = order => (PAY_NOW.includes(order.status) ? 0 : CLOSED.includes(orde
 export default function BuyerOrders() {
   const alert = useAlert();
   const [orders, setOrders] = useState(null);
+  const [methods, setMethods] = useState({});   // store id → payment methods it takes
   const [busy, setBusy] = useState('');
   const handledReturn = useRef(false);
 
   const load = useCallback(async () => {
     try {
-      setOrders(await supabase().listMyOrders());
+      const list = await supabase().listMyOrders();
+      setOrders(list);
+      const stores = [...new Set(list.filter(o => PAY_NOW.includes(o.status)).map(o => o.store_id).filter(Boolean))];
+      const found = await Promise.all(stores.map(id => supabase().storePaymentProviders(id)));
+      setMethods(Object.fromEntries(stores.map((id, i) => [id, found[i]])));
     } catch (error) {
       setOrders([]);
       alert.fromError(error, 'orders');
@@ -80,12 +91,12 @@ export default function BuyerOrders() {
 
   const [cancelling, setCancelling] = useState(null);   // the order awaiting confirmation
 
-  async function act(order, action) {
+  async function act(order, action, provider = 'paypal') {
     setCancelling(null);
-    setBusy(order.id);
+    setBusy(`${order.id}:${provider}`);
     try {
       if (action === 'pay') {
-        const result = await supabase().orderAction('pay', { orderId: order.id });
+        const result = await supabase().orderAction('pay', { orderId: order.id, provider });
         window.location.assign(result.approveUrl);
         return;
       }
@@ -111,20 +122,26 @@ export default function BuyerOrders() {
       ) : (
         <ul className="orders-list">
           {[...orders].sort((a, b) => rank(a) - rank(b)).map(order => {
-            const payLabel = { pending_payment: 'Pay with PayPal', quoted: 'Pay deposit', balance_due: 'Pay balance' }[order.status];
+            const payLabel = { pending_payment: 'Pay', quoted: 'Pay deposit', balance_due: 'Pay balance' }[order.status];
+            const payWith = payLabel ? (methods[order.store_id] || []) : [];
             const cancellable = ['pending_payment', 'requested', 'quoted'].includes(order.status);
+            const working = busy.startsWith(`${order.id}:`);
             return (
               <OrderCard key={order.id} order={order} perspective="buyer">
                 {(payLabel || cancellable) && (
                   <div className="order-actions">
-                    {payLabel && (
-                      <button className="button button-primary" type="button" disabled={busy === order.id}
-                        aria-busy={busy === order.id} onClick={() => act(order, 'pay')}>
-                        {busy === order.id ? 'Opening PayPal…' : payLabel}
+                    {payWith.map(provider => (
+                      <button key={provider} className={`button ${provider === payWith[0] ? 'button-primary' : 'button-outline'}`}
+                        type="button" disabled={working} aria-busy={busy === `${order.id}:${provider}`}
+                        onClick={() => act(order, 'pay', provider)}>
+                        {busy === `${order.id}:${provider}` ? `Opening ${PROVIDER_LABEL[provider]}…` : `${payLabel} with ${PROVIDER_LABEL[provider]}`}
                       </button>
+                    ))}
+                    {payLabel && !payWith.length && (
+                      <p className="card-copy">The shop can&rsquo;t take online payments right now. Please try again later.</p>
                     )}
                     {cancellable && (
-                      <button className="button button-outline" type="button" disabled={busy === order.id}
+                      <button className="button button-outline" type="button" disabled={working}
                         onClick={() => setCancelling(order)}>
                         {order.kind === 'custom' ? 'Withdraw request' : 'Cancel'}
                       </button>
@@ -147,7 +164,8 @@ export default function BuyerOrders() {
         />
       )}
       <p className="card-copy demo-note">
-        Payments go directly to each shop&rsquo;s PayPal account. The price includes FurnishAR&rsquo;s 10% service fee.
+        PayPal payments go directly to the shop&rsquo;s PayPal account. Maya payments are received by FurnishAR&rsquo;s
+        Maya account, which pays the shop its share, unless Maya settles to the shop directly. The price includes FurnishAR&rsquo;s 10% service fee.
       </p>
     </section>
   );

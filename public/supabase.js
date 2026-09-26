@@ -1365,6 +1365,23 @@ export async function orderAction(action, payload = {}) {
 }
 
 /**
+ * The payment methods a shop can be paid through right now ('paypal',
+ * 'maya'), as the server decides: what the shop is set up for, intersected
+ * with what this deployment has switched on. Empty on any failure.
+ */
+export async function storePaymentProviders(storeUuid) {
+  try {
+    const response = await fetch(`/api/sb/orders/providers?store=${encodeURIComponent(storeUuid)}`,
+      { headers: { Accept: 'application/json' }, cache: 'no-store' });
+    if (!response.ok) return [];
+    const body = await response.json();
+    return Array.isArray(body?.providers) ? body.providers : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * One call to this app's own server endpoints (/api/sb/<section>/<action>)
  * as the signed-in user: orders, account onboarding, the shop's PayPal
  * connection. POST with a body, or GET without one.
@@ -1470,7 +1487,7 @@ export async function listMyOrders() {
 export async function getOrderReceipt(orderId) {
   const rows = await restCall(
     `orders?id=eq.${encodeURIComponent(orderId)}&select=${ORDER_FIELDS},`
-    + 'payments(stage,amount,capture_id,captured_at,applied)&limit=1'
+    + 'payments(stage,amount,capture_id,captured_at,applied,provider)&limit=1'
   );
   return (rows || [])[0] || null;
 }
@@ -1485,17 +1502,23 @@ export async function listStoreOrders(storeUuid) {
 /** How a store is paid, what kind it is, and what it owes FurnishAR. */
 export async function storeBilling(storeUuid) {
   const id = encodeURIComponent(storeUuid);
-  const [payout, store, fees, accounts] = await Promise.all([
+  const [payout, store, fees, accounts, remittances] = await Promise.all([
     restCall(`store_payout?store_id=eq.${id}&select=paypal_email,notify_email,delivery_days,pickup_days`),
     restCall(`stores?id=eq.${id}&select=fulfilment`),
     restCall('rpc/store_fee_summary', { method: 'POST', body: JSON.stringify({ p_store: storeUuid }) }),
     // 0011. Read under RLS: this store's members and admins only.
-    restCall(`store_payment_accounts?store_id=eq.${id}&select=environment,merchant_id,onboarding_status,`
-      + 'payments_receivable,email_confirmed,partner_fee_granted,status_detail,connected_at,last_checked_at,updated_at'
-      + '&order=updated_at.desc').catch(() => [])
+    // 0015: one row per provider; PayPal's and Maya's are kept apart here.
+    restCall(`store_payment_accounts?store_id=eq.${id}&select=provider,environment,merchant_id,onboarding_status,`
+      + 'payments_receivable,email_confirmed,partner_fee_granted,status_detail,connected_at,last_checked_at,updated_at,'
+      + 'settlement_mode&order=updated_at.desc').catch(() => []),
+    restCall(`store_remittances?store_id=eq.${id}&select=amount,reference,created_at&order=created_at.desc&limit=20`)
+      .catch(() => [])
   ]);
+  const rows = accounts || [];
   return {
-    paymentAccounts: accounts || [],
+    paymentAccounts: rows.filter(a => (a.provider || 'paypal') === 'paypal'),
+    mayaAccounts: rows.filter(a => a.provider === 'maya'),
+    remittances: remittances || [],
     fulfilment: store?.[0]?.fulfilment || 'stocked',
     deliveryDays: payout?.[0]?.delivery_days ?? 3,
     pickupDays: payout?.[0]?.pickup_days ?? 1,
@@ -1508,6 +1531,25 @@ export async function storeBilling(storeUuid) {
 /** Every store's fees — platform admin only (the function checks). */
 export async function feeOverview() {
   return (await restCall('rpc/fee_overview', { method: 'POST', body: '{}' })) || [];
+}
+
+/** Admin: enable or disable Maya for a store (0015 checks is_platform_admin). */
+export async function setMayaAccount({ storeUuid, environment, enabled, settlement, submerchant, city, postal }) {
+  return restCall('rpc/admin_set_maya_account', {
+    method: 'POST',
+    body: JSON.stringify({
+      p_store: storeUuid, p_env: environment, p_enabled: Boolean(enabled), p_settlement: settlement || null,
+      p_submerchant: submerchant || null, p_city: city || null, p_postal: postal || null
+    })
+  });
+}
+
+/** Admin: a payout FurnishAR made to a store for Maya payments it collected. */
+export async function recordStoreRemittance({ storeUuid, amount, reference, note }) {
+  return restCall('rpc/record_store_remittance', {
+    method: 'POST',
+    body: JSON.stringify({ p_store: storeUuid, p_amount: Number(amount), p_reference: reference || null, p_note: note || null })
+  });
 }
 
 export async function recordFeeSettlement({ storeUuid, amount, reference, note }) {

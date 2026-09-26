@@ -35,6 +35,16 @@ function timeline(order) {
   ].map(step => ({ ...step, closed }));
 }
 
+/** Who received the money, from the payment records themselves. */
+function paidThrough(order, store) {
+  const used = new Set((order.payments || []).filter(p => p.applied).map(p => p.provider || 'paypal'));
+  if (!used.size) return '';
+  const parts = [];
+  if (used.has('paypal')) parts.push(`PayPal payments go directly to ${store}.`);
+  if (used.has('maya')) parts.push(`Maya payments are received by FurnishAR, which pays ${store} its share.`);
+  return parts.join(' ');
+}
+
 export default function ReceiptView({ orderId }) {
   const [state, setState] = useState('loading');   // loading | ready | missing | offline
   const [order, setOrder] = useState(null);
@@ -122,7 +132,7 @@ export default function ReceiptView({ orderId }) {
               {payments.map(p => (
                 <tr key={p.capture_id}>
                   <td colSpan={3}>
-                    Paid via PayPal{p.stage !== 'full' ? ` (${p.stage})` : ''} · {when(p.captured_at)}
+                    Paid via {p.provider === 'maya' ? 'Maya' : 'PayPal'}{p.stage !== 'full' ? ` (${p.stage})` : ''} · {when(p.captured_at)}
                     <small className="receipt-txn">Transaction {p.capture_id}</small>
                   </td>
                   <td>−{money(p.amount)}</td>
@@ -174,7 +184,7 @@ export default function ReceiptView({ orderId }) {
       </section>
 
       <p className="purchase-note">
-        Paid directly to {store.name || 'the shop'} through PayPal. Keep this receipt for pickup, delivery and any returns.
+        {paidThrough(order, store.name || 'the shop')} Keep this receipt for pickup, delivery and any returns.
       </p>
     </article>
   );

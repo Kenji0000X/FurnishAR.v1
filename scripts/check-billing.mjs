@@ -15,6 +15,12 @@
  *     through Partner Referrals and the status comes from PayPal; a new
  *     Google account signs in, onboards as a buyer with only a municipality;
  *     the admin sees the fee mode truthfully and the sandbox marker.
+ *   - (0015) a Maya-only shop offers "Buy with Maya"; the checkout is created
+ *     with Maya's PUBLIC key for the database's amount, payable to
+ *     FurnishAR's own Maya account (platform collect); the buyer returns to
+ *     /account/payment/return, where the server re-reads the payment with the
+ *     SECRET key and records it as Maya; a webhook redelivery changes
+ *     nothing; the admin sees Maya's configuration and a provider filter.
  *
  * Needs `npm run build` first. Usage: node scripts/check-billing.mjs
  */
@@ -25,6 +31,7 @@ import { chromium } from 'playwright';
 const APP_PORT = 4481;
 const SB_PORT = 4797;
 const PP_PORT = 4798;
+const MY_PORT = 4799;
 const APP = `http://127.0.0.1:${APP_PORT}`;
 const SECRET = 's'.repeat(40);
 
@@ -34,6 +41,8 @@ const CHAIR = '6f1c4e4e-0000-4000-8000-000000000001';
 const TABLE = '6f1c4e4e-0000-4000-8000-000000000009';
 const OFFLINE_STORE = '2b1c4e4e-0000-4000-8000-000000000004';
 const STOOL = '6f1c4e4e-0000-4000-8000-000000000010';
+const MAYA_STORE = '2b1c4e4e-0000-4000-8000-000000000005';
+const LAMP = '6f1c4e4e-0000-4000-8000-000000000011';
 
 const problems = [];
 // SHOTS=<dir> saves a screenshot of each screen checked, for a human to look at.
@@ -57,7 +66,8 @@ const row = (id, slug, name, store, storeName, fulfilment, price) => ({
 const catalog = [
   row(CHAIR, 'billing-check-chair', 'Billing Check Chair', STOCK_STORE, 'Stock Shop', 'stocked', 1000),
   row(TABLE, 'billing-check-table', 'Billing Check Table', CUSTOM_STORE, 'Maker Shop', 'custom', 5000),
-  row(STOOL, 'billing-check-stool', 'Billing Check Stool', OFFLINE_STORE, 'Unconnected Shop', 'stocked', 800)
+  row(STOOL, 'billing-check-stool', 'Billing Check Stool', OFFLINE_STORE, 'Unconnected Shop', 'stocked', 800),
+  row(LAMP, 'billing-check-lamp', 'Billing Check Lamp', MAYA_STORE, 'Maya Shop', 'stocked', 1000)
 ];
 const stores = [
   { id: STOCK_STORE, slug: 'stock-shop', name: 'Stock Shop', address: 'Mamburao', contact_number: '+63', hours: '8-6', plan: 'premium', fulfilment: 'stocked' },
@@ -67,7 +77,11 @@ const orders = [];
 const recorded = [];
 const paypalCreated = [];
 const delivered = [];
-const attempts = new Map();          // PayPal order id → the recorded attempt
+const attempts = new Map();          // provider order id (PayPal order / Maya checkout) → the recorded attempt
+const mayaCheckouts = [];            // what Maya was asked for, with the key it was asked with
+const mayaPayments = new Map();      // FurnishAR reference → Maya's payments for it
+const mayaReads = [];                // every payment read, with its key
+const claimedEvents = new Set();     // payment_webhook_events
 const serverCalls = [];              // every server_* call, to check the secret
 // The owner's PayPal account: starts NOT connected, then goes through onboarding.
 let ownerAccount = null;
@@ -76,12 +90,16 @@ let newbieOnboarded = false;
 const who = auth => (/tok-buyer/.test(auth || '') ? 'buyer' : /tok-owner/.test(auth || '') ? 'owner'
   : /tok-admin/.test(auth || '') ? 'admin' : /tok-newbie/.test(auth || '') ? (newbieOnboarded ? 'buyer' : 'onboarding') : 'guest');
 
-function dueFor(order) {
+function dueFor(order, provider = 'paypal') {
   const stage = { pending_payment: 'full', quoted: 'deposit', balance_due: 'balance' }[order.status] || null;
   const amount = stage === 'full' ? order.total : stage === 'deposit' ? order.deposit_amount : order.total - order.amount_paid;
+  const maya = order.store_id === MAYA_STORE;
+  if (maya !== (provider === 'maya')) return null;   // this shop does not take that method
   return { order_id: order.id, reference: order.reference, stage, amount, currency: 'PHP',
-           platform_fee: order.platform_fee, merchant_id: 'STOCKMERCHANT1', partner_fee_granted: false,
-           store_name: 'Stock Shop', product_name: order.product_name };
+           platform_fee: order.platform_fee, provider,
+           merchant_id: maya ? null : 'STOCKMERCHANT1', partner_fee_granted: false,
+           settlement_mode: maya ? 'platform_collect' : null, provider_account_ref: null, provider_profile: null,
+           store_name: maya ? 'Maya Shop' : 'Stock Shop', product_name: order.product_name };
 }
 
 const supabase = createServer((req, res) => {
@@ -125,8 +143,21 @@ const supabase = createServer((req, res) => {
     }
     if (u.startsWith('/rest/v1/rpc/server_record_payment_attempt')) {
       attempts.set(body.p_provider_order, { order_id: body.p_order, stage: body.p_stage, amount: body.p_amount, currency: 'PHP',
-        platform_fee: body.p_platform_fee, fee_mode: body.p_fee_mode, payee_merchant_id: body.p_merchant, environment: body.p_env });
+        platform_fee: body.p_platform_fee, fee_mode: body.p_fee_mode, payee_merchant_id: body.p_merchant, environment: body.p_env,
+        provider: body.p_provider || 'paypal', provider_order_id: body.p_provider_order, provider_reference: body.p_reference ?? null });
       return send(200, { ok: true });
+    }
+    if (u.startsWith('/rest/v1/rpc/server_payment_attempt_by_reference')) {
+      return send(200, [...attempts.values()].find(a => a.provider === body.p_provider && a.provider_reference === body.p_reference) || null);
+    }
+    if (u.startsWith('/rest/v1/rpc/server_claim_webhook_event')) {
+      if (claimedEvents.has(body.p_event_id)) return send(200, false);
+      claimedEvents.add(body.p_event_id);
+      return send(200, true);
+    }
+    if (u.startsWith('/rest/v1/rpc/server_finish_webhook_event')) return send(200, null);
+    if (u.startsWith('/rest/v1/rpc/store_payment_providers')) {
+      return send(200, body.p_store === OFFLINE_STORE ? [] : body.p_store === MAYA_STORE ? ['maya'] : ['paypal']);
     }
     if (u.startsWith('/rest/v1/rpc/server_payment_attempt')) return send(200, attempts.get(body.p_provider_order) || null);
     if (u.startsWith('/rest/v1/rpc/server_update_payment_attempt')) return send(200, { ok: true });
@@ -168,8 +199,9 @@ const supabase = createServer((req, res) => {
         .filter(o => !wanted || o.id === wanted);
       return send(200, mine.map(o => ({ ...o,
         stores: { name: o.store_id === STOCK_STORE ? 'Stock Shop' : 'Maker Shop', slug: 'x', address: 'Mamburao', contact_number: '0917' },
-        payments: recorded.filter(r => r.p_order === o.id && r.p_secret === SECRET)
-          .map(r => ({ stage: r.p_stage, amount: r.p_amount, capture_id: r.p_capture, captured_at: new Date().toISOString(), applied: true })) })));
+        payments: recorded.filter(r => r.p_order === o.id && r.p_secret === SECRET && !r.duplicate)
+          .map(r => ({ stage: r.p_stage, amount: r.p_amount, capture_id: r.p_capture, captured_at: new Date().toISOString(),
+                       applied: true, provider: r.p_provider || 'paypal' })) })));
     }
     if (u.startsWith('/rest/v1/rpc/update_delivery_status')) {
       const order = orders.find(o => o.id === body.p_order);
@@ -180,8 +212,10 @@ const supabase = createServer((req, res) => {
     if (u.startsWith('/rest/v1/rpc/create_stock_order')) {
       if (role !== 'buyer') return send(403, { code: '42501', message: 'Only a shopper account can place orders.' });
       const qty = body.p_quantity;
+      const lamp = body.p_product === LAMP;
       const order = { id: `0000000${orders.length + 1}-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, reference: `REF${orders.length + 1}`,
-        kind: 'stock', status: 'pending_payment', store_id: STOCK_STORE, product_id: CHAIR, product_name: 'Billing Check Chair',
+        kind: 'stock', status: 'pending_payment', store_id: lamp ? MAYA_STORE : STOCK_STORE, product_id: lamp ? LAMP : CHAIR,
+        product_name: lamp ? 'Billing Check Lamp' : 'Billing Check Chair',
         quantity: qty, subtotal: 1000 * qty, platform_fee: 100 * qty, total: 1100 * qty, amount_paid: 0,
         created_at: new Date().toISOString(), hold_expires_at: new Date(Date.now() + 1800e3).toISOString(),
         buyer_name: 'Ana Reyes', buyer_email: 'buyer@test.ph',
@@ -193,12 +227,19 @@ const supabase = createServer((req, res) => {
     }
     if (u.startsWith('/rest/v1/rpc/begin_payment')) {
       const order = orders.find(o => o.id === body.p_order);
-      return order ? send(200, dueFor(order)) : send(403, { code: '42501', message: 'That order is not yours.' });
+      if (!order) return send(403, { code: '42501', message: 'That order is not yours.' });
+      const due = dueFor(order, body.p_provider || 'paypal');
+      return due ? send(200, due) : send(400, { code: 'P0001', message: 'This shop cannot take that payment method.' });
     }
     if (u.startsWith('/rest/v1/rpc/record_capture')) {
+      if (recorded.some(r => r.p_capture === body.p_capture)) {
+        recorded.push({ ...body, duplicate: true });
+        const order = orders.find(o => o.id === body.p_order);
+        return send(200, { order_id: order.id, status: order.status, applied: true, duplicate: true });
+      }
       recorded.push(body);
       const attempt = attempts.get(body.p_provider_order);
-      if (!attempt || attempt.payee_merchant_id !== body.p_payee_merchant) {
+      if (!attempt || attempt.payee_merchant_id !== body.p_payee_merchant || attempt.provider !== (body.p_provider || 'paypal')) {
         return send(400, { code: 'P0001', message: 'The payment went to the wrong account.' });
       }
       if (body.p_secret !== SECRET) return send(403, { code: '42501', message: 'Payments are recorded by the server only.' });
@@ -207,7 +248,8 @@ const supabase = createServer((req, res) => {
       order.amount_paid = body.p_amount;
       order.delivery_status = 'preparing';
       order.estimated_arrival = new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10);
-      return send(200, { order_id: order.id, status: 'paid', applied: true, duplicate: false, platform_fee: order.platform_fee, fee_mode: 'accrual' });
+      return send(200, { order_id: order.id, status: 'paid', applied: true, duplicate: false, platform_fee: order.platform_fee,
+                         fee_mode: attempt.fee_mode, provider: attempt.provider });
     }
     if (u.startsWith('/rest/v1/rpc/order_contacts')) return send(200, { reference: 'REF', buyer_email: 'buyer@test.ph', store_emails: ['shop@test.ph'] });
     if (u.startsWith('/rest/v1/rpc/create_custom_request')) {
@@ -282,7 +324,38 @@ const paypal = createServer((req, res) => {
   });
 });
 
+/* A stand-in Maya: the checkout is paid at once and the buyer sent to the
+   success URL, as Maya does after they pay. Payments are read back by reference. */
+const basicUser = header => Buffer.from(String(header || '').replace(/^Basic /, ''), 'base64').toString().replace(/:$/, '');
+const mayaServer = createServer((req, res) => {
+  let raw = '';
+  req.on('data', chunk => { raw += chunk; });
+  req.on('end', () => {
+    const send = (status, body) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
+    const key = basicUser(req.headers.authorization);
+    if (req.url === '/checkout/v1/checkouts' && req.method === 'POST') {
+      const body = JSON.parse(raw);
+      mayaCheckouts.push({ body, key });
+      if (key !== 'pk-check-public') return send(401, { code: 'K004' });
+      const id = `MAYACHK${mayaCheckouts.length}`;
+      mayaPayments.set(body.requestReferenceNumber, [{ id: `MAYAPAY${mayaCheckouts.length}`, status: 'PAYMENT_SUCCESS', isPaid: true,
+        amount: String(body.totalAmount.value), currency: body.totalAmount.currency, requestReferenceNumber: body.requestReferenceNumber,
+        receiptNumber: 'R1', buyer: { contact: { email: 'payer@maya.test' } } }]);
+      return send(200, { checkoutId: id, redirectUrl: body.redirectUrl.success });
+    }
+    const match = req.url.match(/^\/payments\/v1\/payment-rrns\/(.+)$/);
+    if (match) {
+      mayaReads.push({ ref: decodeURIComponent(match[1]), key });
+      if (key !== 'sk-check-secret') return send(401, { code: 'K004' });
+      const list = mayaPayments.get(decodeURIComponent(match[1]));
+      return list ? send(200, list) : send(404, { code: 'PY0009' });
+    }
+    send(404, {});
+  });
+});
+
 await new Promise(resolve => supabase.listen(SB_PORT, '127.0.0.1', resolve));
+await new Promise(resolve => mayaServer.listen(MY_PORT, '127.0.0.1', resolve));
 await new Promise(resolve => paypal.listen(PP_PORT, '127.0.0.1', resolve));
 try { execSync(`fuser -k ${APP_PORT}/tcp`, { stdio: 'ignore' }); } catch {}
 const app = spawn('npx', ['next', 'start', '-p', String(APP_PORT)], {
@@ -292,7 +365,9 @@ const app = spawn('npx', ['next', 'start', '-p', String(APP_PORT)], {
     SUPABASE_URL: `http://127.0.0.1:${SB_PORT}`, SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_billingcheck0000',
     PAYPAL_CLIENT_ID: 'id', PAYPAL_CLIENT_SECRET: 'secret', PAYPAL_API_BASE: `http://127.0.0.1:${PP_PORT}`,
     PAYMENT_RECORDER_SECRET: SECRET, FURNISHAR_JWT_SECRET: 'billing-check', SITE_URL: APP,
-    PAYPAL_PARTNER_MERCHANT_ID: 'PARTNER1', PAYPAL_ENV: '', PAYPAL_FEE_MODE: '', PAYPAL_WEBHOOK_ID: ''
+    PAYPAL_PARTNER_MERCHANT_ID: 'PARTNER1', PAYPAL_ENV: '', PAYPAL_FEE_MODE: '', PAYPAL_WEBHOOK_ID: '',
+    MAYA_PUBLIC_KEY: 'pk-check-public', MAYA_SECRET_KEY: 'sk-check-secret', MAYA_API_BASE: `http://127.0.0.1:${MY_PORT}`,
+    MAYA_ENV: '', MAYA_PAYFAC_ENABLED: '', MAYA_FEE_MODE: '', MAYA_WEBHOOK_ALLOWED_IPS: ''
   }
 });
 for (let i = 0; i < 60; i++) {
@@ -327,7 +402,7 @@ try {
   const early = await page(null);
   await early.goto(`${APP}/furniture/billing-check-stool`);
   await early.locator('.purchase-panel').waitFor({ timeout: 15000 }).catch(() => {});
-  check('it says the shop is finishing its PayPal setup', /finishing its PayPal setup/.test(await early.locator('.purchase-panel').innerText().catch(() => '')));
+  check('it says the shop is finishing its payment setup', /finishing its payment setup/.test(await early.locator('.purchase-panel').innerText().catch(() => '')));
   check('and there is no Buy button', await early.getByRole('button', { name: 'Buy with PayPal' }).count() === 0);
 
   console.log('--- a guest is asked to sign in ---');
@@ -356,7 +431,7 @@ try {
   await shot(buyer, 'checkout-dialog');
   check('checkout says who is signed in', /Signed in as tok-buyer@test\.ph/.test(await checkout.innerText()));
   check('checkout carries the sandbox marker', /PayPal Sandbox/i.test(await checkout.innerText()));
-  await checkout.getByRole('button', { name: 'Pay with PayPal' }).click();
+  await checkout.getByRole('button', { name: 'Continue to PayPal' }).click();
   await buyer.waitForURL(/\/account/, { timeout: 20000 }).catch(async () => {
     console.log('  (still on', buyer.url(), '—', (await buyer.locator('[role="alert"], [role="status"]').allInnerTexts()).join(' | '), ')');
   });
@@ -383,6 +458,62 @@ try {
     /2,000\.00/.test(receiptText) && /200\.00/.test(receiptText) && /2,200\.00/.test(receiptText) && /CAPPPORDER/.test(receiptText),
     receiptText.replace(/\s+/g, ' ').slice(0, 160));
   check('the receipt says where and when', /Purok 3, Brgy\. Poblacion/.test(receiptText) && /Estimated arrival/i.test(receiptText));
+
+  console.log('--- a buyer pays a Maya-only shop through Maya (0015) ---');
+  await buyer.goto(`${APP}/furniture/billing-check-lamp`);
+  const buyMaya = buyer.getByRole('button', { name: 'Buy with Maya' });
+  await buyMaya.waitFor({ timeout: 15000 }).catch(() => {});
+  check('a Maya-only shop offers Maya, and not PayPal', await buyMaya.count() === 1
+    && await buyer.getByRole('button', { name: /PayPal/ }).count() === 0);
+  check('it says FurnishAR receives a Maya payment and pays the shop',
+    /FurnishAR receives the payment and pays Maya Shop its share/.test(await buyer.locator('.purchase-panel').innerText().catch(() => '')));
+  await buyMaya.click();
+  const mayaCheckout = buyer.locator('dialog.request-dialog[open]');
+  await mayaCheckout.getByText('Store pickup').click();
+  await mayaCheckout.locator('input[name="phone"]').fill('0917 123 4567');
+  check('the dialog names Maya and its sandbox', /Maya Sandbox/i.test(await mayaCheckout.innerText()));
+  await shot(buyer, 'checkout-maya');
+  await mayaCheckout.getByRole('button', { name: 'Continue to Maya' }).click();
+  await buyer.waitForURL(/\/account\/payment\/return/, { timeout: 20000 }).catch(() => {});
+  await buyer.locator('h1', { hasText: /Payment received|couldn|Nothing|Sign in/ }).waitFor({ timeout: 20000 }).catch(() => {});
+  const mayaCreated = mayaCheckouts.at(-1);
+  check('Maya was asked with the PUBLIC key for the database amount', mayaCreated?.key === 'pk-check-public'
+    && mayaCreated?.body?.totalAmount?.value === 1100, JSON.stringify(mayaCreated?.body?.totalAmount));
+  const mayaAttempt = [...attempts.values()].find(a => a.provider === 'maya');
+  check('the attempt pays FurnishAR\'s own Maya account, platform collect', mayaAttempt?.payee_merchant_id === 'furnishar-platform'
+    && mayaAttempt?.fee_mode === 'platform_collect' && mayaAttempt?.provider_reference === mayaCreated?.body?.requestReferenceNumber,
+    JSON.stringify(mayaAttempt));
+  check('the return was confirmed by re-reading the payment with the SECRET key',
+    mayaReads.length > 0 && mayaReads.every(r => r.key === 'sk-check-secret'));
+  const mayaRecord = recorded.filter(r => r.p_provider === 'maya' && !r.duplicate);
+  check('the payment was recorded once, as Maya, with the server secret', mayaRecord.length === 1
+    && mayaRecord[0].p_secret === SECRET && mayaRecord[0].p_capture === 'MAYAPAY1' && mayaRecord[0].p_amount === 1100,
+    JSON.stringify(mayaRecord.map(r => ({ c: r.p_capture, a: r.p_amount }))));
+  check('the return page says the payment was received', await buyer.locator('h1', { hasText: 'Payment received' }).count() === 1,
+    await buyer.locator('h1').first().innerText().catch(() => ''));
+  check('the reference is cleaned from the address', !/ref=/.test(buyer.url()), buyer.url());
+  await shot(buyer, 'payment-return-maya');
+  await buyer.getByRole('link', { name: 'View receipt' }).click();
+  await buyer.locator('.receipt').waitFor({ timeout: 15000 }).catch(() => {});
+  const mayaReceipt = await buyer.locator('.receipt').innerText().catch(() => '');
+  check('the receipt says Paid via Maya and who received it', /Paid via Maya/.test(mayaReceipt)
+    && /Maya payments are received by FurnishAR/.test(mayaReceipt), mayaReceipt.replace(/\s+/g, ' ').slice(0, 200));
+
+  const webhook = body => fetch(`${APP}/api/maya/webhook`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const reference = mayaCreated?.body?.requestReferenceNumber;
+  const hooked = await webhook({ id: 'MAYAPAY1', status: 'PAYMENT_SUCCESS', requestReferenceNumber: reference });
+  const hookedAgain = await webhook({ id: 'MAYAPAY1', status: 'PAYMENT_SUCCESS', requestReferenceNumber: reference });
+  check('Maya\'s webhook after the return changes nothing, and a redelivery is a no-op',
+    hooked.status === 200 && (await hookedAgain.json()).duplicate === true
+    && recorded.filter(r => r.p_provider === 'maya' && !r.duplicate).length === 1);
+  const forged = await webhook({ id: 'X', status: 'PAYMENT_SUCCESS', requestReferenceNumber: 'FA-NOT-OURS-1' });
+  check('a webhook for a reference FurnishAR never made is ignored', forged.status === 200
+    && recorded.filter(r => r.p_provider === 'maya' && !r.duplicate).length === 1);
+
+  await buyer.goto(`${APP}/account/payment/return?provider=maya&ref=REF9-Fdeadbeef&result=cancel`);
+  await buyer.locator('h1', { hasText: /cancelled|couldn|Nothing/ }).waitFor({ timeout: 15000 }).catch(() => {});
+  check('a cancelled Maya checkout says nothing was charged', /Payment cancelled/.test(await buyer.locator('h1').first().innerText().catch(() => ''))
+    && /Nothing was charged/.test(await buyer.locator('.payment-return').innerText().catch(() => '')));
 
   console.log('--- a buyer requests a custom build ---');
   await buyer.goto(`${APP}/furniture/billing-check-table`);
@@ -485,15 +616,24 @@ try {
   await admin.locator('tbody tr', { hasText: 'Unconnected Shop' }).waitFor({ timeout: 20000 }).catch(() => {});
   const adminText = await admin.locator('body').innerText().catch(() => '');
   check('admin billing names accrual as the mode in force', /Accrual — shops settle the fee/.test(adminText));
-  check('and never calls an accrued fee collected', /Collected by PayPal\s*₱0\.00/i.test(adminText));
+  check('and never calls an accrued fee collected', /\bCollected\s*₱0\.00/i.test(adminText));
   check('the PayPal sandbox marker is visible to the admin', /PayPal Sandbox/i.test(adminText));
   check('each shop\'s PayPal status is listed', /Not connected/i.test(adminText) && /(^|[^t] )connected/im.test(adminText));
+  check('Maya\'s configuration is stated: FurnishAR collects, sandbox, no PayFac claimed',
+    /Configured · FurnishAR collects/i.test(adminText) && /Maya Sandbox/i.test(adminText) && /Payment Facilitator is not enabled/.test(adminText),
+    adminText.match(/Maya[^\n]*\n[^\n]*\n[^\n]*/)?.[0]?.replace(/\s+/g, ' '));
+  check('the table can be filtered by payment method', await admin.locator('.mode-switch button').count() === 3);
+  await admin.getByRole('button', { name: 'Maya', exact: true }).click();
+  check('filtering to Maya shows no PayPal-only shop', await admin.locator('tbody tr', { hasText: 'Stock Shop' }).count() === 0);
+  check('an admin can open Maya setup for a store', await admin.getByRole('button', { name: 'All Stores' }).click().then(
+    () => admin.getByRole('button', { name: /Maya setup for Stock Shop/ }).count()) === 1);
   await shot(admin, 'admin-billing');
 } finally {
   await browser.close();
   try { process.kill(-app.pid); } catch {}
   supabase.close();
   paypal.close();
+  mayaServer.close();
 }
 
 console.log(problems.length ? `\n${problems.length} problem(s)` : '\nall billing checks passed');
