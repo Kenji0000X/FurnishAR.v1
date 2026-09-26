@@ -514,7 +514,7 @@ Where this DFD and the code disagreed, and which one moved.
 - REASON: requested. **Code, DFD and drawio changed together** (migration 0013, `lib/model-notices.js`, `/api/cron/model-notices`, `app/PlaceholderCard.js`, `app/model-state.js`; drawio: 8.3 on the lifecycle page).
 
 **12. Database state**
-- Migrations 0005 (bucket limit), 0006 (buyers, `my_role`) and 0007 (private `furniture-models` bucket, `can_view_model` policy) are applied to the live project. 0012 (public `product-posters` bucket, `last_accessed_at`, lifecycle functions and cleanup policies) is applied too (2026-09-25); the models bucket stays private. 0013 (owner notice: `expiry_notice_at`, `model_notice_due`, the notice-aware `model_cleanup_eligible`, `server_models_due_notice`, `server_mark_model_notice`, `store_model_lifecycle`, `keep_model`) is in the repository and must be applied to the live project with the deployment. 0008 takes trigger functions off the RPC surface and stops anonymous calls to `can_view_model`.
+- Migrations 0005 (bucket limit), 0006 (buyers, `my_role`) and 0007 (private `furniture-models` bucket, `can_view_model` policy) are applied to the live project. 0012 (public `product-posters` bucket, `last_accessed_at`, lifecycle functions and cleanup policies) is applied too (2026-09-25); the models bucket stays private. 0013 (owner notice: `expiry_notice_at`, `model_notice_due`, the notice-aware `model_cleanup_eligible`, `server_models_due_notice`, `server_mark_model_notice`, `store_model_lifecycle`, `keep_model`) is applied to the live project too (2026-09-26). 0008 takes trigger functions off the RPC surface and stops anonymous calls to `can_view_model`.
 
 ## DFD artifact
 
