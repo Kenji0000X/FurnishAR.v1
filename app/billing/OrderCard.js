@@ -48,6 +48,35 @@ function requestSummary(request) {
   ].filter(Boolean).join(' · ');
 }
 
+const PROVIDER = { paypal: 'PayPal', paymongo: 'GCash via PayMongo' };
+
+/**
+ * What the shop was paid, per recorded payment, from the database's own
+ * rows: what the buyer paid, the furniture money (the shop's) and FurnishAR's
+ * fee — which the shop never keeps. "Collected by PayPal" only when PayPal
+ * reported taking it; otherwise it is owed to FurnishAR.
+ */
+function StorePayments({ order }) {
+  const paid = (order.payments || []).filter(p => p.applied);
+  if (!paid.length) return null;
+  const buyerPaid = paid.reduce((sum, p) => sum + Number(p.amount), 0);
+  const fees = paid.reduce((sum, p) => sum + Number(p.platform_fee), 0);
+  const providers = [...new Set(paid.map(p => PROVIDER[p.provider] || 'PayPal'))].join(', ');
+  const collected = paid.every(p => p.fee_mode === 'platform_split'
+    && p.platform_fee_collected != null && Number(p.platform_fee_collected) === Number(p.platform_fee));
+  const paypalOnly = paid.every(p => (p.provider || 'paypal') === 'paypal');
+  return (
+    <dl className="order-payments">
+      <div><dt>Payment</dt><dd>{Number(order.amount_paid) >= Number(order.total) ? 'Paid' : 'Partly paid'}</dd></div>
+      <div><dt>Provider</dt><dd>{providers}</dd></div>
+      <div><dt>Buyer paid</dt><dd>{money(buyerPaid)}</dd></div>
+      <div><dt>Furniture subtotal</dt><dd>{money(order.subtotal)}</dd></div>
+      <div><dt>FurnishAR service fee</dt><dd>{money(fees)}{paypalOnly
+        ? (collected ? ' · collected by PayPal' : ' · owed to FurnishAR') : ''}</dd></div>
+    </dl>
+  );
+}
+
 export default function OrderCard({ order, perspective, children }) {
   let [label, tone] = LABELS[order.status] || [order.status, 'wait'];
   // Once paid, what the buyer wants to know is where the furniture is.
@@ -88,6 +117,7 @@ export default function OrderCard({ order, perspective, children }) {
           {due != null && Number(due) > 0 && <> · <b>due now {money(due)}</b></>}
         </p>
       )}
+      {perspective === 'store' && <StorePayments order={order} />}
       {order.lead_time_days && <p className="order-meta">Lead time: about {order.lead_time_days} days{order.quote_note ? ` · “${order.quote_note}”` : ''}</p>}
       {order.decline_reason && <p className="order-meta">Shop said: {order.decline_reason}</p>}
       {order.fulfilment_method && (

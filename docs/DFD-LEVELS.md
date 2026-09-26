@@ -264,3 +264,11 @@ Balances with Level 1:
 
 On Level 0, PayMongo · GCash is its own external entity, because its money goes to FurnishAR's own PayMongo account rather than to the shop.
 
+## Added with migration 0017 (2026-09-26)
+
+**Level 2 — 10.0 Orders & Payments.** D5.2 is now "Payments, Fees · Notifications":
+- each payment row carries `store_portion` (the furniture money) and `fee_status` (collected only when PayPal reported the fee; accrued otherwise; refunded when it was returned);
+- `payment_notifications` holds one buyer, one store and one superadmin "payment received" email per verified PayPal payment, written by the database in the same transaction as the payment.
+
+10.4 records the payment (idempotent on the capture id, whichever of the buyer's return and PayPal's webhook comes first). 10.6 claims the due notifications from D5.2 once, sends them through the Email Service and writes back sent / failed; a failed one is retried later and never touches the payment. Balances with Level 1: no new flow; 10.0 → Email already exists.
+

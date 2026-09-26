@@ -41,15 +41,19 @@ export default function AdminBilling() {
   const [gcashFor, setGcashFor] = useState(null);     // the row whose GCash setup is open
   const [paying, setPaying] = useState(null);         // the row being paid out (GCash, platform settlement)
   const [refundsFor, setRefundsFor] = useState(null); // { row, payments } for GCash refunds
+  const [paypalPayments, setPaypalPayments] = useState(null); // null = loading, false = unavailable
 
   const load = useCallback(async () => {
     const sb = supabase();
-    const [overview, cfg] = await Promise.all([
+    const [overview, cfg, recent] = await Promise.all([
       sb.feeOverview().catch(error => { alert.showError(error.message); return []; }),
-      sb.adminPaymentsConfig().catch(() => false)
+      sb.adminPaymentsConfig().catch(() => false),
+      // store_portion / fee_status arrive with 0017; before it, the table says so.
+      sb.recentPaypalPayments().catch(() => false)
     ]);
     setRows(overview);
     setConfig(cfg);
+    setPaypalPayments(recent);
   }, [alert]);
 
   useEffect(() => { load(); }, [load]);
@@ -364,6 +368,8 @@ export default function AdminBilling() {
         }}
       />
 
+      <PaypalPayments payments={paypalPayments} />
+
       {unlinking && (
         <ConfirmDialog
           title={`Disconnect ${unlinking.store_name} from PayPal?`}
@@ -451,5 +457,48 @@ function RefundForm({ row, payments, busy, onSubmit, onCancel }) {
         <button className="button" type="button" onClick={onCancel}>Cancel</button>
       </div>
     </form>
+  );
+}
+
+const FEE_MODE = { platform_split: 'PayPal platform split', accrual: 'Accrual' };
+const FEE_STATUS = { collected: 'Collected', accrued: 'Accrued', refunded: 'Refunded', none: '—' };
+
+/**
+ * Every PayPal payment with its split, as the database recorded it (0017):
+ * what the buyer paid, the shop's portion, FurnishAR's fee, the fee mode and
+ * the fee's real status. "Collected" only when PayPal reported taking the fee;
+ * an accrued fee is owed by the shop and is never shown as received.
+ */
+function PaypalPayments({ payments }) {
+  return (
+    <section className="paypal-payments" aria-labelledby="paypal-payments-title">
+      <h2 id="paypal-payments-title">PayPal payments</h2>
+      <PagedTable
+        rows={payments || []}
+        colSpan={8}
+        param="paypal"
+        empty={payments === null ? 'Loading…'
+          : payments === false ? 'Payment details need migration 0017.' : 'No PayPal payments yet.'}
+        head={<tr>
+          <th scope="col">Order</th><th scope="col">Store</th>
+          <th scope="col" className="num">Gross Buyer Payment</th><th scope="col" className="num">Store Portion</th>
+          <th scope="col" className="num">FurnishAR Fee</th><th scope="col">Fee Mode</th><th scope="col">Fee Status</th>
+          <th scope="col">Captured</th>
+        </tr>}
+        renderRow={p => (
+          <tr key={p.capture_id}>
+            <td translate="no">{p.orders?.reference || '—'}<br /><small>{p.stage}{p.applied ? '' : ' · not applied'}</small></td>
+            <td translate="no">{p.stores?.name || '—'}</td>
+            <td className="num">{money(p.amount)}</td>
+            <td className="num">{money(p.store_portion)}</td>
+            <td className="num">{money(p.platform_fee)}</td>
+            <td>{FEE_MODE[p.fee_mode] || p.fee_mode}</td>
+            <td><span className={`status-chip ${p.fee_status === 'collected' ? 'is-success' : ''}`}>{FEE_STATUS[p.fee_status] || p.fee_status}</span>
+              {p.processing_fee != null && <><br /><small>PayPal fee {money(p.processing_fee)} (shop's)</small></>}</td>
+            <td>{p.captured_at ? new Date(p.captured_at).toLocaleDateString('en-PH', { dateStyle: 'medium' }) : '—'}</td>
+          </tr>
+        )}
+      />
+    </section>
   );
 }

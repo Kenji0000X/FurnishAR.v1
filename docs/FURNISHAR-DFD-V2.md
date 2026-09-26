@@ -346,12 +346,14 @@ flowchart LR
     AP[Buyer approves on PayPal]
     R[/account?paypal=return/]
     CAP[POST /api/sb/orders/capture]
-    V{PayPal order matches\nbegin_payment?}
+    V{PayPal order matches\nbegin_payment and the attempt?}
     K[PayPal capture]
-    RC[(record_capture\nserver secret + merchant check\nfee mode as PayPal reported)]
+    RC[(record_capture\nserver secret + merchant check\nfee mode as PayPal reported\nstore_portion · fee_status)]
+    Q[(payment_notifications\nbuyer · store · admin\nqueued with the payment)]
     AT[(payment_attempts\nwhat was asked of PayPal)]
     WH[POST /api/paypal/webhook\nverified, once per event]
-    N[Alert + emails]
+    N[Alert, no payment email]
+    E[Gmail: payment received\nbuyer · store · superadmin\nclaimed once, retried on failure]
 
     U --> PG --> A
     A -->|guest / store account| L
@@ -359,9 +361,34 @@ flowchart LR
     PPc --> AT
     AT --> V
     V -->|no| N
-    V -->|yes| K --> RC --> N
-    K -.->|pending| WH --> RC
+    V -->|yes| K --> RC --> Q --> E
+    K -.->|pending, or before the buyer returns| WH --> RC
 ```
+
+**The split of every PayPal payment (0017).** For a ₱10,000 piece the buyer
+pays ₱11,000: the fee is 10% of the **subtotal**, never of the total. The
+payment row records `amount` 11,000, `platform_fee` 1,000 and
+`store_portion` 10,000, and `fee_status`:
+
+| fee_status | Means | When |
+|---|---|---|
+| collected | PayPal took the fee for FurnishAR at capture | `platform_split` and PayPal's capture breakdown reported exactly the fee (paid to FurnishAR's partner account) |
+| accrued | the shop's PayPal account received it; the shop owes it | accrual, or a split PayPal did not report |
+| refunded | the fee went back to the buyer | only when PayPal reported returning it (a split) or the shop refunded an accrued payment |
+
+PayPal's own processing fee is recorded apart (`processing_fee`); it never
+changes the 10%.
+
+**"Payment received" emails (0017).** A trigger writes one row per audience
+(buyer, store, superadmin) into `payment_notifications` in the same
+transaction as the payment. The capture path and the webhook path — in
+either order, repeated or redelivered — both end at the same payment
+(`record_capture` is idempotent on the capture id) and then claim due rows
+atomically (`FOR UPDATE SKIP LOCKED`), so each email is sent once. A failed
+email stays in the queue and is retried by the next touch of that payment
+or by the daily `/api/cron/payment-reminders` run; it never undoes the
+payment. Declined, pending, mismatched or wrong-currency payments queue no
+"payment received" email.
 
 Custom builds follow the same capture path in stages: `requested → quoted →
 deposit (50%) → deposit_paid → ready → balance → paid → fulfilled`. The 10%
@@ -618,8 +645,14 @@ Where this DFD and the code disagreed, and which one moved.
 - RECOMMENDED ARCHITECTURE: one P10 with a provider boundary (`lib/providers`). PayMongo is a second external entity; GCash is its payment method (no GCash key). Its Checkout Session pays the owner of the keys (FurnishAR), so the money flow is recorded truthfully: fee held (`platform_held`), shop's share owed and paid out (`store_remittances`, D5), processing fee per payment. Split Payments (`provider_split`, fee expected) only when activated. 10.14–10.17 are drawn on the Level 2 page. Setup is admin-only. Webhooks are HMAC-signed and processed once, and still only a prompt to re-read. Refunds are admin-only through PayMongo's API.
 - REASON: requested. **DFD and code changed together** (migration 0016, `lib/money.js`, `lib/paymongo.js`, `lib/providers/paymongo.js`, `lib/paymongo-webhook.js`, `/account/payment/return`, `/api/paymongo/webhook`; drawio: PayMongo · GCash on Level 0, "PayPal / PayMongo (GCash)" on Level 1 and Level 2 10.0, page "Level 2 — 10.14–10.17 GCash via PayMongo: Checkout, Webhook, Payouts & Refunds").
 
+**18. PayPal: provable split and exactly-once payment emails (added 2026-09-26)**
+- DFD ISSUE: the payment emails were sent by whichever path recorded the payment, with no record of whether they went out; a mail outage lost them, and the admin email said "Platform fee collected" / "accrued" without the shop's portion. A PayPal refund without a platform-fee figure was split proportionally, which could show a fee PayPal kept as returned.
+- CURRENT CODE BEHAVIOR (before): `record_capture` returned `duplicate` and the non-duplicate path sent emails once, best-effort.
+- RECOMMENDED ARCHITECTURE: D5.2 gains `payment_notifications` (queued by a trigger with the payment, claimed once, retried) and per-payment `store_portion` / `fee_status`. 10.4 records the payment (with PayPal's processing fee), 10.6 claims and sends the buyer, store and superadmin emails through the existing Gmail sender. An already-captured PayPal order must still match the attempt before it is recorded. A split fee is counted as refunded only when PayPal says so.
+- REASON: requested. **DFD and code changed together** (migration 0017, `lib/payment-notifications.js`, `lib/orders.js`, `lib/payments.js`, `lib/paypal.js`, `lib/notify.js`, store and admin billing views; drawio: D5.2 "Payments, Fees · Notifications" ↔ 10.6 on "Level 2 — 10.0 Orders & Payments"). No new endpoint: the retry runs in the existing payment-reminders cron.
+
 **12. Database state**
-- Migrations 0005 (bucket limit), 0006 (buyers, `my_role`) and 0007 (private `furniture-models` bucket, `can_view_model` policy) are applied to the live project. 0012 (public `product-posters` bucket, `last_accessed_at`, lifecycle functions and cleanup policies) is applied too (2026-09-25); the models bucket stays private. 0013 (owner notice: `expiry_notice_at`, `model_notice_due`, the notice-aware `model_cleanup_eligible`, `server_models_due_notice`, `server_mark_model_notice`, `store_model_lifecycle`, `keep_model`) is applied to the live project too (2026-09-26). 0008 takes trigger functions off the RPC surface and stops anonymous calls to `can_view_model`. 0014 (`model_uploaded_at` in the catalogue view) and 0015 (payment providers) are applied to the live project too (2026-09-26, in that order). 0016 (PayMongo / GCash) is not applied to the live project yet. 0011's objects were already live, although the project's migration history has no 0011 entry.
+- Migrations 0005 (bucket limit), 0006 (buyers, `my_role`) and 0007 (private `furniture-models` bucket, `can_view_model` policy) are applied to the live project. 0012 (public `product-posters` bucket, `last_accessed_at`, lifecycle functions and cleanup policies) is applied too (2026-09-25); the models bucket stays private. 0013 (owner notice: `expiry_notice_at`, `model_notice_due`, the notice-aware `model_cleanup_eligible`, `server_models_due_notice`, `server_mark_model_notice`, `store_model_lifecycle`, `keep_model`) is applied to the live project too (2026-09-26). 0008 takes trigger functions off the RPC surface and stops anonymous calls to `can_view_model`. 0014 (`model_uploaded_at` in the catalogue view) and 0015 (payment providers) are applied to the live project too (2026-09-26, in that order). 0016 (PayMongo / GCash) and 0017 (PayPal split columns and payment-email queue) are not applied to the live project yet; 0017 needs 0016. 0011's objects were already live, although the project's migration history has no 0011 entry.
 
 ## DFD artifact
 

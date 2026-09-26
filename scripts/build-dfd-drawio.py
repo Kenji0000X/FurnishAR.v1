@@ -852,7 +852,7 @@ def level2_orders():
     store(p, 'D2', 'D2', 'Products (price, stock)', 760, 150, 300, 44)
     store(p, 'D53c', 'D5.4', 'Payment Accounts (copy)', 760, 230, 300, 44)
     store(p, 'D51', 'D5.1', 'Orders', 760, 300, 300, 420)
-    store(p, 'D52', 'D5.2', 'Payments &amp; Fees', 300, 800, 230, 44)
+    store(p, 'D52', 'D5.2', 'Payments, Fees · Notifications', 290, 800, 250, 44)
     store(p, 'D52c', 'D5.2', 'Payments &amp; Fees (copy)', 1170, 790, 230, 44)
     store(p, 'D53', 'D5.3', 'Store Payout', 1170, 850, 230, 44)
 
@@ -901,6 +901,9 @@ def level2_orders():
            points=[(1130, 567.6), (1130, 912.8)], label_pos=-0.52)
     p.edge('D51', 'P106', 'order contacts', O, exit=(0.5, 1), entry=(0.5, 0))
     p.edge('P106', 'EM', 'receipt / update emails', O, exit=(1, 0.5), entry=(0, 0.34375))
+    # 0017: PayPal's "payment received" emails are queued with the payment and claimed once.
+    p.edge('D52', 'P106', 'payment emails due (claimed once) / sent · failed, retried', O + DIALOG,
+           exit=(0.8, 1), entry=(0, 0.8), points=[(500, 951.2)], label_pos=-0.2)
     return p
 
 
